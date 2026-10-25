@@ -168,6 +168,9 @@ namespace Genesis.Runtime.Project
         /// <summary>The game's window, for window management (Engine.Display.Window); null where there is none.</summary>
         public SilkGameWindow Window => _window;
 
+        /// <summary>The renderer drawing this game (its name and last frame's counts for Engine.Rendering), or null.</summary>
+        public IRenderController Renderer => _renderer;
+
         // The game's own choice (its settings menu) outranks the rooms' authored defaults from here on.
         public void SetVSync(bool enabled)
         {

@@ -306,10 +306,46 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
         }
     }
 
+    /// <summary>
+    /// What a script changed about a tile layer while the room runs (Engine.Tile.Layer.*): shown or
+    /// hidden, see-through, moved (a parallax background scrolled by the game), by the layer's name.
+    /// </summary>
+    public sealed class TileLayerLook
+    {
+        public bool Visible = true;
+        public float Alpha = 1f;
+        public float OffsetX, OffsetY;
+    }
+
+    private readonly Dictionary<string, TileLayerLook> _tileLayerLooks = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The tile layer of this name in the room, or false when it has none.</summary>
+    public bool HasTileLayer(string name)
+    {
+        foreach (RoomNode node in _room.Nodes)
+            if (node.Kind == RoomNodeKind.TileLayer && string.Equals(node.Name, name, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    /// <summary>A tile layer's look, made the first time a script changes it.</summary>
+    public TileLayerLook LookOfTileLayer(string name)
+    {
+        if (!_tileLayerLooks.TryGetValue(name ?? "", out TileLayerLook look)) _tileLayerLooks[name ?? ""] = look = new TileLayerLook();
+        return look;
+    }
+
+    /// <summary>A tile layer's look as it is now, without making one.</summary>
+    public TileLayerLook PeekTileLayer(string name) => _tileLayerLooks.TryGetValue(name ?? "", out TileLayerLook look) ? look : null;
+
     private void DrawTiles2D(IRenderController renderer, IRenderCommandSink commands, float offsetX, float offsetY, float zoom)
     {
         foreach (RoomNode node in Active(RoomNodeKind.TileLayer))
         {
+            // As a script left it: hidden, see-through or moved.
+            TileLayerLook look = _tileLayerLooks.Count == 0 ? null : PeekTileLayer(node.Name);
+            if (look is { Visible: false } || look is { Alpha: <= 0f }) continue;
+            float layerAlpha = look?.Alpha ?? 1f;
+            float layerX = (look?.OffsetX ?? 0f) * zoom, layerY = (look?.OffsetY ?? 0f) * zoom;
             RoomTransform nodeWorld = RoomHierarchyTransforms.World(_room, node); RoomTileLayerData layer = node.TileLayer; if (!Texture(renderer, layer.Tileset, out TextureHandle tex, out int iw, out int ih)) continue;
             Matrix4x4 matrix = RoomHierarchyTransforms.Matrix(nodeWorld);
             foreach (RoomTileCell cell in layer.Cells)
@@ -319,7 +355,7 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
                 Vector3 position = Vector3.Transform(new Vector3(
                     (cell.X + .5f) * layer.CellWidth + cell.OffsetX,
                     (cell.Y + .5f) * layer.CellHeight + cell.OffsetY, 0), matrix);
-                float px = offsetX + position.X * zoom, py = offsetY + position.Y * zoom;
+                float px = offsetX + position.X * zoom + layerX, py = offsetY + position.Y * zoom + layerY;
                 float signedWidth = layer.CellWidth * zoom * nodeWorld.ScaleX * cellScaleX;
                 float signedHeight = layer.CellHeight * zoom * nodeWorld.ScaleY * cellScaleY;
                 float radius = MathF.Sqrt(signedWidth * signedWidth + signedHeight * signedHeight) * .5f;
@@ -333,7 +369,7 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
                     Width = width, Height = height, OriginX = width * .5f, OriginY = height * .5f,
                     ScaleX = 1, ScaleY = 1,
                     Rotation = nodeWorld.RotationZ + cell.Rotation,
-                    Alpha = 1, Tint = RenderColor.White, Depth = LayerDepth(node) + layer.Depth,
+                    Alpha = layerAlpha, Tint = RenderColor.White, Depth = LayerDepth(node) + layer.Depth,
                     UvRect = new Vector4(u0, v0, Math.Min(1, u0 + layer.CellWidth / (float)iw), Math.Min(1, v0 + layer.CellHeight / (float)ih)),
                 };
                 RemapAtlas(layer.Tileset, ref call);

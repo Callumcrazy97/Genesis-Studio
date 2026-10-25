@@ -105,6 +105,19 @@ for how much is heard. Each room starts outdoors; a room (or its terrain) choose
 the Engine setting in its Inspector. `Engine.Audio.MusicMuffle` (0 clear to 1 heard through a wall)
 muffles the music, for a pause menu, underwater or a dream. Music is never echoed.
 
+## Tile layers by name, how far instances update, and what a frame cost (25 October 2026)
+
+| Value | What it does |
+|---|---|
+| `Engine.Tile.Layer.SetVisible("Layer", visible)`, `Visible("Layer")` | Shows or hides one of a 2D room's tile layers by its name: a secret wall, a lit and an unlit room |
+| `Engine.Tile.Layer.SetAlpha("Layer", alpha)`, `Alpha("Layer")` | Makes it see-through, 0 to 1: a roof fading as the player walks under it |
+| `Engine.Tile.Layer.SetOffset("Layer", x, y)`, `OffsetX/OffsetY("Layer")` | Draws it moved by pixels: a background scrolled slower than the view for parallax (what is solid stays where it was painted) |
+| `Engine.Instance.Update.Distance` | Instances farther than this from the camera skip their Step events (the room's simulation distance unless set; 0 updates all) |
+| `Engine.Rendering.Backend`, `DrawCalls`, `Triangles`, `GpuMs`, `Instances.Drawn`, `Instances.Culled` | What the last frame drew and cost (read), for a game's own performance display or to choose its own quality |
+
+Each command for a layer the room does not have returns false (or 0). Checked by
+`Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts`.
+
 ## Render scale and dynamic resolution (25 October 2026)
 
 A 3D game can draw its scene with fewer pixels than the window has and stretch it to the window,

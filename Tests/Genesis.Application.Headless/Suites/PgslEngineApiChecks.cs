@@ -136,6 +136,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.ThreadsShareCullingAndDrawTheSame", () => SharedCulling(row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiPartsDefaultsAndValues", () => Parts(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWeatherPartsHoldAndRelease", () => WeatherParts(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts", () => TilesAndUpdate(project, row));
     }
 
     // Engine.Area.Part.Value in a running room: each value reads its default until set, keeps what a
@@ -246,6 +247,58 @@ internal static class PgslEngineApiChecks
             Genesis.Runtime.Modeling.ModelLodView.Quality = 1f;
             PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.ProjectPath = previousPath;
+            PgslCommands.BindContext(previousContext);
+        }
+    }
+
+    // A 2D room's tile layers by name, how far instances update, and what the last frame cost.
+    private const string TilesScript = """
+        backVisible = Engine.Tile.Layer.Visible("Back");
+        Engine.Tile.Layer.SetVisible("Back", false);
+        hidden = Engine.Tile.Layer.Visible("Back");
+        missing = Engine.Tile.Layer.SetAlpha("Nope", 0.5);
+        Engine.Tile.Layer.SetAlpha("Back", 2);
+        alpha = Engine.Tile.Layer.Alpha("Back");
+        Engine.Tile.Layer.SetOffset("Back", 12, -4);
+        ox = Engine.Tile.Layer.OffsetX("Back");
+        oy = Engine.Tile.Layer.OffsetY("Back");
+        Engine.Instance.Update.Distance = 250;
+        updateDistance = Engine.Instance.Update.Distance;
+        drawCalls = Engine.Rendering.DrawCalls;
+        backendLength = StringLength(Engine.Rendering.Backend);
+        """;
+
+    private static void TilesAndUpdate(ProjectSession project, Action<string, string, string, string> row)
+    {
+        RoomAsset room = RoomAsset.Create("TilesRoom", RoomDimension.TwoD);
+        room.Nodes.Add(new RoomNode { Name = "Back", Kind = RoomNodeKind.TileLayer, LayerId = room.Layers[0].Id, TileLayer = new RoomTileLayerData() });
+        using var scene = new RuntimeScene("Tile layers");
+        scene.AddSubsystem(new Genesis.Runtime.Rendering.RoomRenderSubsystem(project.RootPath, room));
+        var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
+        PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+        var previousGame = PgslCommands.ActiveGameContext;
+        PgslCommands.ActiveGameContext = game;
+        try
+        {
+            VMEngine.Initialize();
+            var host = new ScriptHostSystem();
+            host.SetContext(game);
+            Entity entity = scene.World.CreateEntity();
+            scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = TilesScript })) host.Attach(scene.World, entity, "TilesProbe");
+            var vars = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
+            double Number(string name) => vars.TryGetValue(name, out object? value) && value is not (string or null) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+            string diagnostics = string.Join("; ", host.RecentDiagnostics.Select(d => d.Message));
+            bool pass = Number("backVisible") == 1 && Number("hidden") == 0 && Number("missing") == 0 && Number("alpha") == 1
+                && Number("ox") == 12 && Number("oy") == -4 && Number("updateDistance") == 250 && scene.Environment.SimulationDistance == 250
+                && Number("drawCalls") == 0 && Number("backendLength") == 0;
+            string detail = $"visible {Number("backVisible")} then {Number("hidden")}, missing layer {Number("missing")}, alpha {Number("alpha")} (1), offset {Number("ox")},{Number("oy")} (12,-4), update distance {Number("updateDistance")} (250), draw calls {Number("drawCalls")} and backend length {Number("backendLength")} with no renderer (0, 0)";
+            row("Engine API parts", "tile layers, update distance and frame costs", pass ? "PASS" : "FAIL", detail);
+            HeadlessHarness.Assert(pass, $"{detail} {diagnostics}");
+        }
+        finally
+        {
+            PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.BindContext(previousContext);
         }
     }

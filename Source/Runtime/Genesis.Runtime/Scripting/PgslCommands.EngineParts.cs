@@ -298,6 +298,88 @@ public static partial class PgslCommands
     [PgslCommand("AnimationBySize", "Engine.Rendering.Detail.AnimationBySize = true", "Figures small on screen are posed less often (true unless set)", "Rendering", Namespace = "Engine.Rendering.Detail", Flat = false)]
     public static bool RenderingDetailAnimationBySize { get => Modeling.ModelLodView.AnimationRateBySize; set => Modeling.ModelLodView.AnimationRateBySize = value; }
 
+    // ── Engine.Rendering: what the last frame cost, for a game's own performance display or quality choice ──
+
+    private static Genesis.Shared.Interfaces.IRenderController? GameRenderer => (ActiveGameContext as ProjectGameContext)?.Renderer;
+
+    private static Genesis.Shared.Interfaces.RenderStats LastFrame()
+    {
+        try { return GameRenderer?.GetStats() ?? default; }
+        catch (InvalidOperationException) { return default; }
+    }
+
+    [PgslCommand("Backend", "Engine.Rendering.Backend", "The graphics the game draws with: \"Direct3D 11\", \"Direct3D 12\", \"Vulkan\", \"OpenGL\" or \"Software\" (read)", "Rendering", Namespace = "Engine.Rendering", Flat = false)]
+    public static string RenderingBackend => GameRenderer?.BackendName ?? "";
+
+    [PgslCommand("DrawCalls", "Engine.Rendering.DrawCalls", "Draw calls the last frame made, 2D and 3D (read)", "Rendering", Namespace = "Engine.Rendering", Flat = false)]
+    public static double RenderingDrawCalls => LastFrame().DrawCalls;
+
+    [PgslCommand("Triangles", "Engine.Rendering.Triangles", "Triangles the last frame drew (read)", "Rendering", Namespace = "Engine.Rendering", Flat = false)]
+    public static double RenderingTriangles => LastFrame().Triangles;
+
+    [PgslCommand("GpuMs", "Engine.Rendering.GpuMs", "Milliseconds the graphics card spent on the last 3D scene it has finished (read; 0 where the renderer cannot tell)", "Rendering", Namespace = "Engine.Rendering", Flat = false)]
+    public static double RenderingGpuMs => LastFrame().GpuMs;
+
+    [PgslCommand("Drawn", "Engine.Rendering.Instances.Drawn", "Instances the last frame drew (read)", "Rendering", Namespace = "Engine.Rendering.Instances", Flat = false)]
+    public static double RenderingInstancesDrawn => LastFrame().InstancesDrawn;
+
+    [PgslCommand("Culled", "Engine.Rendering.Instances.Culled", "Instances the last frame left out as unseen (read)", "Rendering", Namespace = "Engine.Rendering.Instances", Flat = false)]
+    public static double RenderingInstancesCulled => LastFrame().InstancesCulled;
+
+    // ── Engine.Tile.Layer: a 2D room's tile layers by name, as the game runs ─────────────
+
+    private static Rendering.RoomRenderSubsystem.TileLayerLook? TileLayerLook(string layer, bool make)
+    {
+        if (string.IsNullOrWhiteSpace(layer) || ViewRenderer() is not { } renderer || !renderer.HasTileLayer(layer)) return null;
+        return make ? renderer.LookOfTileLayer(layer.Trim()) : renderer.PeekTileLayer(layer.Trim()) ?? new Rendering.RoomRenderSubsystem.TileLayerLook();
+    }
+
+    [PgslCommand("Visible", "Engine.Tile.Layer.Visible(\"Layer\") -> bool", "Whether the room's tile layer of this name is drawn (true unless set; false for a name the room has no layer of)", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
+    public static bool TileLayerVisible(string layer) => TileLayerLook(layer, make: false)?.Visible ?? false;
+
+    [PgslCommand("SetVisible", "Engine.Tile.Layer.SetVisible(\"Layer\", visible) -> bool", "Shows or hides a tile layer of the room (a secret wall, a lit and an unlit version of a room); false for a name the room has no layer of", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
+    public static bool TileLayerSetVisible(string layer, bool visible)
+    {
+        if (TileLayerLook(layer, make: true) is not { } look) return false;
+        look.Visible = visible;
+        return true;
+    }
+
+    [PgslCommand("Alpha", "Engine.Tile.Layer.Alpha(\"Layer\") -> number", "How opaque the tile layer is, 0 to 1 (1 unless set)", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
+    public static double TileLayerAlpha(string layer) => TileLayerLook(layer, make: false)?.Alpha ?? 0;
+
+    [PgslCommand("SetAlpha", "Engine.Tile.Layer.SetAlpha(\"Layer\", alpha) -> bool", "Makes a tile layer see-through, 0 to 1 (a roof fading as the player walks under it); false for a name the room has no layer of", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
+    public static bool TileLayerSetAlpha(string layer, double alpha)
+    {
+        if (TileLayerLook(layer, make: true) is not { } look) return false;
+        look.Alpha = Finite(alpha, 0, 1, 1f);
+        return true;
+    }
+
+    [PgslCommand("OffsetX", "Engine.Tile.Layer.OffsetX(\"Layer\") -> number", "How far the tile layer is drawn moved across, in pixels (0 unless set)", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
+    public static double TileLayerOffsetX(string layer) => TileLayerLook(layer, make: false)?.OffsetX ?? 0;
+
+    [PgslCommand("OffsetY", "Engine.Tile.Layer.OffsetY(\"Layer\") -> number", "How far the tile layer is drawn moved down, in pixels (0 unless set)", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
+    public static double TileLayerOffsetY(string layer) => TileLayerLook(layer, make: false)?.OffsetY ?? 0;
+
+    [PgslCommand("SetOffset", "Engine.Tile.Layer.SetOffset(\"Layer\", x, y) -> bool", "Draws a tile layer moved by x and y pixels (a background scrolled slower than the view for parallax); what is solid stays where it was painted; false for a name the room has no layer of", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
+    public static bool TileLayerSetOffset(string layer, double x, double y)
+    {
+        if (TileLayerLook(layer, make: true) is not { } look || !double.IsFinite(x) || !double.IsFinite(y)) return false;
+        look.OffsetX = (float)x;
+        look.OffsetY = (float)y;
+        return true;
+    }
+
+    // ── Engine.Instance.Update: how far from the camera instances still take their Step ──
+
+    [PgslCommand("Distance", "Engine.Instance.Update.Distance = metres", "Instances farther than this from the camera skip their Step events until it comes near, 0 to 100000 metres; 0 updates every instance however far (the room's simulation distance unless set)", "Instances", Namespace = "Engine.Instance.Update", Flat = false)]
+    public static double InstanceUpdateDistance
+    {
+        get => RoomLook?.SimulationDistance ?? 0;
+        set { if (RoomLook is { } look) look.SimulationDistance = Finite(value, 0, 100000, 0f); }
+    }
+
     // ── Engine.Lighting's Sun, Ambient, Toon and Glow ────────────────────────────────────
 
     [PgslCommand("Intensity", "Engine.Lighting.Sun.Intensity = amount", "How bright the sunlight is, 0 to 20 (1.1 unless the room sets another)", "Lighting", Namespace = "Engine.Lighting.Sun", Flat = false)]

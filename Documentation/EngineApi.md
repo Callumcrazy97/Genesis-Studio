@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1659 names: 403 properties (343 can be set), 1256 commands.
+1681 names: 416 properties (349 can be set), 1265 commands.
 
 ## Engine.Alarm
 
@@ -417,6 +417,22 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `RefreshRate` | read only | How many times a second the game's monitor refreshes (0 where it cannot tell) |
 | `Width` | read only | The game's monitor's width in pixels (0 where there is no window) |
 
+## Engine.Display.Resolution
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Current` | read only | The share of the window's size the 3D scene was last drawn at: the Scale, or lower while dynamic resolution holds the frame rate (read) |
+| `Scale` | property | The share of the window's size the 3D scene is drawn at, then stretched to the window with a light sharpening, 0.25 to 2 (1 unless set): 0.75 shades about 44% fewer pixels for a faster frame on a small machine, above 1 draws more for a sharper picture; the GUI and text always keep every pixel |
+| `Sharpness` | property | How much a scene drawn smaller than the window is sharpened as it is stretched, 0 to 1 (0.5 unless set) |
+
+## Engine.Display.Resolution.Dynamic
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Dynamic resolution (false unless set): the scene is drawn smaller while its frames take too long for TargetFps, and larger again when there is room, between MinimumScale and Engine.Display.Resolution.Scale |
+| `MinimumScale` | property | The smallest share of the window's size dynamic resolution draws the scene at, 0.25 to 1 (0.5 unless set) |
+| `TargetFps` | property | The frame rate dynamic resolution holds, 10 to 500 (60 unless set) |
+
 ## Engine.Display.Window
 
 | Name | Kind | What it is |
@@ -814,6 +830,12 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Y` | property | Position Y |
 | `Yaw` | property | This instance's rotation about Y (its heading), in degrees |
 | `Z` | property | Position Z |
+
+## Engine.Instance.Update
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Distance` | property | Instances farther than this from the camera skip their Step events until it comes near, 0 to 100000 metres; 0 updates every instance however far (the room's simulation distance unless set) |
 
 ## Engine.Job
 
@@ -1586,6 +1608,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `AutoExposure` | command | Turn on eye adaptation with a key (0.18 = mid grey) and an adaptation time in seconds (as RenderSetAutoExposure) |
 | `AutoExposureEnabled` | property | Eye adaptation on or off for this room |
 | `AutoExposureMetering` | property | Sets (RenderSetAutoExposureMetering): How eye adaptation measures the picture: 0 counts it all evenly, 1 counts its centre most (0.5 by default) |
+| `Backend` | read only | The graphics the game draws with: "Direct3D 11", "Direct3D 12", "Vulkan", "OpenGL" or "Software" (read) |
 | `BloomEnabled` | property | Enable HDR bloom (BL) |
 | `CascadeCount` | property | Directional shadow cascade count (2 or 3) |
 | `CelestialExtrasEnabled` | property | Enable celestial extras stars/MW/moon (CE) |
@@ -1593,6 +1616,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `CloudTemporalEnabled` | property | Enable cloud temporal reprojection (CT) |
 | `ContactShadowsEnabled` | property | Enable contact shadows (CS — screen-space) |
 | `Contrast` | property | Colour grading contrast (1 = identity) |
+| `DrawCalls` | read only | Draw calls the last frame made, 2D and 3D (read) |
 | `DrawModel3D` | command | Draw a model asset |
 | `DrawModelShader3D` | command | Draw a real model resource through an authored mesh shader |
 | `DrawModelTransform3D` | command | Draw a model resource with independent scale and rotation |
@@ -1606,6 +1630,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `GetAutoExposure` | command | Whether eye adaptation is on in this room |
 | `GetMotionBlur` | command | The camera motion blur amount, 0 (off) to 1 |
 | `GetQuality` | command | The quality tier last set ("low", "medium", "high" or "ultra"), "custom" once one of its settings has been changed since, or "" before any tier was set |
+| `GpuMs` | read only | Milliseconds the graphics card spent on the last 3D scene it has finished (read; 0 where the renderer cannot tell) |
 | `GtaoEnabled` | property | Enable GTAO (AO — half-res ambient occlusion) |
 | `LocalVolumetricLightBudget` | property | Local volumetric light budget (0–4, LV) |
 | `LocalVolumetricsEnabled` | property | Enable local volumetric scatter (LV) |
@@ -1625,6 +1650,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SetQuality` | command | Set the graphics quality tier: low, medium, high or ultra (as RenderSetQuality). False for any other name |
 | `ShadowResolution` | property | Sun shadow map size in texels per side, for every cascade: 512, 1024 (the default), 2048 or 4096; 0 goes back to the default |
 | `SmokeExtinctionEnabled` | property | Enable smoke extinction (SE) |
+| `Triangles` | read only | Triangles the last frame drew (read) |
 | `Vignette` | property | Strength of the darkening towards the picture's corners (0 = none) |
 | `VolumetricFogQuality` | property | Volumetric fog quality for every room: 0 low, 1 medium, 2 high; -1 leaves each room's own |
 | `WaterReflections` | property | Enable one half-resolution planar reflection for the dominant water plane; software uses sky fallback |
@@ -1712,6 +1738,13 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Contrast` | property | The picture's contrast (1 unless set) |
 | `Saturation` | property | How colourful the picture is: 0 grey, 1 as drawn (1 unless set) |
 | `Vignette` | property | How much the picture darkens towards its corners, 0 to 1 (0 unless set) |
+
+## Engine.Rendering.Instances
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Culled` | read only | Instances the last frame left out as unseen (read) |
+| `Drawn` | read only | Instances the last frame drew (read) |
 
 ## Engine.Rendering.Lights
 
@@ -1817,8 +1850,10 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Forget` | command | Forgets what every streamed Object was like and which were destroyed: each comes back as its room first made it (a new day's foes, a reset dungeon) |
+| `Load` | command | Puts back what Engine.Room.Streaming.Save gave (from SaveSlotRead): each room comes back as saved the next time the game enters it, so change to the saved room after loading; false when the text is not such a save |
 | `Remember` | property | Streamed Objects ("streamable": true) come back where they were with their variables, and Objects or scenery a script destroyed stay gone, for the rest of the game, room by room (true unless set) |
 | `Remembered` | read only | How many streamed Objects and destroyed things are remembered now, in every room (read) |
+| `Save` | command | What every room remembers, as text for a save slot (SaveSlotWrite): each streamed Object and each Object of a persistent room where it was with its variables, what scripts destroyed, and what scripts made in persistent rooms; the room the game is in is taken as it is now |
 
 ## Engine.Save
 
@@ -2048,6 +2083,18 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Enabled` | property | Painting and erasing tiles from a script picks each tile from its neighbours on an autotiled tile set (true unless set) |
+
+## Engine.Tile.Layer
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Alpha` | command | How opaque the tile layer is, 0 to 1 (1 unless set) |
+| `OffsetX` | command | How far the tile layer is drawn moved across, in pixels (0 unless set) |
+| `OffsetY` | command | How far the tile layer is drawn moved down, in pixels (0 unless set) |
+| `SetAlpha` | command | Makes a tile layer see-through, 0 to 1 (a roof fading as the player walks under it); false for a name the room has no layer of |
+| `SetOffset` | command | Draws a tile layer moved by x and y pixels (a background scrolled slower than the view for parallax); what is solid stays where it was painted; false for a name the room has no layer of |
+| `SetVisible` | command | Shows or hides a tile layer of the room (a secret wall, a lit and an unlit version of a room); false for a name the room has no layer of |
+| `Visible` | command | Whether the room's tile layer of this name is drawn (true unless set; false for a name the room has no layer of) |
 
 ## Engine.Time
 
