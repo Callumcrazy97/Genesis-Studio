@@ -523,6 +523,8 @@ internal static class LargeWorldContentSuite
             }
             Scripted("Keep Crate", "hp = 3;\n", persistent: false);
             Scripted("Keep Lamp", "lit = 1;\n", persistent: true);
+            // Makes a rock in its Create event, which runs again when the hall comes back.
+            Scripted("Keep Spawner", "CreateInstance(\"Keep Rock\", 20, 0, 0);\n", persistent: false);
             File.WriteAllText(resources.CreateResource(objects, ResourceKind.GameObject, "Keep Rock"),
                 $$"""{"schemaVersion":2,"dimension":"ThreeD","model":"","components":[{{model}}],"events":[]}""");
             ResourceNames.Invalidate(project.RootPath);
@@ -540,7 +542,7 @@ internal static class LargeWorldContentSuite
                     });
                 return made;
             }
-            RoomAsset hall = Room("Keep Hall", true, ("Keep Crate", 0f), ("Keep Rock", 5f), ("Keep Lamp", 10f));
+            RoomAsset hall = Room("Keep Hall", true, ("Keep Crate", 0f), ("Keep Rock", 5f), ("Keep Lamp", 10f), ("Keep Spawner", 30f));
             RoomAsset yard = Room("Keep Yard", false, ("Keep Crate", 0f));
 
             Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
@@ -548,6 +550,13 @@ internal static class LargeWorldContentSuite
             RoomMemory.Remember = true;
             using var scene = new RuntimeScene("Persist");
             var host = new ScriptHostSystem();
+            // A game around the scene, so scripts can make Objects (CreateInstance).
+            var game = new Genesis.Runtime.Project.ProjectGameContext(project.RootPath, scene, null, null, hall, null);
+            host.SetContext(game);
+            var previousGame = PgslCommands.ActiveGameContext;
+            string previousPath = PgslCommands.ProjectPath;
+            PgslCommands.ActiveGameContext = game;
+            PgslCommands.ProjectPath = project.RootPath;
             try
             {
                 void Build(RoomAsset room) => new RoomSceneBuilder(project.RootPath, host).Build(scene, room);
@@ -572,16 +581,24 @@ internal static class LargeWorldContentSuite
                     scene.UnloadRoomContent(host, null, preservePersistent: true);
                 }
 
+                // The instances of an Object near an x, and the x of the one there.
+                List<Genesis.Shared.ECS.Entity> Near(string prefab, float x) =>
+                    Of(prefab).Where(entity => Math.Abs(scene.World.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(entity).X - x) < 0.01f).ToList();
+
                 Build(hall);
-                Genesis.Shared.ECS.Entity crate = Of("Keep Crate").Single(), lamp = Of("Keep Lamp").Single();
-                HeadlessHarness.Assert(Var(crate, "hp") == 3 && Of("Keep Rock").Count == 1 && Var(lamp, "lit") == 1,
-                    $"The hall should start with its crate (hp {Var(crate, "hp")}), rock ({Of("Keep Rock").Count}) and lit lamp.");
-                // The player knocks the crate about and moves it, and breaks the rock.
+                Genesis.Shared.ECS.Entity crate = Near("Keep Crate", 0f).Single(), lamp = Of("Keep Lamp").Single();
+                HeadlessHarness.Assert(Var(crate, "hp") == 3 && Near("Keep Rock", 5f).Count == 1 && Near("Keep Rock", 20f).Count == 1 && Var(lamp, "lit") == 1,
+                    $"The hall should start with its crate (hp {Var(crate, "hp")}), its rock ({Near("Keep Rock", 5f).Count}), the spawner's rock ({Near("Keep Rock", 20f).Count}) and a lit lamp.");
+                // The player knocks the crate about and moves it, and breaks the rock; a script makes a crate of its own.
                 HeadlessHarness.Assert(ScriptOf(crate)!.TrySetLiveValue("hp", 1d), "Could not change the crate's hp.");
                 scene.World.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(crate).X = 2f;
                 if (scene.World.Has<Genesis.Shared.ECS.Components.Transform3DComponent>(crate))
                     scene.World.GetRef<Genesis.Shared.ECS.Components.Transform3DComponent>(crate).Position.X = 2f;
-                scene.World.DestroyEntity(Of("Keep Rock").Single());
+                scene.World.DestroyEntity(Near("Keep Rock", 5f).Single());
+                int madeId = PgslCommands.CreateInstance("Keep Crate", 7, 0, 0);
+                host.FlushDeferredCreates();
+                Genesis.Shared.ECS.Entity made = scene.World.GetEntity(madeId);
+                HeadlessHarness.Assert(madeId > 0 && ScriptOf(made)?.TrySetLiveValue("hp", 2d) == true, "A script could not make a crate.");
                 scene.World.FlushDeferred();
 
                 Leave(hall);
@@ -590,23 +607,42 @@ internal static class LargeWorldContentSuite
                 Build(yard);
                 Leave(yard);
                 Build(hall);
-                List<Genesis.Shared.ECS.Entity> crates = Of("Keep Crate"), lamps = Of("Keep Lamp");
-                double crateX = crates.Count == 1 ? scene.World.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(crates[0]).X : double.NaN;
-                HeadlessHarness.Assert(crates.Count == 1 && Math.Abs(crateX - 2) < 1e-4 && Var(crates[0], "hp") == 1 && Of("Keep Rock").Count == 0,
-                    $"Back in the persistent hall the crate should be at 2 m with hp 1 and the rock gone; {crates.Count} crates at {crateX}, hp {(crates.Count == 1 ? Var(crates[0], "hp") : double.NaN)}, {Of("Keep Rock").Count} rocks.");
-                HeadlessHarness.Assert(lamps.Count == 1 && lamps[0] == lamp,
-                    $"The persistent lamp kept from the hall should be the hall's only lamp on return; {lamps.Count} lamps.");
+                void BackAsLeft(string when)
+                {
+                    List<Genesis.Shared.ECS.Entity> moved = Near("Keep Crate", 2f), kept = Near("Keep Crate", 7f), lamps = Of("Keep Lamp");
+                    HeadlessHarness.Assert(moved.Count == 1 && Var(moved[0], "hp") == 1 && kept.Count == 1 && Var(kept[0], "hp") == 2
+                        && Near("Keep Crate", 0f).Count == 0 && Near("Keep Rock", 5f).Count == 0 && Near("Keep Rock", 20f).Count == 1,
+                        $"{when}: the crate should be at 2 m with hp 1, the script's crate at 7 m with hp 2, the broken rock gone and the spawner's rock made once; "
+                        + $"{moved.Count} crates at 2 m, {kept.Count} at 7 m, {Near("Keep Crate", 0f).Count} at 0 m, {Near("Keep Rock", 5f).Count} rocks at 5 m, {Near("Keep Rock", 20f).Count} at 20 m.");
+                    HeadlessHarness.Assert(lamps.Count == 1 && lamps[0] == lamp,
+                        $"{when}: the persistent lamp kept from the hall should be the hall's only lamp; {lamps.Count} lamps.");
+                }
+                BackAsLeft("Back in the persistent hall");
+
+                // What rooms remember goes into a save and comes back from it.
+                string saved = PgslCommands.RoomStreamingSave();
+                RoomMemory.ForgetAll();
+                HeadlessHarness.Assert(!PgslCommands.RoomStreamingLoad("not a save") && PgslCommands.RoomStreamingLoad(saved),
+                    "A save of the rooms' memory could not be read back, or something else was taken for one.");
+                // Out of the hall without remembering it afresh: what comes back is what the save held.
+                scene.UnloadRoomContent(host, null, preservePersistent: true);
+                Build(yard);
+                Leave(yard);
+                Build(hall);
+                BackAsLeft("After saving and loading");
 
                 // A room that is not persistent starts as it was made.
                 Leave(hall);
                 hall.Settings.Persistent = false;
                 Build(hall);
-                crates = Of("Keep Crate");
-                HeadlessHarness.Assert(crates.Count == 1 && Var(crates[0], "hp") == 3 && Of("Keep Rock").Count == 1 && Of("Keep Lamp").Count == 1,
-                    $"A hall that is not persistent should be as made, with still one lamp; {crates.Count} crates (hp {(crates.Count == 1 ? Var(crates[0], "hp") : double.NaN)}), {Of("Keep Rock").Count} rocks, {Of("Keep Lamp").Count} lamps.");
+                List<Genesis.Shared.ECS.Entity> crates = Of("Keep Crate");
+                HeadlessHarness.Assert(crates.Count == 1 && Var(crates[0], "hp") == 3 && Near("Keep Rock", 5f).Count == 1 && Of("Keep Lamp").Count == 1,
+                    $"A hall that is not persistent should be as made, with still one lamp; {crates.Count} crates (hp {(crates.Count == 1 ? Var(crates[0], "hp") : double.NaN)}), {Near("Keep Rock", 5f).Count} rocks at 5 m, {Of("Keep Lamp").Count} lamps.");
             }
             finally
             {
+                PgslCommands.ActiveGameContext = previousGame;
+                PgslCommands.ProjectPath = previousPath;
                 RoomMemory.Remember = true;
                 RoomMemory.ForgetAll();
             }

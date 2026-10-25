@@ -14,6 +14,11 @@ namespace Genesis.Runtime.Rendering
         public string RoomNodeId;
         /// <summary>The room whose node (<see cref="RoomNodeId"/>) placed this entity.</summary>
         public string RoomName;
+        /// <summary>
+        /// A script made it in a Create or Room Start event, which runs again when a persistent room
+        /// comes back, so the room does not keep it (it would be made twice).
+        /// </summary>
+        public bool MadeBySetup;
         public string InstanceName;
         public string Image;
         public string Model;

@@ -331,6 +331,35 @@ public sealed class RoomSceneBuilder
                 }
             }
 
+            // The Objects scripts made in this persistent room when the game was last here, back
+            // where they were (their variables after the Create events, with the rest).
+            if (remembers)
+            {
+                List<RoomMemory.Entry> made = RoomMemory.MadeIn(asset.Name);
+                for (int index = 0; index < made.Count; index++)
+                {
+                    RoomMemory.Entry left = made[index];
+                    var node = new RoomNode
+                    {
+                        Id = RoomMemory.MadePrefix + index, Name = left.Prefab, Kind = RoomNodeKind.GameObject,
+                        LayerId = asset.Layers.Count > 0 ? asset.Layers[0].Id : "",
+                        Transform = new RoomTransform
+                        {
+                            X = left.Transform.X, Y = left.Transform.Y, Z = left.Transform.Z,
+                            ScaleX = left.Transform.ScaleX, ScaleY = left.Transform.ScaleY, ScaleZ = left.Transform.ScaleZ,
+                            RotationX = left.Transform.RotationX, RotationY = left.Transform.RotationY, RotationZ = left.Transform.RotationZ,
+                        },
+                        GameObject = new RoomGameObjectData { Prefab = left.Prefab },
+                    };
+                    SpawnGameObject(world, asset, node, result);
+                    if (result.EntitiesByNodeId.TryGetValue(node.Id, out Entity again) && world.IsAlive(again))
+                    {
+                        RoomMemory.Place(world, again, left);
+                        if (left.Variables is { Count: > 0 }) restores.Add((again, left.Variables));
+                    }
+                }
+            }
+
             spawnTicks += System.Diagnostics.Stopwatch.GetTimestamp() - mark;
             // The Create events are one piece of their own, after a pause the caller may take.
             yield return 1f;

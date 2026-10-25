@@ -160,11 +160,23 @@ Checked by `Runtime.PGSL.PhysicsJointsHingeAndLimits` (`--test engine-systems`).
   back as the game left it: each Object it placed is where it was with its script's variables
   (its Create event runs, then the variables it had are put back), and anything a script
   destroyed there stays gone. A room that is not persistent starts as it was made, as before.
-  Objects a script made at run time in a persistent room are not kept.
+  Since 25 October the Objects a script made there (`CreateInstance`: a dropped sword, a placed
+  campfire) come back too, where they were with their variables; one made in a Create, Room Start
+  or Game Start event is left to that event, which makes it again, so nothing comes back twice.
 - **Streamed Objects** in any room come back as they left as well (see
   [Large worlds](LargeWorlds.md)). Both are held for the game's session in one place:
   `Engine.Room.Streaming.Remember = false` turns them off, `Engine.Room.Streaming.Forget()` gives
-  every room back as it was made, and a new game forgets them. They are not in save files.
+  every room back as it was made, and a new game forgets them.
+- **In a save** (25 October): `Engine.Room.Streaming.Save()` gives everything the rooms remember as
+  text, the room the game is in taken as it is now, for the game to keep in its save slot;
+  `Engine.Room.Streaming.Load(text)` puts it back, and each room comes back as saved the next time
+  the game enters it:
+
+```gml
+SaveSlotWrite("slot1", Engine.Room.Streaming.Save());   // with the game's own values in a slot of their own
+// ... and on loading:
+if (Engine.Room.Streaming.Load(SaveSlotRead("slot1"))) RoomGoto(savedRoom);
+```
 
 Checked by `Engine.World.Rooms.PersistentRoomsAndObjectsComeBackAsLeft` and
 `Engine.World.Scenery.StreamedObjectsComeBackAsTheyLeft` (`--test large-world`).

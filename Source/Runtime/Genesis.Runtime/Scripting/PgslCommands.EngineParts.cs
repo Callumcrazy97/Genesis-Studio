@@ -751,6 +751,22 @@ public static partial class PgslCommands
     [PgslCommand("Forget", "Engine.Room.Streaming.Forget()", "Forgets what every streamed Object was like and which were destroyed: each comes back as its room first made it (a new day's foes, a reset dungeon)", "Rooms", Namespace = "Engine.Room.Streaming", Flat = false)]
     public static void RoomStreamingForget() => Genesis.Runtime.Scene.RoomSceneryStreamer.ForgetAll();
 
+    [PgslCommand("Save", "Engine.Room.Streaming.Save() -> text", "What every room remembers, as text for a save slot (SaveSlotWrite): each streamed Object and each Object of a persistent room where it was with its variables, what scripts destroyed, and what scripts made in persistent rooms; the room the game is in is taken as it is now", "Rooms", Namespace = "Engine.Room.Streaming", Flat = false)]
+    public static string RoomStreamingSave()
+    {
+        if (ActiveGameContext is Project.ProjectGameContext { Scene: { } scene } game)
+        {
+            if (game.Room is { Settings.Persistent: true } room)
+                Genesis.Runtime.Scene.RoomMemory.Leave(scene.World, room.Name, entity => game.ScriptHost?.FindBehaviorForEntity(entity) as PgslBehavior);
+            foreach (var subsystem in scene.Subsystems)
+                if (subsystem is Genesis.Runtime.Scene.RoomSceneryStreamer streamer) streamer.RememberLoaded(scene);
+        }
+        return Genesis.Runtime.Scene.RoomMemory.Write();
+    }
+
+    [PgslCommand("Load", "Engine.Room.Streaming.Load(text) -> bool", "Puts back what Engine.Room.Streaming.Save gave (from SaveSlotRead): each room comes back as saved the next time the game enters it, so change to the saved room after loading; false when the text is not such a save", "Rooms", Namespace = "Engine.Room.Streaming", Flat = false)]
+    public static bool RoomStreamingLoad(string text) => Genesis.Runtime.Scene.RoomMemory.Read(text);
+
     [PgslCommand("Remembered", "Engine.Room.Streaming.Remembered", "How many streamed Objects and destroyed things are remembered now, in every room (read)", "Rooms", Namespace = "Engine.Room.Streaming", Flat = false)]
     public static double RoomStreamingRemembered => Genesis.Runtime.Scene.RoomSceneryStreamer.RememberedCount;
 

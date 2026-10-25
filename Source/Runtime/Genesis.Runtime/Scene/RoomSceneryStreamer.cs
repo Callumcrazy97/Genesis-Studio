@@ -87,6 +87,15 @@ public sealed class RoomSceneryStreamer : ISceneSubsystem, IRoomWarmUpSubsystem
     /// <summary>Objects remembered now, in every room.</summary>
     public static int RememberedCount => RoomMemory.Count;
 
+    /// <summary>Remembers every streamed Object loaded now as it is, without unloading it (a save).</summary>
+    public void RememberLoaded(RuntimeScene scene)
+    {
+        if (!Remember || scene?.World == null) return;
+        foreach (Item item in _loaded)
+            if (item.Streamable && !item.Entity.IsNull && scene.World.IsAlive(item.Entity))
+                Keep(item, RoomMemory.Capture(scene.World, item.Entity, _builder?.ScriptOf(item.Entity)));
+    }
+
     private RoomMemory.Entry Recall(Item item) => RoomMemory.Recall(_room?.Name, item.Node?.Id);
 
     private void Keep(Item item, RoomMemory.Entry entry) => RoomMemory.Keep(_room?.Name, item.Node?.Id, entry);

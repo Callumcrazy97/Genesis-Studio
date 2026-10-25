@@ -408,6 +408,8 @@ namespace Genesis.Runtime.Scripting
             var previousCommands = PgslCommands.BindContext(_ctx);
             var previousGame = PgslCommands.ActiveGameContext;
             string previousProject = PgslCommands.ProjectPath;
+            string previousEvent = PgslCommands.RunningEvent;
+            PgslCommands.RunningEvent = eventName;
             _executionDepth++;
             try
             {
@@ -438,6 +440,7 @@ namespace Genesis.Runtime.Scripting
                 _executionDepth--;
                 VMEngine.Bridge.SetContext(previousBridge); PgslCommands.BindContext(previousCommands);
                 PgslCommands.ActiveGameContext = previousGame; PgslCommands.ProjectPath = previousProject;
+                PgslCommands.RunningEvent = previousEvent;
                 if (profiling)
                 {
                     PgslProfiler.Record(

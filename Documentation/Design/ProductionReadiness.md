@@ -93,8 +93,8 @@ play, F6 to look inside; export. What was looked at on 24 October, with Cal's an
    GameMaker's YYC and Unity's IL2CPP, and what many NPCs or units thinking at once need.
 4. **Terrain streamed by tile.** One large terrain split on disk and read in tiles, neighbours
    stitched so no seam shows.
-5. **Remembered rooms in save files.** What streamed Objects and persistent rooms remember, kept in
-   a save and given back on load; and Objects a script made at run time kept with their room.
+5. **Remembered rooms in save files.** Done 25 October: `Engine.Room.Streaming.Save()` and
+   `Load(text)`, and Objects a script made at run time come back with a persistent room.
 6. **Engine values and an Object's own variables previewed in the editors** (Cal, 24 October). A
    value set in the Inspector, an `Engine.Area.Part.Value` or a variable an Object declares, shows
    at once in the Room, Object, Model, Image and Terrain views, drawn by the same code the game

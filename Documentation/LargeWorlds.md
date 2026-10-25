@@ -611,8 +611,8 @@ Four other full runs during this work each failed one or two checks that pass al
   piece of scenery a script destroyed stays gone, for the rest of the game and room by room.
   `Engine.Room.Streaming.Remember = false` turns that off; `Engine.Room.Streaming.Forget()`
   gives every room back as it was made (a new day's foes); `Engine.Room.Streaming.Remembered`
-  counts what is kept. A room reloaded after an edit forgets its own. What is kept is not in save
-  files: a game that saves its world saves what it needs, as before. Objects a streamed Object
+  counts what is kept. A room reloaded after an edit forgets its own. `Engine.Room.Streaming.Save()`/
+  `Load(text)` put what is kept into a game's save slot and back (25 October). Objects a streamed Object
   made itself are not streamed with it.
 - **Scatter collision is boxes.** A solid copy is an upright box, not the model's shape, and
   distant scatter casts no shadows.

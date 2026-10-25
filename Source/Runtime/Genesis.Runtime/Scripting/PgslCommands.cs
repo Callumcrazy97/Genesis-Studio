@@ -551,6 +551,9 @@ public static partial class PgslCommands
         }
     }
 
+    /// <summary>The event the running script is in ("Create", "Step"...), on this thread; null outside one.</summary>
+    [ThreadStatic] internal static string RunningEvent;
+
     [PgslCommand("CreateInstance", "CreateInstance(obj,x,y,z)", "Create object instance", "Instances")]
     public static int CreateInstance(string obj, double x, double y, double z = 0)
     {
@@ -589,7 +592,7 @@ public static partial class PgslCommands
                         Scene.PrefabSpawner.ApplyEngineSettings(ActiveGameContext.World, entity, engineSettings, host);
                         CreateParts(ActiveGameContext.World, entity, obj, prefab);
                         var assets = Rendering.ObjectDrawAssetRegistry.TryGet(entity, out var entry) ? entry : new Rendering.ObjectDrawAssetEntry();
-                        assets.Prefab = obj; Rendering.ObjectDrawAssetRegistry.Set(entity, assets);
+                        assets.Prefab = obj; assets.MadeBySetup = RunningEvent is "Create" or "RoomStart" or "GameStart"; Rendering.ObjectDrawAssetRegistry.Set(entity, assets);
                         if (!wasDeferring && host != null)
                         {
                             // Create runs with deferral off again: left on, an instance this Create made
