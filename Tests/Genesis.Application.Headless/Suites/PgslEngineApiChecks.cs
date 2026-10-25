@@ -286,12 +286,22 @@ internal static class PgslEngineApiChecks
         slope = Engine.Physics.Character.SlopeLimit;
         radius = Engine.Physics.Character.Radius;
         rate = Engine.Network.Replication.Rate;
+        dDepth = Engine.Tile.Layer.Depth("Back");
+        Engine.Tile.Layer.SetDepth("Back", -40);
+        layerDepth = Engine.Tile.Layer.Depth("Back");
+        dSolid = Engine.Tile.Layer.Solid("Back");
+        Engine.Tile.Layer.SetSolid("Back", false);
+        solidAfter = Engine.Tile.Layer.Solid("Back");
+        Engine.Tile.Enabled = false;
+        tilesOn = Engine.Tile.Enabled;
         """;
 
     private static void TilesAndUpdate(ProjectSession project, Action<string, string, string, string> row)
     {
         RoomAsset room = RoomAsset.Create("TilesRoom", RoomDimension.TwoD);
-        room.Nodes.Add(new RoomNode { Name = "Back", Kind = RoomNodeKind.TileLayer, LayerId = room.Layers[0].Id, TileLayer = new RoomTileLayerData() });
+        // One solid tile, so the tile tests have something to meet until the layer is made not solid.
+        room.Nodes.Add(new RoomNode { Name = "Back", Kind = RoomNodeKind.TileLayer, LayerId = room.Layers[0].Id,
+            TileLayer = new RoomTileLayerData { CollisionEnabled = true, Cells = { new RoomTileCell { X = 0, Y = 0 } } } });
         using var scene = new RuntimeScene("Tile layers") { Input = new Genesis.Runtime.Input.InputState() };
         scene.Physics = Genesis.Physics.PhysicsWorld.Create(new PhysicsWorldAsset());
         scene.AddSubsystem(new Genesis.Runtime.Rendering.RoomRenderSubsystem(project.RootPath, room));
@@ -306,7 +316,9 @@ internal static class PgslEngineApiChecks
             host.SetContext(game);
             Entity entity = scene.World.CreateEntity();
             scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            int solidsBefore = Genesis.Runtime.Scene.RoomTileCollisionMap.Get(room, project.RootPath).SolidCount;
             using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = TilesScript })) host.Attach(scene.World, entity, "TilesProbe");
+            int solidsAfter = Genesis.Runtime.Scene.RoomTileCollisionMap.Get(room, project.RootPath).SolidCount;
             var vars = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
             double Number(string name) => vars.TryGetValue(name, out object? value) && value is not (string or null) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
             string diagnostics = string.Join("; ", host.RecentDiagnostics.Select(d => d.Message));
@@ -317,9 +329,12 @@ internal static class PgslEngineApiChecks
                 && Number("drawCalls") == 0 && Number("backendLength") == 0
                 && Number("sensitivity") == 2 && look == new System.Numerics.Vector2(2f, -2f)
                 && Math.Abs(rumble.Low - 0.5f) < 1e-4 && Math.Abs(rumble.High - 0.4f) < 1e-4
-                && Math.Abs(Number("step") - 0.5) < 1e-4 && Number("slope") == 89 && Math.Abs(Number("radius") - 0.4) < 1e-4 && Number("rate") == 20;
+                && Math.Abs(Number("step") - 0.5) < 1e-4 && Number("slope") == 89 && Math.Abs(Number("radius") - 0.4) < 1e-4 && Number("rate") == 20
+                && Number("dDepth") == 0 && Number("layerDepth") == -40 && Number("dSolid") == 1 && Number("solidAfter") == 0
+                && solidsBefore == 1 && solidsAfter == 0 && Number("tilesOn") == 0;
             string detail = $"visible {Number("backVisible")} then {Number("hidden")}, missing layer {Number("missing")}, alpha {Number("alpha")} (1), offset {Number("ox")},{Number("oy")} (12,-4), update distance {Number("updateDistance")} (250), draw calls {Number("drawCalls")} and backend length {Number("backendLength")} with no renderer (0, 0), "
-                + $"mouse movement 1,1 looks {look} (2,-2), rumble {rumble.Low},{rumble.High} (0.5,0.4), character step {Number("step")} (0.5), slope {Number("slope")} (89), radius {Number("radius")} (0.4), replication rate {Number("rate")} (20 without a network)";
+                + $"mouse movement 1,1 looks {look} (2,-2), rumble {rumble.Low},{rumble.High} (0.5,0.4), character step {Number("step")} (0.5), slope {Number("slope")} (89), radius {Number("radius")} (0.4), replication rate {Number("rate")} (20 without a network), "
+                + $"layer depth {Number("dDepth")} then {Number("layerDepth")} (-40), solid {Number("dSolid")} then {Number("solidAfter")} with {solidsBefore} solid tile then {solidsAfter}, tiles drawn {Number("tilesOn")} (0)";
             row("Engine API parts", "tile layers, update distance and frame costs", pass ? "PASS" : "FAIL", detail);
             HeadlessHarness.Assert(pass, $"{detail} {diagnostics}");
         }

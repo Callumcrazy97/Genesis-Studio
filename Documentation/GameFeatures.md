@@ -115,6 +115,7 @@ muffles the music, for a pause menu, underwater or a dream. Music is never echoe
 | `Engine.Tile.Layer.SetVisible("Layer", visible)`, `Visible("Layer")` | Shows or hides one of a 2D room's tile layers by its name: a secret wall, a lit and an unlit room |
 | `Engine.Tile.Layer.SetAlpha("Layer", alpha)`, `Alpha("Layer")` | Makes it see-through, 0 to 1: a roof fading as the player walks under it |
 | `Engine.Tile.Layer.SetOffset("Layer", x, y)`, `OffsetX/OffsetY("Layer")` | Draws it moved by pixels: a background scrolled slower than the view for parallax (what is solid stays where it was painted) |
+| `Engine.Tile.Layer.SetDepth("Layer", depth)`, `Depth("Layer")`, `SetSolid("Layer", solid)`, `Solid("Layer")`, `Engine.Tile.Enabled` | A layer drawn in a new place in the order (a wall in front as the player walks behind it); made solid or not as the room runs (a bridge that falls), tile tests and a 2D room's physics following at once; every tile layer hidden |
 | `Engine.Instance.Enabled` | This instance's Step events stopped (true unless set): frozen where it is, still drawn and solid, until another instance turns it on with `with` (a statue spell) |
 | `Engine.Instance.Update.Distance` | Instances farther than this from the camera skip their Step events (the room's simulation distance unless set; 0 updates all) |
 | `Engine.Rendering.Backend`, `DrawCalls`, `Triangles`, `GpuMs`, `Instances.Drawn`, `Instances.Culled` | What the last frame drew and cost (read), for a game's own performance display or to choose its own quality |

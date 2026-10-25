@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1752 names: 477 properties (405 can be set), 1275 commands.
+1757 names: 478 properties (406 can be set), 1279 commands.
 
 ## Engine.Alarm
 
@@ -2184,6 +2184,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Autotile` | property | Whether tiles painted or erased on a layer whose tile set autotiles take the tiles their neighbours call for (on unless set off) |
+| `Enabled` | property | Whether the room's tile layers are drawn at all (true unless set); what is solid stays solid |
 | `EraseAt` | command | Take away the tile at x, y (as TileRemoveAt): on an autotiled layer its neighbours take the tiles that now fit |
 | `IndexAt` | command | Read a painted tile index, or -1 for empty; layer is the tile node name or id |
 | `Meeting` | command | Test the caller's authored sprite mask against solid room tiles |
@@ -2204,11 +2205,15 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Alpha` | command | How opaque the tile layer is, 0 to 1 (1 unless set) |
+| `Depth` | command | The draw order of the tile layer of this name (its own unless set: its room layer's order and depth); 0 for a name the room has no layer of |
 | `OffsetX` | command | How far the tile layer is drawn moved across, in pixels (0 unless set) |
 | `OffsetY` | command | How far the tile layer is drawn moved down, in pixels (0 unless set) |
 | `SetAlpha` | command | Makes a tile layer see-through, 0 to 1 (a roof fading as the player walks under it); false for a name the room has no layer of |
+| `SetDepth` | command | Draws a tile layer in a new place in the order (in front of the player as they walk behind a wall, behind again after); false for a name the room has no layer of |
 | `SetOffset` | command | Draws a tile layer moved by x and y pixels (a background scrolled slower than the view for parallax); what is solid stays where it was painted; false for a name the room has no layer of |
+| `SetSolid` | command | Makes a tile layer's tiles solid or not while the room runs (a bridge that falls, a wall a lever opens): tile tests and a 2D room's physics follow at once; false for a name the room has no layer of |
 | `SetVisible` | command | Shows or hides a tile layer of the room (a secret wall, a lit and an unlit version of a room); false for a name the room has no layer of |
+| `Solid` | command | Whether the tiles of the tile layer of this name are solid (as the room has it unless set; false for a name the room has no layer of) |
 | `Visible` | command | Whether the room's tile layer of this name is drawn (true unless set; false for a name the room has no layer of) |
 
 ## Engine.Time

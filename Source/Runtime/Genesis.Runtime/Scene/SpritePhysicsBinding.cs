@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Numerics;
@@ -39,9 +40,34 @@ public static class SpritePhysicsBinding
         scene.Physics ??= PhysicsWorld.Create(new PhysicsWorldAsset());
         if (room is null) return;
         RoomSceneBuilder.ApplySceneSettings(scene, room);
+        RegisterTiles(scene, room, project);
+    }
+
+    // The bodies each 2D physics scene made for its room's solid tiles, so they can be made again.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<RuntimeScene, List<int>> TileBodies = new();
+
+    private static void RegisterTiles(RuntimeScene scene, RoomAsset room, string project)
+    {
+        List<int> bodies = TileBodies.GetOrCreateValue(scene);
         foreach (RectangleF bounds in RoomTileCollisionMap.Get(room, project).Solids)
-            scene.Physics.RegisterStaticBox(ToPhysics(new Vector3(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2, 0)),
-                new Vector3(bounds.Width / (2 * PixelsPerMetre), bounds.Height / (2 * PixelsPerMetre), .5f), "Room tile");
+            bodies.Add(scene.Physics.RegisterStaticBox(ToPhysics(new Vector3(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2, 0)),
+                new Vector3(bounds.Width / (2 * PixelsPerMetre), bounds.Height / (2 * PixelsPerMetre), .5f), "Room tile"));
+    }
+
+    /// <summary>
+    /// The room's tile collision made again after a script changed which layers are solid
+    /// (Engine.Tile.Layer.SetSolid): the tile queries' map, and in a 2D physics scene its tile bodies.
+    /// </summary>
+    public static void RefreshTiles(RuntimeScene scene, RoomAsset room, string project)
+    {
+        RoomTileCollisionMap.Invalidate(room);
+        if (scene is not { IsSpritePhysicsScene: true, Physics: { } physics } || room is null) return;
+        if (TileBodies.TryGetValue(scene, out List<int> bodies))
+        {
+            foreach (int body in bodies) physics.UnregisterStaticSurface(body);
+            bodies.Clear();
+        }
+        RegisterTiles(scene, room, project);
     }
 
     public static bool Attach(EcsWorld world, Entity entity, string project, JObject document, TransformComponent transform)

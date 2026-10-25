@@ -315,7 +315,12 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
         public bool Visible = true;
         public float Alpha = 1f;
         public float OffsetX, OffsetY;
+        /// <summary>The draw order a script gave the layer, in place of its own (null: its own).</summary>
+        public int? Depth;
     }
+
+    /// <summary>Whether the room's tile layers are drawn at all (Engine.Tile.Enabled; true unless set).</summary>
+    public bool TilesDrawn { get; set; } = true;
 
     private readonly Dictionary<string, TileLayerLook> _tileLayerLooks = new(StringComparer.OrdinalIgnoreCase);
 
@@ -339,6 +344,7 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
 
     private void DrawTiles2D(IRenderController renderer, IRenderCommandSink commands, float offsetX, float offsetY, float zoom)
     {
+        if (!TilesDrawn) return;
         foreach (RoomNode node in Active(RoomNodeKind.TileLayer))
         {
             // As a script left it: hidden, see-through or moved.
@@ -369,7 +375,7 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
                     Width = width, Height = height, OriginX = width * .5f, OriginY = height * .5f,
                     ScaleX = 1, ScaleY = 1,
                     Rotation = nodeWorld.RotationZ + cell.Rotation,
-                    Alpha = layerAlpha, Tint = RenderColor.White, Depth = LayerDepth(node) + layer.Depth,
+                    Alpha = layerAlpha, Tint = RenderColor.White, Depth = look?.Depth ?? LayerDepth(node) + layer.Depth,
                     UvRect = new Vector4(u0, v0, Math.Min(1, u0 + layer.CellWidth / (float)iw), Math.Min(1, v0 + layer.CellHeight / (float)ih)),
                 };
                 RemapAtlas(layer.Tileset, ref call);

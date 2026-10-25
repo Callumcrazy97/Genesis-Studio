@@ -360,10 +360,10 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 
 | Part | Values |
 |---|---|
-| Engine.Tile | + Enabled (tile layers drawn), ✓ SetAt, ✓ IndexAt, ✓ RemoveAt, ✓ Meeting, ✓ MoveX, ✓ MoveY |
+| Engine.Tile | ✓ Enabled (tile layers drawn), ✓ SetAt, ✓ IndexAt, ✓ RemoveAt, ✓ Meeting, ✓ MoveX, ✓ MoveY |
 | Engine.Tile.Autotile | ✓ Enabled [Autotile], ✓ PaintAt, ✓ EraseAt |
-| Engine.Tile.Layer (by name) | ✓ Visible, ✓ Alpha, + Depth, + Solid, ✓ ScrollX/ScrollY [OffsetX/OffsetY, SetOffset] |
-| Engine.Tile.Animation | + Enabled, + Speed |
+| Engine.Tile.Layer (by name) | ✓ Visible, ✓ Alpha, ✓ Depth [Depth/SetDepth], ✓ Solid [Solid/SetSolid], ✓ ScrollX/ScrollY [OffsetX/OffsetY, SetOffset] |
+| Engine.Tile.Animation | – Enabled, – Speed (tile sets have no animated tiles; a Step changes a tile with Engine.Tile.SetAt) |
 
 ## Engine.Room
 

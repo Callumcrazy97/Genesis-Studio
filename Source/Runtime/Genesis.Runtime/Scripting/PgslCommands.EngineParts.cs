@@ -670,6 +670,54 @@ public static partial class PgslCommands
         return make ? renderer.LookOfTileLayer(layer.Trim()) : renderer.PeekTileLayer(layer.Trim()) ?? new Rendering.RoomRenderSubsystem.TileLayerLook();
     }
 
+    [PgslCommand("Enabled", "Engine.Tile.Enabled = false", "Whether the room's tile layers are drawn at all (true unless set); what is solid stays solid", "Tiles", Namespace = "Engine.Tile", Flat = false)]
+    public static bool TileEnabled
+    {
+        get => ViewRenderer()?.TilesDrawn ?? true;
+        set { if (ViewRenderer() is { } renderer) renderer.TilesDrawn = value; }
+    }
+
+    [PgslCommand("Depth", "Engine.Tile.Layer.Depth(\"Layer\") -> number", "The draw order of the tile layer of this name (its own unless set: its room layer's order and depth); 0 for a name the room has no layer of", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
+    public static double TileLayerDepth(string layer)
+    {
+        if (TileLayerLook(layer, make: false) is not { } look) return 0;
+        if (look.Depth is int set) return set;
+        foreach (RoomNode node in ActiveGameContext?.Room?.Nodes ?? [])
+            if (node.Kind == RoomNodeKind.TileLayer && string.Equals(node.Name, layer.Trim(), StringComparison.OrdinalIgnoreCase))
+                return (ActiveGameContext!.Room!.FindLayer(node.LayerId)?.Order ?? 0) + (node.TileLayer?.Depth ?? 0);
+        return 0;
+    }
+
+    [PgslCommand("SetDepth", "Engine.Tile.Layer.SetDepth(\"Layer\", depth) -> bool", "Draws a tile layer in a new place in the order (in front of the player as they walk behind a wall, behind again after); false for a name the room has no layer of", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
+    public static bool TileLayerSetDepth(string layer, double depth)
+    {
+        if (!double.IsFinite(depth) || TileLayerLook(layer, make: true) is not { } look) return false;
+        look.Depth = (int)Math.Clamp(Math.Round(depth), -1000000, 1000000);
+        return true;
+    }
+
+    // The running room's tile layer of a name.
+    private static RoomNode? RoomTileLayer(string layer)
+    {
+        if (string.IsNullOrWhiteSpace(layer)) return null;
+        foreach (RoomNode node in ActiveGameContext?.Room?.Nodes ?? [])
+            if (node.Kind == RoomNodeKind.TileLayer && node.TileLayer != null && string.Equals(node.Name, layer.Trim(), StringComparison.OrdinalIgnoreCase)) return node;
+        return null;
+    }
+
+    [PgslCommand("Solid", "Engine.Tile.Layer.Solid(\"Layer\") -> bool", "Whether the tiles of the tile layer of this name are solid (as the room has it unless set; false for a name the room has no layer of)", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
+    public static bool TileLayerSolid(string layer) => RoomTileLayer(layer)?.TileLayer?.CollisionEnabled ?? false;
+
+    [PgslCommand("SetSolid", "Engine.Tile.Layer.SetSolid(\"Layer\", solid) -> bool", "Makes a tile layer's tiles solid or not while the room runs (a bridge that falls, a wall a lever opens): tile tests and a 2D room's physics follow at once; false for a name the room has no layer of", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
+    public static bool TileLayerSetSolid(string layer, bool solid)
+    {
+        if (RoomTileLayer(layer) is not { } node || ActiveGameContext?.Room is not { } room) return false;
+        if (node.TileLayer!.CollisionEnabled == solid) return true;
+        node.TileLayer.CollisionEnabled = solid;
+        SpritePhysicsBinding.RefreshTiles(ActiveGameContext.Scene, room, ProjectPath);
+        return true;
+    }
+
     [PgslCommand("Visible", "Engine.Tile.Layer.Visible(\"Layer\") -> bool", "Whether the room's tile layer of this name is drawn (true unless set; false for a name the room has no layer of)", "Tiles", Namespace = "Engine.Tile.Layer", Flat = false)]
     public static bool TileLayerVisible(string layer) => TileLayerLook(layer, make: false)?.Visible ?? false;
 
