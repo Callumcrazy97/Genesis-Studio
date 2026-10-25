@@ -1896,15 +1896,20 @@ public sealed partial class StudioShellForm : DpiAwareForm
         IReadOnlyList<ProjectValidationIssue> issues = _services.Validator.Validate(_project);
         Genesis.Runtime.Scripting.PgslValidationReport scripts =
             Genesis.Runtime.Scripting.PgslScriptValidator.ValidateProject(_project.RootPath, strict: true);
+        // Every room read once as the game reads it: each loads, and what it places exists.
+        IReadOnlyList<string> rooms = Genesis.Runtime.Scene.RoomCheck.Problems(_project.RootPath);
         int projectErrors = issues.Count(issue => issue.Severity == ProjectValidationSeverity.Error);
-        if (projectErrors + scripts.Errors.Count == 0) return 0;
+        int errors = projectErrors + scripts.Errors.Count + rooms.Count;
+        if (errors == 0) return 0;
         foreach (ProjectValidationIssue issue in issues.Where(issue => issue.Severity == ProjectValidationSeverity.Error))
             _services.Log.Error("Validation", $"{issue.Code}: {issue.Message} ({issue.Path})");
         foreach (string error in scripts.Errors)
             _services.Log.Error("Scripts", error);
+        foreach (string problem in rooms)
+            _services.Log.Error("Rooms", problem);
         UpdateValidationBadge(projectErrors, issues.Count(issue => issue.Severity == ProjectValidationSeverity.Warning));
         ShowToolWindow(_console);
-        return projectErrors + scripts.Errors.Count;
+        return errors;
     }
 
     private void ExportProject()

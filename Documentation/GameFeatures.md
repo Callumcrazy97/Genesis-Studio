@@ -185,8 +185,8 @@ Software renderer draws without it.
 Assets (while Assets has focus) or the one open in front, as that resource's own sandbox: a Room runs
 as the game starting in that room (as the Room editor's ▶ Play), an Object in its live sandbox (as F5
 in the Object editor), a sound plays, a model's clip plays, a terrain's preview runs. An editor joins
-in by implementing `IRunnableResource`. **Export Game** runs the project's checks and the strict
-script check first: problems are listed in the Console and the export goes ahead only when you say so.
+in by implementing `IRunnableResource`. **Export Game** runs the project's checks, the strict script check and a reading of every room
+(each loads, and every Object and Terrain it places exists) first: problems are listed in the Console and the export goes ahead only when you say so.
 
 ## The game's version, and crash reports a player can send (24 October 2026)
 

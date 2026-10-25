@@ -647,6 +647,21 @@ internal static class StudioFoundationSuite
             Assert(fixture.Shell.ReportExportProblems() >= 1
                 && fixture.Services.Log.Entries.Any(entry => entry.Source == "Scripts" && entry.Message.Contains(Path.GetFileName(script.FullPath), StringComparison.OrdinalIgnoreCase)),
                 "Export's check missed a script that does not compile.");
+            File.WriteAllText(script.FullPath, "score = 1;\n");
+            // A room that places an Object the project does not have stops the game when reached.
+            ResourceItem room = fixture.Create(ResourceKind.Room, "Rooms", "Broken Cellar");
+            Genesis.Runtime.Scene.RoomAsset cellar = Genesis.Runtime.Scene.RoomAssetLoader.Parse(room.FullPath);
+            cellar.Nodes.Add(new Genesis.Runtime.Scene.RoomNode
+            {
+                Name = "Ghost", Kind = Genesis.Runtime.Scene.RoomNodeKind.GameObject, LayerId = cellar.Layers[0].Id,
+                GameObject = new Genesis.Runtime.Scene.RoomGameObjectData { Prefab = "No Such Object" },
+            });
+            Genesis.Runtime.Scene.RoomAssetLoader.Save(cellar, room.FullPath);
+            Genesis.Shared.Assets.ResourceCatalog.Invalidate(fixture.Project.RootPath);
+            Assert(fixture.Shell.ReportExportProblems() >= 1
+                && fixture.Services.Log.Entries.Any(entry => entry.Source == "Rooms" && entry.Message.Contains("No Such Object", StringComparison.Ordinal)
+                    && entry.Message.StartsWith("Broken Cellar", StringComparison.OrdinalIgnoreCase)),
+                "Export's check missed a room that places an Object the project does not have.");
         });
         Check("Documentation.PublishedAndSourcePathsFindMaster", () =>
         {

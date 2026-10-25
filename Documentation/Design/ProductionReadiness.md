@@ -106,7 +106,7 @@ play, F6 to look inside; export. What was looked at on 24 October, with Cal's an
    leaks into every other (as the light probes did in editor views on 24 October).
 7. **More parts.** The values still marked + in `EngineApiAreas.md`, in the order there: Water,
    Terrain, Particles, Navigation, Instance.Update, Ui, Tile layers.
-8. **Export loads every room once** as part of its check, as it already compiles every script.
+8. **Export loads every room once** as part of its check, as it already compiles every script. Done 25 October (`RoomCheck`: each room loads, and every Object and Terrain it places exists).
 
 **Ragdolls, and anything like them** (Cal, 24 October): no system of their own. A ragdoll is
 Objects with physics, and Bepu, which Genesis uses, handles them in 2D and 3D; PGSL only gives it
