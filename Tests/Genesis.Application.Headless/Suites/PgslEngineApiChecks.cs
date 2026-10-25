@@ -139,6 +139,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts", () => TilesAndUpdate(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWaterSurfaceLook", () => WaterSurface(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTerrainEditsTheGroundAsItPlays", () => TerrainEdits(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleEmitterLookAndQuality", () => ParticleEmitterLook(project, row));
     }
 
     // Engine.Area.Part.Value in a running room: each value reads its default until set, keeps what a
@@ -451,6 +452,75 @@ internal static class PgslEngineApiChecks
             PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.BindContext(previousContext);
             Genesis.Runtime.Project.RoomTerrainSubsystem.GameTerrainDetail = 1f;
+        }
+    }
+
+    // Engine.Particle.Emitter on an instance with an explosion attached: each value reads its default,
+    // the running effect takes the change (size, life, gravity, colour times the effect's own), and
+    // Engine.Particle.Quality thins every effect's rate.
+    private const string ParticleLookScript = """
+        dSize = Engine.Particle.Emitter.Size;
+        dColor = Engine.Particle.Emitter.Color;
+        dQuality = Engine.Particle.Quality;
+        Engine.Particle.Emitter.Size = 2;
+        Engine.Particle.Emitter.Life = 0.5;
+        Engine.Particle.Emitter.Gravity = 0;
+        Engine.Particle.Emitter.Color = "#ff0000";
+        Engine.Particle.Emitter.Speed = 50;
+        Engine.Particle.Emitter.Rate = 40;
+        Engine.Particle.Quality = 0.5;
+        size = Engine.Particle.Emitter.Size;
+        emitSpeed = Engine.Particle.Emitter.Speed;
+        color = Engine.Particle.Emitter.Color;
+        on = Engine.Particle.Emitter.Enabled;
+        """;
+
+    private static void ParticleEmitterLook(ProjectSession project, Action<string, string, string, string> row)
+    {
+        RoomAsset room = RoomAsset.Create("ParticleRoom", RoomDimension.ThreeD);
+        using var scene = new RuntimeScene("Particle look");
+        var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
+        using var effects = new Genesis.Runtime.Rendering.ObjectCompositionSubsystem(project.RootPath);
+        PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+        var previousGame = PgslCommands.ActiveGameContext;
+        PgslCommands.ActiveGameContext = game;
+        try
+        {
+            VMEngine.Initialize();
+            Entity entity = scene.World.CreateEntity();
+            scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            scene.World.Set(entity, new Genesis.Runtime.ECS.Components.ParticleComponent { Asset = "builtin://Explosion", ParticleTypeId = -1, RateScale = 1f, FollowEntity = true, Emitting = true });
+            var time = new Genesis.Runtime.Core.GameTime();
+            time.Advance(1f / 30f);
+            effects.Update(scene, time);
+            var authored = effects.RunningEmitter(entity)?.CloneEmitter();
+            var host = new ScriptHostSystem();
+            host.SetContext(game);
+            using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = ParticleLookScript })) host.Attach(scene.World, entity, "SparkProbe");
+            time.Advance(1f / 30f);
+            effects.Update(scene, time);
+            var running = effects.RunningEmitter(entity);
+            var vars = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
+            double Number(string name) => vars.TryGetValue(name, out object? value) && value is not (string or null) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+            string Text(string name) => vars.TryGetValue(name, out object? value) ? value as string ?? "" : "";
+            bool pass = authored != null && running != null
+                && Number("dSize") == 1 && Text("dColor") == "#ffffff" && Number("dQuality") == 1
+                && Number("size") == 2 && Number("emitSpeed") == 10 && Text("color") == "#ff0000" && vars.TryGetValue("on", out object? on) && on is true
+                && Math.Abs(running.StartSize - authored.StartSize * 2) < 1e-6 && Math.Abs(running.Lifetime - authored.Lifetime * 0.5) < 1e-6
+                && running.Gravity == 0 && running.StartColor.G == 0 && Math.Abs(running.StartColor.R - authored.StartColor.R) < 1e-6
+                && Math.Abs(running.EmitRate - 20) < 1e-6;
+            string detail = authored == null || running == null ? "the explosion did not run" :
+                $"size {Number("dSize")} then {Number("size")} (start size {authored.StartSize:0.###} to {running.StartSize:0.###}), life {authored.Lifetime:0.###} to {running.Lifetime:0.###}, " +
+                $"gravity {authored.Gravity:0.###} to {running.Gravity:0.###}, colour {Text("dColor")} then {Text("color")} (green {running.StartColor.G:0.##}), speed kept to {Number("emitSpeed")} (10), " +
+                $"rate 40 at quality 0.5 runs at {running.EmitRate:0.##} (20)";
+            row("Engine API parts", "a particle emitter's look and quality", pass ? "PASS" : "FAIL", detail);
+            HeadlessHarness.Assert(pass, $"{detail} {string.Join("; ", host.RecentDiagnostics.Select(d => d.Message))}");
+        }
+        finally
+        {
+            PgslCommands.ActiveGameContext = previousGame;
+            PgslCommands.BindContext(previousContext);
+            Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
         }
     }
 

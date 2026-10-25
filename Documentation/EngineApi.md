@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1701 names: 431 properties (362 can be set), 1270 commands.
+1709 names: 439 properties (370 can be set), 1270 commands.
 
 ## Engine.Alarm
 
@@ -1397,6 +1397,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Particle2DBurst` | command | Burst canonical Particle Editor emitters into a bounded room-owned 2D pool (never darkens the room) |
 | `Particle2DCount` | command | Active particles in the current room's bounded pool |
 | `Particle2DFlow` | command | Curved, converging particles from a source to a target without allocating entities |
+| `Quality` | property | How many particles every effect makes, 0.1 to 1 of what it was authored with (1 unless set): fewer on a slow machine, each effect still recognisable; a one-off burst keeps at least one |
 | `Reset` | command | Kill every live particle |
 | `SetBurstLimit` | command | The most ParticleBurstAt bursts alive at once (default 256; 0 = no limit): one more removes the oldest. Emitters placed on Objects are never removed |
 | `SetCameraPosition` | command | Tell an emitter set where the camera is, for depth sorting |
@@ -1409,6 +1410,18 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Limit` | property | How many particle bursts may be alive at once, the oldest ending first (256 unless set) |
+
+## Engine.Particle.Emitter
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Color` | property | A colour this instance's particles' colours are multiplied by, as "#rrggbb" (#ffffff unless set): a magic effect in the caster's colour |
+| `Enabled` | property | Whether this instance's attached particles are emitting (as its Object has them unless set); those already out live their lives |
+| `Gravity` | property | How strongly gravity pulls this instance's particles, -10 to 10 times the effect's own (1 unless set): 0 for sparks in space, below 0 to turn it around |
+| `Life` | property | How long this instance's particles live, 0.05 to 10 times the effect's own (1 unless set): smoke that lingers in still air |
+| `Rate` | property | Particles this instance's attached effect makes a second, 0 to 10000 (the effect's own unless set) |
+| `Size` | property | How big this instance's particles are, 0 to 10 times the effect's own (1 unless set): a fire that grows as it catches |
+| `Speed` | property | How fast this instance's particles leave, 0 to 10 times the effect's own (1 unless set): an engine's exhaust at full throttle |
 
 ## Engine.Physics
 

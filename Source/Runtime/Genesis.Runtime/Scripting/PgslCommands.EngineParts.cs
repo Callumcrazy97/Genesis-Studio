@@ -1041,6 +1041,80 @@ public static partial class PgslCommands
     [PgslCommand("Limit", "Engine.Particle.Bursts.Limit = count", "How many particle bursts may be alive at once, the oldest ending first (256 unless set)", "Particles", Namespace = "Engine.Particle.Bursts", Flat = false)]
     public static double ParticleBurstsLimit { get => _burstLimit; set { if (double.IsFinite(value)) { _burstLimit = Math.Clamp(Math.Round(value), 1, 100000); ParticleSetBurstLimit(_burstLimit); } } }
 
+    [PgslCommand("Quality", "Engine.Particle.Quality = 0.5", "How many particles every effect makes, 0.1 to 1 of what it was authored with (1 unless set): fewer on a slow machine, each effect still recognisable; a one-off burst keeps at least one", "Particles", Namespace = "Engine.Particle", Flat = false)]
+    public static double ParticleQualityPart
+    {
+        get => Genesis.Runtime.ECS.Components.ParticleQuality.Amount;
+        set { if (double.IsFinite(value)) Genesis.Runtime.ECS.Components.ParticleQuality.Amount = (float)value; }
+    }
+
+    // ── Engine.Particle.Emitter: this instance's attached particles, changed as it plays ──
+
+    private static bool TryEmitter(out Genesis.Runtime.ECS.World? world, out Genesis.Shared.ECS.Entity entity)
+    {
+        world = ActiveGameContext?.World;
+        entity = default;
+        int instanceId = GetContext()?.InstanceId ?? 0;
+        if (world == null || instanceId <= 0) return false;
+        entity = world.GetEntity(instanceId);
+        return !entity.IsNull && world.Has<Genesis.Runtime.ECS.Components.ParticleComponent>(entity);
+    }
+
+    private static Genesis.Runtime.ECS.Components.ParticleLook EmitterLook() =>
+        TryEmitter(out var world, out var entity)
+            ? world!.GetRef<Genesis.Runtime.ECS.Components.ParticleComponent>(entity).Look ?? Genesis.Runtime.ECS.Components.ParticleLook.AsAuthored
+            : Genesis.Runtime.ECS.Components.ParticleLook.AsAuthored;
+
+    // Changes one value of the emitter's look, keeping the rest; back to null once it is as authored.
+    private static void SetEmitterLook(Func<Genesis.Runtime.ECS.Components.ParticleLook, Genesis.Runtime.ECS.Components.ParticleLook> change)
+    {
+        if (!TryEmitter(out var world, out var entity)) return;
+        ref var particles = ref world!.GetRef<Genesis.Runtime.ECS.Components.ParticleComponent>(entity);
+        var look = change(particles.Look ?? Genesis.Runtime.ECS.Components.ParticleLook.AsAuthored);
+        particles.Look = look == Genesis.Runtime.ECS.Components.ParticleLook.AsAuthored ? null : look;
+    }
+
+    [PgslCommand("Enabled", "Engine.Particle.Emitter.Enabled = false", "Whether this instance's attached particles are emitting (as its Object has them unless set); those already out live their lives", "Particles", Namespace = "Engine.Particle.Emitter", Flat = false)]
+    public static bool ParticleEmitterEnabled { get => ParticleAttachedGetEmitting(); set => ParticleAttachedSetEmitting(value); }
+
+    [PgslCommand("Rate", "Engine.Particle.Emitter.Rate = 40", "Particles this instance's attached effect makes a second, 0 to 10000 (the effect's own unless set)", "Particles", Namespace = "Engine.Particle.Emitter", Flat = false)]
+    public static double ParticleEmitterRate { get => ParticleAttachedGetRate(); set { if (double.IsFinite(value)) ParticleAttachedSetRate(value); } }
+
+    [PgslCommand("Size", "Engine.Particle.Emitter.Size = 2", "How big this instance's particles are, 0 to 10 times the effect's own (1 unless set): a fire that grows as it catches", "Particles", Namespace = "Engine.Particle.Emitter", Flat = false)]
+    public static double ParticleEmitterSize
+    {
+        get => EmitterLook().Size;
+        set { if (double.IsFinite(value)) SetEmitterLook(look => look with { Size = (float)Math.Clamp(value, 0, 10) }); }
+    }
+
+    [PgslCommand("Speed", "Engine.Particle.Emitter.Speed = 1.5", "How fast this instance's particles leave, 0 to 10 times the effect's own (1 unless set): an engine's exhaust at full throttle", "Particles", Namespace = "Engine.Particle.Emitter", Flat = false)]
+    public static double ParticleEmitterSpeed
+    {
+        get => EmitterLook().Speed;
+        set { if (double.IsFinite(value)) SetEmitterLook(look => look with { Speed = (float)Math.Clamp(value, 0, 10) }); }
+    }
+
+    [PgslCommand("Life", "Engine.Particle.Emitter.Life = 0.5", "How long this instance's particles live, 0.05 to 10 times the effect's own (1 unless set): smoke that lingers in still air", "Particles", Namespace = "Engine.Particle.Emitter", Flat = false)]
+    public static double ParticleEmitterLife
+    {
+        get => EmitterLook().Life;
+        set { if (double.IsFinite(value)) SetEmitterLook(look => look with { Life = (float)Math.Clamp(value, 0.05, 10) }); }
+    }
+
+    [PgslCommand("Gravity", "Engine.Particle.Emitter.Gravity = 0", "How strongly gravity pulls this instance's particles, -10 to 10 times the effect's own (1 unless set): 0 for sparks in space, below 0 to turn it around", "Particles", Namespace = "Engine.Particle.Emitter", Flat = false)]
+    public static double ParticleEmitterGravity
+    {
+        get => EmitterLook().Gravity;
+        set { if (double.IsFinite(value)) SetEmitterLook(look => look with { Gravity = (float)Math.Clamp(value, -10, 10) }); }
+    }
+
+    [PgslCommand("Color", "Engine.Particle.Emitter.Color = \"#80c0ff\"", "A colour this instance's particles' colours are multiplied by, as \"#rrggbb\" (#ffffff unless set): a magic effect in the caster's colour", "Particles", Namespace = "Engine.Particle.Emitter", Flat = false)]
+    public static string ParticleEmitterColor
+    {
+        get => Hex(EmitterLook().Tint);
+        set { if (TryHexColor(value, out Vector3 tint)) SetEmitterLook(look => look with { Tint = tint }); }
+    }
+
     [PgslCommand("Budget", "Engine.Mesh.Upload.Budget = milliseconds", "How long a frame may spend sending script meshes to the graphics card before the rest wait for the next (4 unless set)", "Meshes", Namespace = "Engine.Mesh.Upload", Flat = false)]
     public static double MeshUploadBudgetPart { get => Rendering.ScriptMeshes.UploadBudgetMilliseconds; set => MeshSetUploadBudget(value); }
 

@@ -190,9 +190,9 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 
 | Part | Values |
 |---|---|
-| Engine.Particle | + Enabled, ✓ Count (read), ✓ Capacity (read), ✓ Create/Destroy/DestroyAll, ✓ Burst(...), ✓ BurstAt(...), ✓ BurstBatched(...), + Quality |
+| Engine.Particle | + Enabled, ✓ Count (read), ✓ Capacity (read), ✓ Create/Destroy/DestroyAll, ✓ Burst(...), ✓ BurstAt(...), ✓ BurstBatched(...), ✓ Quality |
 | Engine.Particle.Bursts | + Enabled, ✓ Limit [BurstLimit], ✓ Count (read) |
-| Engine.Particle.Emitter (instance) | + Enabled [AttachedSetEmitting], ✓ Rate, + Size, + Speed, + Life, + Color, + Gravity |
+| Engine.Particle.Emitter (instance) | ✓ Enabled [AttachedSetEmitting], ✓ Rate, ✓ Size, ✓ Speed, ✓ Life, ✓ Color, ✓ Gravity |
 | Engine.Particle.Particles2D | + Enabled, ✓ Burst [Particle2DBurst], ✓ Flow [Particle2DFlow], ✓ Count, ✓ Pause [Effects2DPause] |
 | Engine.Particle.Gpu | + Enabled, + Collision.Enabled, + Lit.Enabled |
 

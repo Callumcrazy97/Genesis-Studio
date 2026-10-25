@@ -121,10 +121,13 @@ muffles the music, for a pause menu, underwater or a dream. Music is never echoe
 | `Engine.Water.Surface.Waves`, `WaveSpeed`, `FoamWidth`, `Clarity`, `ShallowColor`, `DeepColor` | The look of every water body of the room's terrains, set at once (murky after a storm, rough in a gale); each reads the first body's |
 | `Engine.Terrain.Edit.Raise/Lower(x, z, radius, metres)`, `Flatten(x, z, radius, height)`, `Smooth(x, z, radius, strength)`, `Paint(x, z, radius, layer, strength)` | Changes the ground as the game plays, with the Terrain editor's own brushes: a crater where a shell lands, a floor levelled for a building, a path worn to dirt. Its look, grass and collision follow at once; the resource is untouched |
 | `Engine.Terrain.Detail.Quality` | How far large terrains keep full detail, 0.25 to 4 (1 unless set); lasts across rooms |
+| `Engine.Particle.Emitter.Enabled`, `Rate`, `Size`, `Speed`, `Life`, `Gravity`, `Color` | This instance's attached effect changed as it plays: a fire that grows as it catches, exhaust at full throttle, a spell in the caster's colour. Size, speed, life and gravity are times the effect's own (1 unless set); the colour multiplies its colours (#ffffff unless set) |
+| `Engine.Particle.Quality` | How many particles every effect makes, 0.1 to 1 of what it was authored with (1 unless set), for a slow machine |
 
 Each command for a layer the room does not have returns false (or 0), as does a terrain edit
 where no terrain is. Checked by `Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts`,
-`EngineApiWaterSurfaceLook` and `EngineApiTerrainEditsTheGroundAsItPlays`.
+`EngineApiWaterSurfaceLook`, `EngineApiTerrainEditsTheGroundAsItPlays` and
+`EngineApiParticleEmitterLookAndQuality`.
 
 ## Render scale and dynamic resolution (25 October 2026)
 

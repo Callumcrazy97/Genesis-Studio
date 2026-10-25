@@ -45,6 +45,10 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
         public required ParticleConfig Config;
         public double AuthoredRate;
         public double AuthoredWindX, AuthoredWindZ;
+        /// <summary>The emitter as authored, kept once a game first changes its look; null until then.</summary>
+        public ParticleConfig? Authored;
+        /// <summary>The look the layer's config was last given (null: as authored).</summary>
+        public ParticleLook? AppliedLook;
         public ParticleSimulation? Simulation;
         public GpuParticleEmitter? GpuEmitter;
         public IGpuParticleRenderer? GpuOwner;
@@ -539,7 +543,7 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
                     AuthoredWindX = layout.WindX,
                     AuthoredWindZ = layout.WindZ,
                     MeshSurfaceSamples = LoadMeshSurfaceSamples(emitter),
-                    PendingBurst = !emitter.Loop ? Math.Max(0, emitter.BurstCount) : 0,
+                    PendingBurst = !emitter.Loop ? QualityBurst(emitter.BurstCount) : 0,
                 });
             }
             ApplyParticleRate(state, component);
@@ -555,9 +559,11 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
     private static void ApplyParticleRate(ParticleState state, ParticleComponent component)
     {
         float scale = component.RateScale <= 0 ? 1 : component.RateScale;
+        float quality = ParticleQuality.Amount;
         foreach (ParticleLayerState layer in state.Layers)
         {
-            double rate = Math.Max(0, component.HasEmitRateOverride || component.EmitRate > 0 ? component.EmitRate : layer.AuthoredRate * scale);
+            if (component.Look != layer.AppliedLook) ApplyParticleLook(layer, component.Look);
+            double rate = Math.Max(0, component.HasEmitRateOverride || component.EmitRate > 0 ? component.EmitRate : layer.AuthoredRate * scale) * quality;
             // The emitter's own wind, when it has been given one, in place of the effect's.
             double windX = component.Wind?.X ?? layer.AuthoredWindX, windZ = component.Wind?.Y ?? layer.AuthoredWindZ;
             if (layer.Config.EmitRate == rate && layer.Config.WindX == windX && layer.Config.WindZ == windZ) continue;
@@ -567,6 +573,39 @@ public sealed partial class ObjectCompositionSubsystem : ISceneSubsystem, IRoomW
             layer.Simulation?.UpdateConfig(layer.Config);
         }
     }
+
+    // A one-off burst's particles at the game's particle quality, never fewer than one.
+    private static int QualityBurst(int count) =>
+        count <= 0 ? 0 : Math.Max(1, (int)MathF.Round(count * ParticleQuality.Amount));
+
+    // The layer's size, speed, life, gravity and colours from the effect's own times the look.
+    private static void ApplyParticleLook(ParticleLayerState layer, ParticleLook? look)
+    {
+        ParticleConfig authored = layer.Authored ??= layer.Config.CloneEmitter();
+        ParticleLook applied = look ?? ParticleLook.AsAuthored;
+        ParticleConfig config = layer.Config;
+        config.StartSize = authored.StartSize * applied.Size;
+        config.EndSize = authored.EndSize * applied.Size;
+        config.Speed = authored.Speed * applied.Speed;
+        config.Lifetime = authored.Lifetime * applied.Life;
+        config.Gravity = authored.Gravity * applied.Gravity;
+        config.GravityX = authored.GravityX * applied.Gravity;
+        config.GravityZ = authored.GravityZ * applied.Gravity;
+        config.StartColor = Tinted(authored.StartColor, applied.Tint);
+        config.EndColor = Tinted(authored.EndColor, applied.Tint);
+        layer.AppliedLook = look;
+        // The GPU's table of sizes and colours is made again from the new look.
+        layer.GpuDefinition = null;
+        layer.GpuLookup = null;
+        layer.Simulation?.UpdateConfig(config);
+
+        static ParticleColor Tinted(ParticleColor colour, Vector3 tint) =>
+            new(colour.R * tint.X, colour.G * tint.Y, colour.B * tint.Z, colour.A);
+    }
+
+    /// <summary>The first emitter of an entity's running effect as it is now, with the game's changes (for checks); null when it has none.</summary>
+    internal ParticleConfig? RunningEmitter(Entity entity) =>
+        _particles.TryGetValue(entity.Id, out ParticleState? state) && state.Layers.Count > 0 ? state.Layers[0].Config : null;
 
     /// <summary>
     /// The wind an entity's effect is drifting on and where its particles are starting from, as

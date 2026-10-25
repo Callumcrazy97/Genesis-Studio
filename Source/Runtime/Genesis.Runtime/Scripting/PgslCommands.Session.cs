@@ -32,6 +32,7 @@ public static partial class PgslCommands
         Genesis.Shared.Threading.EngineJobs.ThreadLimit = 0;
         Genesis.Shared.Rendering.DepthOfField.Reset();
         Genesis.Runtime.Project.RoomTerrainSubsystem.GameTerrainDetail = 1f;
+        Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
         Genesis.Shared.Rendering.RenderScale.Reset();
         Genesis.Runtime.Input.InputSettings.Reset();
         Genesis.Runtime.Scene.RoomSceneryStreamer.ForgetAll();

@@ -26,5 +26,34 @@ namespace Genesis.Runtime.ECS.Components
         /// engine sets it on the weather it draws, so rain and snow lean with the room's wind.
         /// </summary>
         public System.Numerics.Vector2? Wind;
+        /// <summary>
+        /// The emitter's look changed as the game plays (Engine.Particle.Emitter): its particles'
+        /// size, speed, life and gravity times the effect's own, and a colour its colours are
+        /// multiplied by. Null leaves the effect as authored.
+        /// </summary>
+        public ParticleLook? Look;
+    }
+
+    /// <summary>An emitter's look against its effect's own: each 1 (and a white tint) leaves it as authored.</summary>
+    public readonly record struct ParticleLook(float Size, float Speed, float Life, float Gravity, System.Numerics.Vector3 Tint)
+    {
+        public static ParticleLook AsAuthored => new(1f, 1f, 1f, 1f, System.Numerics.Vector3.One);
+    }
+
+    /// <summary>
+    /// How many particles every effect makes, 0.1 to 1 of what it was authored with (1 unless set;
+    /// Engine.Particle.Quality): fewer on a slow machine, each effect still recognisable.
+    /// </summary>
+    public static class ParticleQuality
+    {
+        private static float _amount = 1f;
+
+        public static float Amount
+        {
+            get => _amount;
+            set => _amount = float.IsFinite(value) ? System.Math.Clamp(value, 0.1f, 1f) : 1f;
+        }
+
+        public static void Reset() => _amount = 1f;
     }
 }
