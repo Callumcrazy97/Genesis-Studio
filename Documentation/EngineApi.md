@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1749 names: 474 properties (402 can be set), 1275 commands.
+1751 names: 476 properties (404 can be set), 1275 commands.
 
 ## Engine.Alarm
 
@@ -1251,6 +1251,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Bake` | command | Bake a navigation grid from live terrain bounds and static colliders; save beside the room |
 | `Baked` | read only | Whether the room has a navigation mesh to find routes on: baked this run, or loaded from beside the room (read) |
 | `BakeGrid` | command | Bake explicit navigation bounds for Engine.Navigation.Mesh's agent (0.35 m radius, 1.8 m height, 45 degree slopes and 0.45 m steps unless set) |
+| `Enabled` | property | Whether navigation agents move along their routes (true unless set); off, every agent holds where it is with its route kept, for a pause or a cutscene |
 | `GetAreaCost` | command | The area cost of the navigation cell at a point (1 unless set); in a 2D room z is y |
 | `PathFind` | command | Find a smoothed route (for an agent of radius, keeping that far from edges; the bake's 0.35 when left out); -1 means no route or mesh |
 | `PathFollow` | command | Follow a reusable Pathing resource; loopMode is Loop, PingPong, Once, or an empty string to use the asset |
@@ -1271,6 +1272,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
 | Name | Kind | What it is |
 |---|---|---|
+| `Enabled` | property | Whether this instance's navigation agent moves along its route (true unless set); off, it holds where it is with its route kept: stunned, talking, waiting at a door |
 | `Speed` | property | How fast this instance's navigation agent moves, world units a second, 0 to 10000 (3.8 unless set) |
 | `StoppingDistance` | property | How close to its destination this instance's agent counts as arrived, 0 to 100 (0.1 unless set) |
 

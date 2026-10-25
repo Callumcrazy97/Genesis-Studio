@@ -296,9 +296,9 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 
 | Part | Values |
 |---|---|
-| Engine.Navigation | + Enabled, ✓ Bake(), ✓ BakeGrid(...), ✓ Baked (read) |
+| Engine.Navigation | ✓ Enabled, ✓ Bake(), ✓ BakeGrid(...), ✓ Baked (read) |
 | Engine.Navigation.Mesh | ✓ AgentRadius, ✓ AgentHeight, ✓ MaxSlope, ✓ StepHeight, ✓ CellSize |
-| Engine.Navigation.Agent (instance) | + Enabled, ✓ Destination, ✓ Speed, ✓ Radius, ✓ HasArrived, ✓ DistanceRemaining, ✓ Link, ✓ LinkProgress, ✓ ConfigureUpdateRates |
+| Engine.Navigation.Agent (instance) | ✓ Enabled, ✓ Destination, ✓ Speed, ✓ Radius, ✓ HasArrived, ✓ DistanceRemaining, ✓ Link, ✓ LinkProgress, ✓ ConfigureUpdateRates |
 | Engine.Navigation.Avoidance (instance) | ✓ Enabled [AgentSetAvoidanceEnabled], ✓ Configure(...), ✓ Radius, ✓ Priority |
 | Engine.Navigation.Path | ✓ Find, ✓ Follow, ✓ Free, ✓ Seek, ✓ Stop, ✓ Wander, ✓ WaypointCount, ✓ WaypointX/Y/Z, ✓ WaypointLink |
 | Engine.Navigation.Obstacles | ✓ Add, ✓ Remove |

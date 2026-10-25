@@ -833,16 +833,37 @@ internal static class PgslEngineApiChecks
             (float alikeFirst, float alikeSecond) = Steering(50, 50);
             (float guard, float crowd) = Steering(90, 50);
 
+            // Two agents sent across the room: one switched off holds where it is; the other holds while
+            // navigation is off and walks once it is back on.
+            Entity Walker(string name, string create)
+            {
+                Entity walker = scene.World.CreateEntity();
+                scene.World.Set(walker, new TransformComponent { X = 10, Z = 10, ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = create })) host.Attach(scene.World, walker, name);
+                return walker;
+            }
+            Entity held = Walker("HeldAgent", "Engine.Navigation.Agent.Enabled = false; NavMeshAgentSetDestination(40, 0, 30);");
+            Entity walking = Walker("WalkingAgent", "NavMeshAgentSetDestination(40, 0, 30);");
+            float Along(Entity walker) => scene.World.GetRef<TransformComponent>(walker).X;
+            PgslCommands.NavigationEnabled = false;
+            for (int i = 0; i < 10; i++) PgslCommands.UpdateNavigation(scene, 1f / 30);
+            float pausedAt = Along(walking);
+            PgslCommands.NavigationEnabled = true;
+            for (int i = 0; i < 30; i++) PgslCommands.UpdateNavigation(scene, 1f / 30);
+            float heldAt = Along(held), walkedTo = Along(walking);
+
             bool pass = Number("dRadius") == 0.35 && Number("dSlope") == 45 && Number("dCell") == 0 && !Flag("dBaked")
                 && Number("dPriority") == 50 && Math.Abs(Number("dKeep") - 0.35) < 1e-6 && Flag("baked")
                 && mesh != null && Math.Abs(mesh.AgentRadius - 0.8f) < 1e-6 && Math.Abs(mesh.AgentHeight - 2.5f) < 1e-6
                 && mesh.MaxSlopeDegrees == 89 && Math.Abs(mesh.MaxStep - 0.3f) < 1e-6 && mesh.CellSize == 2 && mesh.Width == 32 && mesh.Depth == 24
                 && Number("priority") == 90 && Math.Abs(Number("keep") - 0.6) < 1e-6
-                && Math.Abs(alikeFirst - .75f) < 1e-4 && Math.Abs(alikeSecond - .75f) < 1e-4 && guard < .2f && crowd > 1.3f;
+                && Math.Abs(alikeFirst - .75f) < 1e-4 && Math.Abs(alikeSecond - .75f) < 1e-4 && guard < .2f && crowd > 1.3f
+                && heldAt == 10 && pausedAt == 10 && walkedTo > 11;
             string detail = $"bake agent {Number("dRadius")} m, {Number("dSlope")}°, cell {Number("dCell")} (auto); baked {Flag("dBaked")} then {Flag("baked")}; " +
                 (mesh == null ? "no mesh; " : $"mesh for {mesh.AgentRadius} m by {mesh.AgentHeight} m, {mesh.MaxSlopeDegrees}° (89, kept in range), {mesh.MaxStep} m steps, {mesh.Width}x{mesh.Depth} cells of {mesh.CellSize} m; ") +
                 $"priority {Number("dPriority")} then {Number("priority")}, room kept {Number("dKeep"):0.###} then {Number("keep"):0.###}; " +
-                $"alike both steer {alikeFirst:0.##}/{alikeSecond:0.##} (0.75), at 90 against 50 {guard:0.##} and {crowd:0.##}";
+                $"alike both steer {alikeFirst:0.##}/{alikeSecond:0.##} (0.75), at 90 against 50 {guard:0.##} and {crowd:0.##}; " +
+                $"agent off held at x {heldAt}, the other at {pausedAt} while navigation was off and then walked to {walkedTo:0.##}";
             row("Engine API parts", "navigation bake and who gives way", pass ? "PASS" : "FAIL", detail);
             HeadlessHarness.Assert(pass, $"{detail} {string.Join("; ", host.RecentDiagnostics.Select(d => d.Message))}");
         }

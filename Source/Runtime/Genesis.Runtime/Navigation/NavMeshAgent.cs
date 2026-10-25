@@ -34,6 +34,8 @@ public sealed class NavMeshAgent
     public bool PlanarXY { get; set; }
     public float Speed { get; set; } = 3.8f;
     public float StoppingDistance { get; set; } = .1f;
+    /// <summary>Whether the agent moves along its route (Engine.Navigation.Agent.Enabled); off, it holds where it is.</summary>
+    public bool Enabled { get; set; } = true;
     /// <summary>How wide the agent is: routes keep this far from edges (0: the size the mesh was baked for).</summary>
     public float Radius { get; set; }
     public IReadOnlyList<Vector3> Path { get; private set; } = [];

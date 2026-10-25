@@ -135,6 +135,7 @@ muffles the music, for a pause menu, underwater or a dream. Music is never echoe
 | `Engine.Particle.Enabled`, `Bursts.Enabled`, `Particles2D.Enabled`, `Gpu.Collision.Enabled` | Every effect stopped where it is (a photo mode) and carrying on when back on; no new bursts; no new or drawn 2D particles (lights stay); particles passing through the world instead of bouncing, sticking or dying on it |
 | `Engine.Navigation.Mesh.AgentRadius`, `AgentHeight`, `MaxSlope`, `StepHeight`, `CellSize` | The agent the next `Engine.Navigation.Bake()` is made for (0.35 m, 1.8 m, 45°, 0.45 m unless set; the cell worked out from the room unless set): a giant's mesh keeps wider of walls |
 | `Engine.Navigation.Baked` | Whether the room has a mesh to find routes on (read) |
+| `Engine.Navigation.Enabled`, `Engine.Navigation.Agent.Enabled` | Every agent, or this instance's, holding where it is with its route kept (a pause, a stunned guard) and walking on when back on |
 | `Engine.Ui.Enabled` | Whether User Interfaces are drawn and answer the pointer, keys and controllers (true unless set): off for a photo mode |
 | `Engine.Ui.Scale.Value`, `Engine.Ui.Scale.Auto.Enabled` | How large User Interfaces are drawn, 0.25 to 4 (1 unless set), with what is anchored to a side of the window kept there; and whether they stretch to the window (true unless set) or are drawn at their design pixels, crisp on a large screen |
 | `Engine.Ui.Focus.Navigation.Enabled` | Whether the arrows, d-pad and left stick move the focus and Enter, Space or A press (true unless set) |

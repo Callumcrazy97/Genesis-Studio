@@ -76,6 +76,19 @@ public static partial class PgslCommands
     internal static void ResetNavigationBake()
     {
         _bakeRadius = .35; _bakeHeight = 1.8; _bakeSlope = 45; _bakeStep = .45; _bakeCell = 0;
+        _navigationOn = true;
+    }
+
+    private static bool _navigationOn = true;
+
+    [PgslCommand("Enabled", "Engine.Navigation.Enabled = false", "Whether navigation agents move along their routes (true unless set); off, every agent holds where it is with its route kept, for a pause or a cutscene", "Navigation", Namespace = "Engine.Navigation", Flat = false)]
+    public static bool NavigationEnabled { get => _navigationOn; set => _navigationOn = value; }
+
+    [PgslCommand("Enabled", "Engine.Navigation.Agent.Enabled = false", "Whether this instance's navigation agent moves along its route (true unless set); off, it holds where it is with its route kept: stunned, talking, waiting at a door", "Navigation", Namespace = "Engine.Navigation.Agent", Flat = false)]
+    public static bool NavigationAgentEnabled
+    {
+        get => AgentIfAny()?.Enabled ?? true;
+        set { if (Agent() is { } agent) agent.Enabled = value; }
     }
 
     [PgslCommand("AgentRadius", "Engine.Navigation.Mesh.AgentRadius = 0.5", "How wide the agents the next bake is made for are, 0 to 10 metres (0.35 unless set): walls and edges are kept this far away", "Navigation", Namespace = "Engine.Navigation.Mesh", Flat = false)]
@@ -381,7 +394,8 @@ public static partial class PgslCommands
 
     internal static void UpdateNavigation(RuntimeScene scene, float dt)
     {
-        if (!NavigationSessions.TryGetValue(scene, out var session)) return;
+        // With Engine.Navigation off every agent holds where it is, its route kept.
+        if (!_navigationOn || !NavigationSessions.TryGetValue(scene, out var session)) return;
         if (!NavigationDebugTelemetry.ShouldAdvanceAi())
         {
             NavigationDebugTelemetry.Capture(scene, session.Query?.Data);
@@ -435,7 +449,7 @@ public static partial class PgslCommands
         scene.World.Query<TransformComponent, NavMeshAgentComponent>((entity, ref transform, ref component) =>
         {
             if (NavigationDebugTelemetry.IsPreviewDriven(scene, entity.Id)) return;
-            if (component.Agent == null) return;
+            if (component.Agent is not { Enabled: true }) return;
             Vector3 from = new(transform.X, transform.Y, transform.Z);
             Vector3 avoidance = Vector3.Zero;
             bool hasCrowd = scene.World.Has<CrowdAgentComponent>(entity);
