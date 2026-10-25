@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1689 names: 424 properties (355 can be set), 1265 commands.
+1695 names: 430 properties (361 can be set), 1265 commands.
 
 ## Engine.Alarm
 
@@ -2247,6 +2247,17 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Enabled` | property | Water mirrors the scene above it (off unless set; a half-resolution pass) |
+
+## Engine.Water.Surface
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Clarity` | property | How far you see into the water, 0 (opaque) to 1 (clear) (each body's own unless set; 0.5 for new water): murky after a storm, clear in a spring |
+| `DeepColor` | property | The water's colour where it is deep, as "#rrggbb" (each body's own unless set) |
+| `FoamWidth` | property | How wide the foam is where the water meets the shore, 0 to 10 metres (each body's own unless set; 1.25 for new water) |
+| `ShallowColor` | property | The water's colour where it is shallow, as "#rrggbb" (each body's own unless set) |
+| `Waves` | property | How high the water's waves rise, 0 to 5 metres, on every water body of the room's terrains (each body's own unless set; 0.08 for new water) |
+| `WaveSpeed` | property | How fast the water's surface moves and flows, 0 to 10 (each body's own unless set; 0.35 for new water) |
 
 ## Engine.Weather
 

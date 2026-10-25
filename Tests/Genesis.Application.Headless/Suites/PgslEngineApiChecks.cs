@@ -137,6 +137,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiPartsDefaultsAndValues", () => Parts(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWeatherPartsHoldAndRelease", () => WeatherParts(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTileLayersUpdateDistanceAndFrameCosts", () => TilesAndUpdate(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiWaterSurfaceLook", () => WaterSurface(project, row));
     }
 
     // Engine.Area.Part.Value in a running room: each value reads its default until set, keeps what a
@@ -318,6 +319,68 @@ internal static class PgslEngineApiChecks
         finally
         {
             Genesis.Runtime.Input.InputSettings.Reset();
+            PgslCommands.ActiveGameContext = previousGame;
+            PgslCommands.BindContext(previousContext);
+        }
+    }
+
+    // Engine.Water.Surface sets the look of the water the room's terrains have, read back as set.
+    private const string WaterScript = """
+        dWaves = Engine.Water.Surface.Waves;
+        Engine.Water.Surface.Waves = 0.3;
+        Engine.Water.Surface.Clarity = 0.9;
+        Engine.Water.Surface.DeepColor = "#102030";
+        Engine.Water.Surface.FoamWidth = 50;
+        waves = Engine.Water.Surface.Waves;
+        clarity = Engine.Water.Surface.Clarity;
+        deep = Engine.Water.Surface.DeepColor;
+        foam = Engine.Water.Surface.FoamWidth;
+        """;
+
+    private static void WaterSurface(ProjectSession project, Action<string, string, string, string> row)
+    {
+        var resources = new ResourceService(project);
+        string terrainPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Terrain), ResourceKind.Terrain, "Water Look Vale");
+        // The heights a terrain resource keeps beside it (the Terrain editor writes them on its first save).
+        new Genesis.World.Terrain.TerrainAsset(33, 33, 2f, -32f, -32f, 0f, 20f).Save(terrainPath + ".gterrain");
+        var nature = Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(terrainPath);
+        nature.WaterBodies.Add(new Genesis.World.Terrain.TerrainWaterDefinition { Name = "Tarn", Kind = Genesis.World.Terrain.TerrainWaterKind.Water });
+        Genesis.World.Terrain.TerrainNatureSerializer.Save(terrainPath, nature);
+        ResourceCatalog.Invalidate(project.RootPath);
+        RoomAsset room = RoomAsset.Create("WaterRoom", RoomDimension.ThreeD);
+        room.Nodes.Add(new RoomNode
+        {
+            Name = "Vale", Kind = RoomNodeKind.Terrain, LayerId = room.Layers[0].Id,
+            Terrain = new RoomTerrainData { Asset = Path.GetRelativePath(project.RootPath, terrainPath).Replace('\\', '/') },
+        });
+        using var scene = new RuntimeScene("Water look");
+        var game = new ProjectGameContext(project.RootPath, scene, null, null, room, null);
+        var terrains = scene.AddSubsystem(new RoomTerrainSubsystem(project.RootPath, room, game));
+        PgslContext previousContext = PgslCommands.BindContext(new PgslContext());
+        var previousGame = PgslCommands.ActiveGameContext;
+        PgslCommands.ActiveGameContext = game;
+        try
+        {
+            VMEngine.Initialize();
+            var host = new ScriptHostSystem();
+            host.SetContext(game);
+            Entity entity = scene.World.CreateEntity();
+            scene.World.Set(entity, new TransformComponent { ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+            using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = WaterScript })) host.Attach(scene.World, entity, "WaterProbe");
+            var vars = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
+            double Number(string name) => vars.TryGetValue(name, out object? value) && value is not (string or null) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+            string Text(string name) => vars.TryGetValue(name, out object? value) ? value as string ?? "" : "";
+            int bodies = 0;
+            float drawnWaves = float.NaN;
+            terrains.ForEachWaterBody(body => { bodies++; drawnWaves = body.Material.WaveAmplitude; });
+            bool pass = bodies == 1 && Math.Abs(Number("dWaves") - 0.18) < 1e-4 && Math.Abs(Number("waves") - 0.3) < 1e-4 && Math.Abs(drawnWaves - 0.3f) < 1e-4
+                && Math.Abs(Number("clarity") - 0.9) < 1e-4 && Text("deep") == "#102030" && Number("foam") == 10;
+            string detail = $"{bodies} water body; waves {Number("dWaves")} (a lake's 0.18) then {Number("waves")} (0.3, drawn {drawnWaves}), clarity {Number("clarity")} (0.9), deep {Text("deep")} (#102030), foam {Number("foam")} (10, kept in range)";
+            row("Engine API parts", "the water's look", pass ? "PASS" : "FAIL", detail);
+            HeadlessHarness.Assert(pass, $"{detail} {string.Join("; ", host.RecentDiagnostics.Select(d => d.Message))}");
+        }
+        finally
+        {
             PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.BindContext(previousContext);
         }

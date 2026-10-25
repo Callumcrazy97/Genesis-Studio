@@ -326,6 +326,71 @@ public static partial class PgslCommands
     [PgslCommand("Culled", "Engine.Rendering.Instances.Culled", "Instances the last frame left out as unseen (read)", "Rendering", Namespace = "Engine.Rendering.Instances", Flat = false)]
     public static double RenderingInstancesCulled => LastFrame().InstancesCulled;
 
+    // ── Engine.Water.Surface: the look of every water body in the room's terrains ────────
+
+    private static Genesis.World.Water.WaterMaterialSettings WaterLook()
+    {
+        Genesis.World.Water.WaterMaterialSettings? first = null;
+        TerrainWaters(body => first ??= body.Material);
+        return first ?? Genesis.World.Water.WaterMaterialSettings.Default;
+    }
+
+    private static void TerrainWaters(Action<Genesis.World.Water.WaterBody> visit)
+    {
+        if (ActiveGameContext?.Scene is not { } scene) return;
+        foreach (var subsystem in scene.Subsystems)
+            if (subsystem is RoomTerrainSubsystem terrains) terrains.ForEachWaterBody(visit);
+    }
+
+    // Changes one value of every water body's look, keeping the rest.
+    private static void SetWaterLook(Func<Genesis.World.Water.WaterMaterialSettings, Genesis.World.Water.WaterMaterialSettings> change) =>
+        TerrainWaters(body => body.Material = change(body.Material));
+
+    private static string Hex(System.Numerics.Vector3 colour) =>
+        $"#{(int)Math.Clamp(colour.X * 255f + 0.5f, 0, 255):x2}{(int)Math.Clamp(colour.Y * 255f + 0.5f, 0, 255):x2}{(int)Math.Clamp(colour.Z * 255f + 0.5f, 0, 255):x2}";
+
+    [PgslCommand("Waves", "Engine.Water.Surface.Waves = 0.2", "How high the water's waves rise, 0 to 5 metres, on every water body of the room's terrains (each body's own unless set; 0.08 for new water)", "Water", Namespace = "Engine.Water.Surface", Flat = false)]
+    public static double WaterSurfaceWaves
+    {
+        get => WaterLook().WaveAmplitude;
+        set { if (double.IsFinite(value)) SetWaterLook(look => { look.WaveAmplitude = (float)Math.Clamp(value, 0, 5); return look; }); }
+    }
+
+    [PgslCommand("WaveSpeed", "Engine.Water.Surface.WaveSpeed = 0.6", "How fast the water's surface moves and flows, 0 to 10 (each body's own unless set; 0.35 for new water)", "Water", Namespace = "Engine.Water.Surface", Flat = false)]
+    public static double WaterSurfaceWaveSpeed
+    {
+        get => WaterLook().FlowSpeed;
+        set { if (double.IsFinite(value)) SetWaterLook(look => { look.FlowSpeed = (float)Math.Clamp(value, 0, 10); return look; }); }
+    }
+
+    [PgslCommand("FoamWidth", "Engine.Water.Surface.FoamWidth = 2", "How wide the foam is where the water meets the shore, 0 to 10 metres (each body's own unless set; 1.25 for new water)", "Water", Namespace = "Engine.Water.Surface", Flat = false)]
+    public static double WaterSurfaceFoamWidth
+    {
+        get => WaterLook().FoamWidth;
+        set { if (double.IsFinite(value)) SetWaterLook(look => { look.FoamWidth = (float)Math.Clamp(value, 0, 10); return look; }); }
+    }
+
+    [PgslCommand("Clarity", "Engine.Water.Surface.Clarity = 0.8", "How far you see into the water, 0 (opaque) to 1 (clear) (each body's own unless set; 0.5 for new water): murky after a storm, clear in a spring", "Water", Namespace = "Engine.Water.Surface", Flat = false)]
+    public static double WaterSurfaceClarity
+    {
+        get => 1 - WaterLook().Opacity;
+        set { if (double.IsFinite(value)) SetWaterLook(look => { look.Opacity = 1f - (float)Math.Clamp(value, 0, 1); return look; }); }
+    }
+
+    [PgslCommand("ShallowColor", "Engine.Water.Surface.ShallowColor = \"#2e9eb8\"", "The water's colour where it is shallow, as \"#rrggbb\" (each body's own unless set)", "Water", Namespace = "Engine.Water.Surface", Flat = false)]
+    public static string WaterSurfaceShallowColor
+    {
+        get => Hex(WaterLook().ShallowColor);
+        set { if (TryHexColor(value, out System.Numerics.Vector3 colour)) SetWaterLook(look => { look.ShallowColor = colour; return look; }); }
+    }
+
+    [PgslCommand("DeepColor", "Engine.Water.Surface.DeepColor = \"#0a2e60\"", "The water's colour where it is deep, as \"#rrggbb\" (each body's own unless set)", "Water", Namespace = "Engine.Water.Surface", Flat = false)]
+    public static string WaterSurfaceDeepColor
+    {
+        get => Hex(WaterLook().DeepColor);
+        set { if (TryHexColor(value, out System.Numerics.Vector3 colour)) SetWaterLook(look => { look.DeepColor = colour; return look; }); }
+    }
+
     // ── Engine.Physics.Character: this instance's character, changed as it plays ─────────
 
     [PgslCommand("StepHeight", "Engine.Physics.Character.StepHeight = metres", "How high a step this instance's character walks up without jumping, 0 to half its height (as made by CharacterCreate, 0.3 unless set); a crouch or a heavy load can lower it", "Physics", Namespace = "Engine.Physics.Character", Flat = false)]

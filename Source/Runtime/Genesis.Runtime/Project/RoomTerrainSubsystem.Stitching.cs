@@ -18,6 +18,14 @@ public sealed partial class RoomTerrainSubsystem
     /// <summary>Edges made to meet so far (for checks).</summary>
     public int StitchedEdges { get; private set; }
 
+    /// <summary>Every water body of the room's terrains loaded now (Engine.Water.Surface sets their look).</summary>
+    public void ForEachWaterBody(Action<Genesis.World.Water.WaterBody> visit)
+    {
+        foreach (Entry entry in _entries)
+            foreach (WaterRuntime water in entry.Waters)
+                visit(water.Body);
+    }
+
     // A joining terrain stitched to every terrain already in the room.
     private void StitchWithNeighbours(Entry joined, RuntimeScene scene)
     {
