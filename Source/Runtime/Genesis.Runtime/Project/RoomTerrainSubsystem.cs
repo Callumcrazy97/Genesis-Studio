@@ -113,6 +113,15 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             _entries.Add(CreateEntry(room, node, binaryPath, preloadModels: true));
         }
 
+        // Terrains laid edge to edge meet, before anything is built from their heights.
+        var placed = new List<Entry>(_entries);
+        _entries.Clear();
+        foreach (Entry entry in placed)
+        {
+            StitchWithNeighbours(entry, null);
+            _entries.Add(entry);
+        }
+
         // A running game wants these terrains solid by its first step. Workers start on that now,
         // while the room's objects are placed, instead of the first step building it all.
         if (game != null)
@@ -407,6 +416,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
                 terrain.Entry.ColliderMayWait = _terrainsPrimed;
             }
 
+            // It meets the terrains already here along the edges it shares with them.
+            StitchWithNeighbours(terrain.Entry, scene);
             _entries.Add(terrain.Entry);
             _worldAssigned = false;
         }

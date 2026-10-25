@@ -493,8 +493,50 @@ internal static class LargeWorldContentSuite
 
         RunStreamedMemory(context);
         RunPersistentRooms(context);
+        RunTerrainStitching(context);
         RunStreaming(context);
         RunReadAheadAndLights(context);
+    }
+
+    /// <summary>
+    /// Terrains laid edge to edge meet: the edge they share is set to the average of their heights
+    /// (placement included), the rest is untouched, and terrains that are turned, offset from each
+    /// other's grid or apart are left alone.
+    /// </summary>
+    private static void RunTerrainStitching(HeadlessContext context)
+    {
+        HeadlessHarness.RunCase(context.Report, "Engine.World.Terrain.NeighbouringTerrainsMeet", () =>
+        {
+            TerrainAsset Tile(float height)
+            {
+                var tile = new TerrainAsset(33, 33, 2f, 0f, 0f, 0f, 100f);
+                for (int z = 0; z < 33; z++) for (int x = 0; x < 33; x++) tile.SetHeight(x, z, height);
+                return tile;
+            }
+            RoomTransform At(float x, float y = 0f, float z = 0f, float yaw = 0f) =>
+                new() { X = x, Y = y, Z = z, RotationY = yaw, ScaleX = 1, ScaleY = 1, ScaleZ = 1 };
+
+            TerrainAsset west = Tile(10f), east = Tile(20f);
+            bool met = Genesis.Runtime.Project.RoomTerrainSubsystem.Stitch(west, At(0f), east, At(64f), out var edgeWest, out var edgeEast);
+            float westEdge = west.GetHeight(32, 16), eastEdge = east.GetHeight(0, 16), westInside = west.GetHeight(31, 16), eastInside = east.GetHeight(1, 16);
+            HeadlessHarness.Assert(met && Math.Abs(westEdge - 15f) < 0.01f && Math.Abs(eastEdge - 15f) < 0.01f
+                && Math.Abs(westInside - 10f) < 0.01f && Math.Abs(eastInside - 20f) < 0.01f
+                && edgeWest == (32, 0, 32, 32) && edgeEast == (0, 0, 0, 32),
+                $"Side by side, the shared edge should meet at 15 m and nothing else change; met {met}, edges {westEdge:F2}/{eastEdge:F2}, inside {westInside:F2}/{eastInside:F2}, rectangles {edgeWest}/{edgeEast}.");
+
+            // Raised 5 m: they meet in the world (10 and 25 -> 17.5), each keeping its own placement.
+            TerrainAsset south = Tile(10f), north = Tile(20f);
+            bool raised = Genesis.Runtime.Project.RoomTerrainSubsystem.Stitch(south, At(0f), north, At(0f, 5f, 64f), out _, out _);
+            HeadlessHarness.Assert(raised && Math.Abs(south.GetHeight(16, 32) - 17.5f) < 0.01f && Math.Abs(north.GetHeight(16, 0) + 5f - 17.5f) < 0.01f,
+                $"North of a terrain and raised 5 m, the edge should meet at 17.5 m in the world; {south.GetHeight(16, 32):F2} and {north.GetHeight(16, 0) + 5f:F2}.");
+
+            TerrainAsset a = Tile(10f), b = Tile(20f);
+            bool turned = Genesis.Runtime.Project.RoomTerrainSubsystem.Stitch(a, At(0f), b, At(64f, yaw: 90f), out _, out _);
+            bool offset = Genesis.Runtime.Project.RoomTerrainSubsystem.Stitch(a, At(0f), b, At(64f, z: 1f), out _, out _);
+            bool apart = Genesis.Runtime.Project.RoomTerrainSubsystem.Stitch(a, At(0f), b, At(70f), out _, out _);
+            HeadlessHarness.Assert(!turned && !offset && !apart && Math.Abs(a.GetHeight(32, 16) - 10f) < 0.01f,
+                $"Turned ({turned}), off the grid ({offset}) or apart ({apart}) terrains should be left as they are.");
+        });
     }
 
     /// <summary>

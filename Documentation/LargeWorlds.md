@@ -600,9 +600,15 @@ Four other full runs during this work each failed one or two checks that pass al
 
 ## Not done
 
-- **Terrain streaming is whole terrains.** Each terrain file is read whole when the camera nears
-  it. One very large terrain is not split on disk, and neighbouring terrains are not stitched: a
-  seam shows unless their edge heights match.
+- **Terrain streaming is by whole terrain, so build a big world from tiles.** Each terrain file is
+  read whole when the camera nears it (the room's terrain distance) and let go when it is left
+  behind. Since 25 October terrains laid edge to edge meet: as each joins the room its shared edges
+  are set to the average of the two heights (placement included), its mesh and its neighbour's are
+  remade along the edge, and a neighbour's collision is remade at once, so no seam shows and nothing
+  falls through. They meet when not turned, scaled alike, of one cell size, with grids that line up
+  along the edge (`Engine.World.Terrain.NeighbouringTerrainsMeet`). One very large terrain is still
+  read whole: split it into tiles to stream it. A large terrain's collision tiles already built
+  along the edge keep the edge as it was until rebuilt.
 - **Scripted objects load together unless they ask not to.** Scenery streams, and so does an
   Object marked `"streamable": true`. Any other Object with a script, events, physics or
   persistence exists from room load. Activity distance stops its Step events but does not unload
