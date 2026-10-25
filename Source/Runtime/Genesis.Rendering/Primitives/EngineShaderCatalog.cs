@@ -90,6 +90,9 @@ namespace Genesis.Rendering.Primitives
             // Depth of field: made the first frame a game turns it on.
             jobs.Add(new("DepthOfFieldShaders.hlsl", DepthOfFieldShaders.Source, "VS", GpuShaderStage.Vertex));
             jobs.Add(new("DepthOfFieldShaders.hlsl", DepthOfFieldShaders.Source, "PS_DepthOfField", GpuShaderStage.Pixel));
+            // Render scale: made the first frame a game draws its scene smaller or larger than the window.
+            jobs.Add(new("UpscaleShaders.hlsl", UpscaleShaders.Source, "VS", GpuShaderStage.Vertex));
+            jobs.Add(new("UpscaleShaders.hlsl", UpscaleShaders.Source, "PS_Upscale", GpuShaderStage.Pixel));
             // Made the first frame a game draws a decal.
             jobs.Add(new("DecalShaders.hlsl", DecalShaders.Source, "VS_Decal", GpuShaderStage.Vertex));
             jobs.Add(new("DecalShaders.hlsl", DecalShaders.Source, "PS_Decal", GpuShaderStage.Pixel));

@@ -73,6 +73,46 @@ public static partial class PgslCommands
     [PgslCommand("Enabled", "Engine.Display.Cursor.Enabled = true", "Whether the system pointer shows over the game (true unless set); a captured mouse stays hidden and the choice applies when it is released", "Display", Namespace = "Engine.Display.Cursor", Flat = false)]
     public static bool DisplayCursorEnabled { get => !_pointerHidden; set => WindowSetCursorVisible(value); }
 
+    // ── Engine.Display.Resolution: render scale and dynamic resolution ───────────────────
+
+    [PgslCommand("Scale", "Engine.Display.Resolution.Scale = 0.75", "The share of the window's size the 3D scene is drawn at, then stretched to the window with a light sharpening, 0.25 to 2 (1 unless set): 0.75 shades about 44% fewer pixels for a faster frame on a small machine, above 1 draws more for a sharper picture; the GUI and text always keep every pixel", "Display", Namespace = "Engine.Display.Resolution", Flat = false)]
+    public static double DisplayResolutionScale
+    {
+        get => Genesis.Shared.Rendering.RenderScale.Scale;
+        set => Genesis.Shared.Rendering.RenderScale.Scale = Finite(value, Genesis.Shared.Rendering.RenderScale.Smallest, Genesis.Shared.Rendering.RenderScale.Largest, 1f);
+    }
+
+    [PgslCommand("Sharpness", "Engine.Display.Resolution.Sharpness = 0.5", "How much a scene drawn smaller than the window is sharpened as it is stretched, 0 to 1 (0.5 unless set)", "Display", Namespace = "Engine.Display.Resolution", Flat = false)]
+    public static double DisplayResolutionSharpness
+    {
+        get => Genesis.Shared.Rendering.RenderScale.Sharpness;
+        set => Genesis.Shared.Rendering.RenderScale.Sharpness = Finite(value, 0, 1, 0.5f);
+    }
+
+    [PgslCommand("Current", "Engine.Display.Resolution.Current", "The share of the window's size the 3D scene was last drawn at: the Scale, or lower while dynamic resolution holds the frame rate (read)", "Display", Namespace = "Engine.Display.Resolution", Flat = false)]
+    public static double DisplayResolutionCurrent => Genesis.Shared.Rendering.RenderScale.Current;
+
+    [PgslCommand("Enabled", "Engine.Display.Resolution.Dynamic.Enabled = true", "Dynamic resolution (false unless set): the scene is drawn smaller while its frames take too long for TargetFps, and larger again when there is room, between MinimumScale and Engine.Display.Resolution.Scale", "Display", Namespace = "Engine.Display.Resolution.Dynamic", Flat = false)]
+    public static bool DisplayResolutionDynamicEnabled
+    {
+        get => Genesis.Shared.Rendering.RenderScale.Dynamic;
+        set => Genesis.Shared.Rendering.RenderScale.Dynamic = value;
+    }
+
+    [PgslCommand("TargetFps", "Engine.Display.Resolution.Dynamic.TargetFps = 60", "The frame rate dynamic resolution holds, 10 to 500 (60 unless set)", "Display", Namespace = "Engine.Display.Resolution.Dynamic", Flat = false)]
+    public static double DisplayResolutionDynamicTargetFps
+    {
+        get => Genesis.Shared.Rendering.RenderScale.TargetFps;
+        set => Genesis.Shared.Rendering.RenderScale.TargetFps = Finite(value, 10, 500, 60f);
+    }
+
+    [PgslCommand("MinimumScale", "Engine.Display.Resolution.Dynamic.MinimumScale = 0.5", "The smallest share of the window's size dynamic resolution draws the scene at, 0.25 to 1 (0.5 unless set)", "Display", Namespace = "Engine.Display.Resolution.Dynamic", Flat = false)]
+    public static double DisplayResolutionDynamicMinimumScale
+    {
+        get => Genesis.Shared.Rendering.RenderScale.MinimumScale;
+        set => Genesis.Shared.Rendering.RenderScale.MinimumScale = Finite(value, Genesis.Shared.Rendering.RenderScale.Smallest, 1, 0.5f);
+    }
+
     // ── Engine.Camera and its parts ──────────────────────────────────────────────────────
 
     [PgslCommand("Fov", "Engine.Camera.Fov = degrees", "The 3D camera's vertical field of view, 1 to 179 degrees (60 unless the room sets another)", "Camera", Namespace = "Engine.Camera", Flat = false)]

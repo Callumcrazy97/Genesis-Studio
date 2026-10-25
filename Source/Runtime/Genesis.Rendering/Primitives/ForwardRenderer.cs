@@ -3629,6 +3629,30 @@ namespace Genesis.Rendering.Primitives
             }
             _submittedSkinPalettes.Clear();
 
+            // Render scale: the scene and every pass that reads it run at a share of the view's
+            // size into an image of their own, stretched onto the real target at the end.
+            int fullW = viewW, fullH = viewH;
+            GpuRenderTargetHandle finalTarget = target;
+            bool scaled = false;
+            float renderScale = RenderScaleThisFrame();
+            if (allowPostProcess && viewW > 0 && viewH > 0 && MathF.Abs(renderScale - 1f) > 0.001f)
+            {
+                int scaledW = Math.Max(1, (int)MathF.Round(viewW * renderScale));
+                int scaledH = Math.Max(1, (int)MathF.Round(viewH * renderScale));
+                GpuRenderTargetHandle scaledTarget = ScaledFrameTarget(scaledW, scaledH);
+                if (scaledTarget.IsValid)
+                {
+                    target = scaledTarget;
+                    viewW = scaledW;
+                    viewH = scaledH;
+                    scaled = true;
+                }
+            }
+            LastRenderScale = scaled ? renderScale : 1f;
+            LastSceneWidth = viewW;
+            LastSceneHeight = viewH;
+            LastUpscaleMs = 0;
+
             _rtWidth  = viewW;
             _rtHeight = viewH;
 
@@ -3796,6 +3820,7 @@ namespace Genesis.Rendering.Primitives
                     _taaThisFrame = true;
                 }
                 if (HasPostEffects) RunPostEffects(target, postDepth, viewW, viewH, whiteTexture);
+                if (scaled) UpscalePass(finalTarget, fullW, fullH);
             }
             else
             {
@@ -6634,6 +6659,7 @@ namespace Genesis.Rendering.Primitives
             ReleaseAutoExposure();
             ReleaseLightProbe();
             ReleaseDepthOfField();
+            ReleaseRenderScale();
             if (_reflectionTarget.IsValid) _gpu.ReleaseRenderTarget(_reflectionTarget);
             _gpu.ReleaseVertexLayout(_layout);
             _gpu.ReleaseVertexLayout(_layoutSkinned);

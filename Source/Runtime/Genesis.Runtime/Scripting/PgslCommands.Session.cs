@@ -31,6 +31,7 @@ public static partial class PgslCommands
         Genesis.Runtime.Scripting.VM.PgslVm.CallInstructionLimit = Genesis.Runtime.Scripting.VM.PgslVm.DefaultCallInstructionLimit;
         Genesis.Shared.Threading.EngineJobs.ThreadLimit = 0;
         Genesis.Shared.Rendering.DepthOfField.Reset();
+        Genesis.Shared.Rendering.RenderScale.Reset();
         Genesis.Runtime.Scene.RoomSceneryStreamer.ForgetAll();
         Genesis.Runtime.Scene.RoomSceneryStreamer.Remember = true;
     }

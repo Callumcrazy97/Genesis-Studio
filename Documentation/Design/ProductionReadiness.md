@@ -15,7 +15,7 @@ to a system or editor that exists, which PGSL then reaches.
 | 3D: PBR, shadows, terrain, foliage, water | Yes | Yes | No | Best | Yes: forward PBR, cascades, lamp shadows, terrain with grass and scatter, water, sky with clouds, decals |
 | Reflections and bounced light | Probes (placed by hand), SSR, baked GI | SDFGI, VoxelGI, probes | No | Lumen | Automatic light probe (today): reflections and bounced light with nothing to place |
 | Depth of field | Post stack | Yes | No | Yes | Yes (today): `Engine.Camera.Focus.*` |
-| Render scale / dynamic resolution, upscaling | Yes (FSR, DLSS) | Yes (FSR) | No | Yes (TSR) | **No** (on tomorrow's list) |
+| Render scale / dynamic resolution, upscaling | Yes (FSR, DLSS) | Yes (FSR) | No | Yes (TSR) | Yes (25 October): `Engine.Display.Resolution.*`, with dynamic resolution and a sharpened stretch |
 | Post effects | Volume stack | Environment | Shaders | Volumes | Bloom, AO, contact shadows, fog with shafts, eye adaptation, grading, AA (FXAA/SMAA/TAA), motion blur, project post effects |
 | Physics | PhysX/Box2D | Godot/Jolt | Box2D | Chaos | Jolt-style bodies, characters, joints, ray/shape casts; one API `Engine.Physics.*` |
 | Animation | Mecanim, Timeline | AnimationTree | Sequences | AnimBP, Sequencer | Clips, state machine editor, blend trees, layers, IK (look, reach), root motion, 2D rig |
@@ -73,18 +73,17 @@ play, F6 to look inside; export. What was looked at on 24 October, with Cal's an
 - **Playtesting.** Nothing missing: the Room editor has its own ▶ Play and Blender-like view and
   HUD camera options. (The Run This Room command added to the File menu on 24 October, Shift+F5,
   does what the Room editor's ▶ Play already does: one route per function says one of them goes.)
-- **Performance on small machines.** No render scale yet, so a handheld (Legion Go) draws every
-  pixel. On tomorrow's list.
+- **Performance on small machines.** Done 25 October: render scale and dynamic resolution (`Engine.Display.Resolution.*`).
 - **Releasing.** Genesis has no users yet and no service to receive reports or send updates, so
   crash reporting and an update path are not needed now. The Player still writes a crash report
   file of its own (game, version, engine build, renderer, room, last log lines).
 
 ## Tomorrow (25 October), agreed with Cal
 
-1. **What a value does, in the Inspector.** Each engine setting shows its default and its range
+1. **What a value does, in the Inspector.** Done 25 October. Each engine setting shows its default and its range
    beside it, as well as its description, so the Inspector says what a value does without
    EngineApi.md.
-2. **Render scale and dynamic resolution.** `Engine.Display.Resolution.Scale` (1 unless set) and
+2. **Render scale and dynamic resolution.** Done 25 October. `Engine.Display.Resolution.Scale` (1 unless set) and
    `Engine.Display.Resolution.Dynamic.Enabled` with `TargetFps`: the 3D scene drawn with fewer
    pixels and stretched up, the GUI and text kept sharp; dynamic resolution lowers the scale when
    frames run slow and raises it again when there is room. Large: about ten passes read
@@ -162,7 +161,7 @@ system or editor that already exists, reachable from PGSL as `Engine.Area.Part.V
 | Online co-op, small sessions | **Ready, small scale** | LAN discovery, relay, replication with interest distance, each player's character shown to the others | Measured only at small player counts |
 | Strategy with many units | **Possible, speed untested** | Navigation agents with avoidance, GPU culling of instanced batches, script jobs | PGSL to IL for hundreds of units' logic; box selection and orders are PGSL and GUI drawing |
 | Arcade racing | **Possible** | Bodies, ray casts, motion blur, depth of field | An example showing it; a simulation tyre model is out of scope (one kind of game) |
-| Any game on a handheld PC | **Runs, every pixel** | Quality tiers, frame cap, VSync | Render scale and dynamic resolution (tomorrow) |
+| Any game on a handheld PC | **Ready** (25 October) | Quality tiers, frame cap, VSync, render scale and dynamic resolution | None |
 | Any game on Linux, Mac or consoles | **Blocked** | Player renders on Vulkan and OpenGL | Windows only (later) |
 
 **In short:** 2D games of any common kind, voxel games and third-person or first-person games of

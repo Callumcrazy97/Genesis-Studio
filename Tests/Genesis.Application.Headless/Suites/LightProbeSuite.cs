@@ -29,6 +29,109 @@ internal static class LightProbeSuite
     {
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.LightProbe.ReflectionsAndBouncedLightOnAllBackends", () => ReflectionsAndBounce(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Camera.DepthOfFieldBlursWhatIsOutOfFocusOnAllBackends", () => DepthOfFieldBlur(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Display.RenderScaleDrawsTheSceneSmallerOnAllBackends", () => RenderScaleCaptures(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Render.Display.DynamicResolutionHoldsTheFrameRate", DynamicResolutionSteps);
+    }
+
+    // Render scale: the same picture at half the pixels, its edges softened by the stretch and
+    // crisper again with sharpening; the GUI is not part of it.
+    private static void RenderScaleCaptures(HeadlessContext ctx)
+    {
+        RenderBackendOption previous = RenderBackendSelection.RequestedBackend;
+        var report = new List<string>();
+        try
+        {
+            foreach (RenderBackendOption backend in GpuBackends)
+            {
+                RenderBackendSelection.Configure(backend);
+                string name = backend.ToString().ToLowerInvariant();
+                string File(string what) => Path.Combine(ctx.Captures, $"render-scale-{name}-{what}.png");
+                using RuntimeViewportHarness harness = new();
+                MeshHandle cube = harness.LitSceneCube;
+                Action<IRenderController> scene = r => r.DrawMesh(new MeshDrawCall
+                {
+                    Mesh = cube, Tint = new RenderColor(0.95f, 0.95f, 0.95f), Alpha = 1f,
+                    World = Matrix4x4.CreateScale(1f) * Matrix4x4.CreateTranslation(NearBox),
+                });
+                Vector3 sun = Vector3.Normalize(new Vector3(0.3f, -0.8f, 0.5f));
+                RenderScale.Reset();
+                harness.CaptureLitScene(File("full"), sun, shadows: false, scene);
+                RenderScale.Scale = 0.5f;
+                RenderScale.Sharpness = 0f;
+                harness.CaptureLitScene(File("half"), sun, shadows: false, scene);
+                RenderScale.Sharpness = 1f;
+                harness.CaptureLitScene(File("half-sharpened"), sun, shadows: false, scene);
+
+                using Bitmap full = new(File("full")), half = new(File("half")), sharpened = new(File("half-sharpened"));
+                double difference = 0;
+                int samples = 0;
+                for (int y = 40; y < full.Height - 8; y += 23)
+                for (int x = 8; x < full.Width - 8; x += 23)
+                {
+                    Color a = full.GetPixel(x, y), b = half.GetPixel(x, y);
+                    difference += (Math.Abs(a.R - b.R) + Math.Abs(a.G - b.G) + Math.Abs(a.B - b.B)) / 3.0;
+                    samples++;
+                }
+                difference /= Math.Max(1, samples);
+                // Fine detail: the mean brightness step between neighbouring pixels below the title.
+                double Detail(Bitmap image)
+                {
+                    double sum = 0;
+                    int count = 0;
+                    for (int y = 60; y < image.Height - 2; y += 3)
+                    {
+                        double last = double.NaN;
+                        for (int x = 2; x < image.Width - 2; x++)
+                        {
+                            Color c = image.GetPixel(x, y);
+                            double luma = 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B;
+                            if (!double.IsNaN(last)) { sum += Math.Abs(luma - last); count++; }
+                            last = luma;
+                        }
+                    }
+                    return sum / Math.Max(1, count);
+                }
+                double detailFull = Detail(full), detailHalf = Detail(half), detailSharpened = Detail(sharpened);
+                report.Add($"{backend}: mean difference {difference:F1}, detail {detailFull:F2} full, {detailHalf:F2} half, {detailSharpened:F2} half sharpened");
+                HeadlessHarness.Assert(difference < 14,
+                    $"{backend}: the half-scale picture is not the same scene ({difference:F1} average difference per channel).");
+                HeadlessHarness.Assert(detailHalf < detailFull && detailSharpened > detailHalf,
+                    $"{backend}: the half-scale picture should be softer than full (detail {detailHalf:F2} vs {detailFull:F2}) and crisper again sharpened ({detailSharpened:F2}).");
+            }
+        }
+        finally
+        {
+            RenderBackendSelection.Configure(previous);
+            RenderScale.Reset();
+            File.WriteAllLines(Path.Combine(ctx.Captures, "render-scale-backends.txt"), report);
+        }
+    }
+
+    // Dynamic resolution steps down within half a second of frames over budget, never below its
+    // minimum, and back up a step at a time once frames are well under it again.
+    private static void DynamicResolutionSteps()
+    {
+        try
+        {
+            RenderScale.Reset();
+            RenderScale.Dynamic = true;
+            RenderScale.TargetFps = 60f;
+            RenderScale.MinimumScale = 0.6f;
+            float Run(double gpuMs, double seconds)
+            {
+                float scale = RenderScale.Current;
+                for (double t = 0; t < seconds; t += 0.02) scale = RenderScale.Advance(gpuMs, 0.02);
+                return scale;
+            }
+            float afterHalfSecond = Run(30, 0.5), afterLong = Run(30, 10);
+            float recovered = Run(5, 3.5), fullyRecovered = Run(5, 30);
+            HeadlessHarness.Assert(afterHalfSecond < 1f && Math.Abs(afterLong - 0.6f) < 0.001f && recovered > afterLong && Math.Abs(fullyRecovered - 1f) < 0.001f,
+                $"Dynamic resolution went to {afterHalfSecond} after half a second of slow frames, {afterLong} after ten (0.6), {recovered} after 3.5 s of fast ones and {fullyRecovered} after 30 (1).");
+            RenderScale.Dynamic = false;
+            RenderScale.Scale = 0.8f;
+            HeadlessHarness.Assert(Math.Abs(RenderScale.Advance(30, 0.02) - 0.8f) < 0.001f, "Without dynamic resolution the scale should be the game's.");
+        }
+        finally { RenderScale.Reset(); }
     }
 
     // A box in focus near the camera and one far behind it: with Engine.Camera.Focus on, the far

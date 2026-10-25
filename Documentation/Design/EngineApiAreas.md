@@ -62,7 +62,7 @@ Engine.Navigation.Agent (Speed, StoppingDistance). Colours are "#rrggbb" text.
 | Engine.Display.Monitor | + Index (which monitor), + Count (read), + Width (read), + Height (read), + RefreshRate (read), + DpiScale (read) |
 | Engine.Display.Cursor | + Enabled (= ✓ CursorVisible), + Image ("Image"), + HotspotX, + HotspotY, + Locked (= Engine.Input.Mouse.Captured), + Confined (kept inside the window) |
 | Engine.Display.Gui | ✓ Width (read) [GetGuiWidth], ✓ Height (read), ✓ Scale (read) [GetGuiScale], ✓ X, ✓ Y (read), + ScaleMode ("fit", "stretch", "pixel-perfect"), + DesignWidth, + DesignHeight |
-| Engine.Display.Resolution | + Scale (render scale 0.25-2, upscaled), + Dynamic.Enabled (lower the scale to hold the frame rate), + Dynamic.TargetFps, + Dynamic.MinScale |
+| Engine.Display.Resolution | ✓ Scale (render scale 0.25-2, stretched and sharpened), ✓ Sharpness, ✓ Current (read), ✓ Dynamic.Enabled (lower the scale to hold the frame rate), ✓ Dynamic.TargetFps, ✓ Dynamic.MinimumScale |
 | Engine.Display.Frame | ✓ UseRoomFps, ✓ FpsTarget, ✓ FpsVsync, + Limiter.Enabled, + Limiter.Fps |
 
 ## Engine.Camera (3D)

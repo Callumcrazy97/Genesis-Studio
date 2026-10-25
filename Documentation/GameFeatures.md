@@ -94,6 +94,37 @@ for how much is heard. Each room starts outdoors; a room (or its terrain) choose
 the Engine setting in its Inspector. `Engine.Audio.MusicMuffle` (0 clear to 1 heard through a wall)
 muffles the music, for a pause menu, underwater or a dream. Music is never echoed.
 
+## Render scale and dynamic resolution (25 October 2026)
+
+A 3D game can draw its scene with fewer pixels than the window has and stretch it to the window,
+for a faster frame on a small machine (a handheld, a 4K screen on a modest card). Everything the
+scene passes through (lighting, fog, bloom, depth of field, anti-aliasing, outlines, held items,
+post effects) runs at the smaller size; the picture is then stretched with a light,
+contrast-aware sharpening, and the GUI and text, drawn after, keep every pixel. On DX11, DX12,
+Vulkan and OpenGL.
+
+| Value | What it does |
+|---|---|
+| `Engine.Display.Resolution.Scale` | Share of the window's size the scene is drawn at, 0.25 to 2 (1 unless set). 0.75 shades about 44% fewer pixels; above 1 draws more and shrinks them, for a sharper picture on a fast card |
+| `Engine.Display.Resolution.Sharpness` | How much the stretched picture is sharpened, 0 to 1 (0.5 unless set) |
+| `Engine.Display.Resolution.Dynamic.Enabled` | Dynamic resolution (false unless set): the scale drops while the scene's frames take longer than the target allows and rises again, a step at a time, when there is room |
+| `Engine.Display.Resolution.Dynamic.TargetFps` | The frame rate it holds, 10 to 500 (60 unless set) |
+| `Engine.Display.Resolution.Dynamic.MinimumScale` | The lowest it goes, 0.25 to 1 (0.5 unless set); it never goes above `Scale` |
+| `Engine.Display.Resolution.Current` | The share the scene was last drawn at (read) |
+
+Dynamic resolution measures the scene's own time on the graphics card each frame, steps down 0.1
+after a quarter of a second over 85% of the frame's budget and up 0.05 after two seconds under 70%
+of it, so the images the scene is drawn into are remade a few times at most when a room's load
+changes, not every frame. An options screen offers the scale as a game's own setting:
+
+```gml
+Engine.Display.Resolution.Scale = options.renderScale;   // 0.5 to 1 from a slider
+Engine.Display.Resolution.Dynamic.Enabled = options.holdFrameRate;
+```
+
+Checked by `Engine.Render.Display.RenderScaleDrawsTheSceneSmallerOnAllBackends` and
+`Engine.Render.Display.DynamicResolutionHoldsTheFrameRate` (`--test light-probes`).
+
 ## Joints limited like a body's, and ragdolls from Objects (24 October 2026)
 
 A joint made with `PhysicsCreateJoint` turns freely. Three commands limit it, each taking a world
