@@ -344,64 +344,12 @@ public class PgslVm
     {
         try
         {
-            if (!clearVariables && _frameCount == 0 && EventsCompile && TierTwoAllowed && TryRunCompiledEvent(instructions, constants)) return;
             ExecuteCore(PgslProgram.ForTopLevel(instructions, constants), instructions, constants, clearVariables);
         }
         finally
         {
             Debugger?.OnCompleted();
         }
-    }
-
-    /// <summary>Event bodies compile once hot, as functions do (GENESIS_PGSL_TIER2_EVENTS=0 keeps them interpreted).</summary>
-    internal static bool EventsCompile { get; set; } = !string.Equals(Environment.GetEnvironmentVariable("GENESIS_PGSL_TIER2_EVENTS"), "0", StringComparison.Ordinal);
-
-    // Each event body as a function of no parameters for the compiled tier, made on its first run.
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<List<Instruction>, UserFunction> EventBodies = new();
-
-    // An event (Step runs every frame, for every instance) runs compiled once it is hot, where the
-    // compiled tier can take it: what it computes is what the interpreter computes. At an event's
-    // top level a plain name the body assigns is the instance's variable (a `var` too), where in a
-    // function it would be the call's own; so those names are given to the tier as the instance's,
-    // which it reads and writes exactly as the interpreter's top level does. Names only read stay
-    // as they are (a property, an Object's name), read the interpreter's way.
-    private bool TryRunCompiledEvent(List<Instruction> instructions, List<object> constants)
-    {
-        UserFunction body = EventBodies.GetValue(instructions, source => EventBody(source, constants));
-        if (body == null || ++body.Calls < PgslCompiledTier.HotCalls) return false;
-        int before = _stack.Count;
-        if (!TryRunCompiled(body, 0)) return false;
-        // The body's value (none) is not wanted.
-        while (_stack.Count > before) _stack.Pop();
-        return true;
-    }
-
-    private UserFunction EventBody(List<Instruction> source, List<object> constants)
-    {
-        var assigned = new HashSet<string>(StringComparer.Ordinal);
-        foreach (Instruction instruction in source)
-        {
-            if (instruction.Opcode != Opcode.STORE_VAR || instruction.Operand is not string name) continue;
-            if (name.StartsWith(PgslParser.FunctionLocalPrefix, StringComparison.Ordinal)) assigned.Add(name.Substring(PgslParser.FunctionLocalPrefix.Length));
-            else if (!name.StartsWith(PgslParser.InstanceVariablePrefix, StringComparison.Ordinal) && !PgslRegisterFile.Slots.ContainsKey(name)
-                     && _typedBridge?.IsDeclaredProperty(name) != true)
-                assigned.Add(name);
-        }
-        var rewritten = new List<Instruction>(source.Count);
-        foreach (Instruction instruction in source)
-        {
-            if (instruction.Opcode is Opcode.LOAD_VAR or Opcode.STORE_VAR && instruction.Operand is string name)
-            {
-                string plain = name.StartsWith(PgslParser.FunctionLocalPrefix, StringComparison.Ordinal) ? name.Substring(PgslParser.FunctionLocalPrefix.Length) : name;
-                if (assigned.Contains(plain) && !name.StartsWith(PgslParser.InstanceVariablePrefix, StringComparison.Ordinal))
-                {
-                    rewritten.Add(new Instruction(instruction.Opcode, PgslParser.InstanceVariablePrefix + plain, instruction.LineNumber));
-                    continue;
-                }
-            }
-            rewritten.Add(instruction);
-        }
-        return new UserFunction("(event body)", new List<string>()) { Bytecode = rewritten, Constants = constants };
     }
 
     private ExecutionResult ExecuteCore(

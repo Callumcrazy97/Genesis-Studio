@@ -89,7 +89,7 @@ play, F6 to look inside; export. What was looked at on 24 October, with Cal's an
    frames run slow and raises it again when there is room. Large: about ten passes read
    scene-sized images (composite, outlines, AA, held items, TAA history), so each must take the
    scene's size.
-3. **PGSL to IL.** Done 25 October: hot functions already compiled through .NET expression trees (IL); event bodies (Step, Draw, Create) now compile too, with the interpreter's exact results. Hot functions compiled to real code; the biggest remaining speed gap against
+3. **PGSL to IL.** Looked at 25 October: hot functions already compile to IL (the compiled tier, through .NET expression trees), with the interpreter's exact results. Compiling event bodies too was built and measured slower (29 against 18 ms for a loop-heavy Step: an event's variables are the instance's, kept by name), so it was taken out; heavy work goes in functions. What remains is giving events' own locals slots, which means settling what a top-level `var` is (today it stays on the instance). Hot functions compiled to real code; the biggest remaining speed gap against
    GameMaker's YYC and Unity's IL2CPP, and what many NPCs or units thinking at once need.
 4. **Terrain streamed by tile.** One large terrain split on disk and read in tiles, neighbours
    stitched so no seam shows.

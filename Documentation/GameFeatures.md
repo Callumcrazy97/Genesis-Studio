@@ -2989,15 +2989,13 @@ compiled says why in the profile report. GenesisCraft flying at render distance 
 6.9 -> 5.4 ms a frame (scripts 6.2 -> 4.8 ms).
 `GENESIS_PGSL_TIER2=0` turns compiling off, `GENESIS_PGSL_TIER2_VALUES=0` only compiling with values.
 
-**Event bodies compile too (25 October 2026).** An event's own code (Step, Draw, Create...) runs
-compiled once it has run 40 times, as a function does, so the code every instance runs every frame
-is machine code. At an event's top level a plain name the event assigns is the instance's variable
-(a `var` there too), where in a function it would be the call's own, so the compiled event reads and
-writes the instance's variables exactly as the interpreter's top level does; names it only reads
-(a property, an Object's name) are read the interpreter's way, and an event that cannot be compiled
-(a `with` block, say) stays interpreted. `GENESIS_PGSL_TIER2_EVENTS=0` keeps events interpreted.
-Checked by `Engine.Pgsl.Logic.EventBodiesCompileAndMatchTheInterpreter`: the same Step event run
-200 times compiled and interpreted ends with the same values.
+**Put heavy work in a function, not in an event's own code (measured 25 October 2026).** Functions
+compile because their variables are the call's own, kept in slots. An event's own code (Step, Draw,
+Create) is the instance's: every name it assigns, a `var` included, is one of the instance's
+variables, kept by name, as other events and scripts may read them. Compiling event code with those
+meanings kept was tried and measured: a Step event with a 400-step loop ran 500 times in 29 ms
+compiled against 18 ms interpreted, the lookups costing more than the interpreting saved, so event
+code stays interpreted. A loop or a calculation in a function the event calls runs compiled.
 
 `ScriptProfileEnable(true)`, `ScriptProfileReport(count)` and `ScriptProfileReset()` time every
 script function (`GENESIS_SCRIPT_PROFILE=1` writes `Debug/Logs/script_profile.txt` at the end).
