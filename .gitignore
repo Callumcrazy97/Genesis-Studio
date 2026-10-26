@@ -101,4 +101,5 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 *.blend1
-# Python bytecode from the template content generators/
+# Python bytecode from the template content generators
+__pycache__/
