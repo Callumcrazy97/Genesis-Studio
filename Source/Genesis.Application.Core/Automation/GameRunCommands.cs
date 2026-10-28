@@ -245,7 +245,7 @@ public static class GameRunCommands
         [Description("The room to measure, by name (default the game's start room).")] public string? Room { get; set; }
         [Description("Seconds measured after the warm-up (default 20).")] public float? Seconds { get; set; }
         [Description("Seconds of play before measuring starts, not counted (default 5).")] public float? WarmupSeconds { get; set; }
-        [Description("Scripted input played meanwhile, as game.run takes it (a walk or a camera turn); without it the game is left standing.")]
+        [Description("Scripted input played meanwhile, as game.run takes it (a walk or a camera turn); without it the game is left standing. It is played a recorded frame a rendered frame, so uncapped it passes faster than written; the game carries on when it ends.")]
         public List<InputStep>? Steps { get; set; }
         [Description("Vsync and frame caps off, so frame times show the real headroom (default true); false keeps the game's own pacing.")] public bool? Uncapped { get; set; }
         [Description("Fail the run if the 95th-percentile frame takes longer than this, milliseconds.")] public double? P95BudgetMilliseconds { get; set; }

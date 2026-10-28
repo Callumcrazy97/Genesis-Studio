@@ -60,8 +60,8 @@ The Genesis version was first built call by call, as an AI session would, with n
 
 - **Hemisphere sky light and eye adaptation on the Sky cards.** On the sunny walk, switching them on
   (strength 1.5, key 0.18) made the picture darker and bluer, not brighter in the shade, so the
-  scene presets were left as they were. Shade under trees is still darker than in the three.js
-  version, which fills it with a hemisphere light; that is the one look difference left.
+  scene presets were left as they were. The walk lightens its shade instead with
+  `Engine.Rendering.Shadows.Strength = 0.7`, a look of its own in its own script.
 
 ## Scorecard
 
@@ -69,9 +69,22 @@ The Genesis version was first built call by call, as an AI session would, with n
 |---|---|---|---|
 | Building the walk | ~15 min of writing | ~30 separate calls, minutes, several traps | one batch, 1.6 s |
 | Player | ~25 lines | 45 lines by hand | one recipe |
-| Looks | the yardstick | as good (grass, trees, haze, shadows) | as good, with flowers and a clear path |
-| Change and look again | ~2 s | 66 s (cold, after another build replaced the files) | 1.6 s to rebuild the whole scene, then a 7 s look took 12 s in all (warm): about 5 s to start the game |
-| Frame time | 60 fps | see below | see below |
+| Looks | the yardstick | as good (grass, trees, haze, shadows) | as good, with flowers, a clear path and lighter shade ([side-by-side-after.jpg](../../BuildTools/Benchmarks/NatureWalk/side-by-side-after.jpg)) |
+| Change and look again | ~2 s | 66 s (cold, after another build replaced the files) | 1.4 s to rebuild the whole scene; the game then starts in 1.7 s (`startSeconds`), so a 12.5 s walk with three pictures took 17 s in all |
+| Frame time | 60 fps (vsync) | not measured | uncapped, Direct3D 11, 1600 by 900: median 1.12 ms (890 fps), 99th percentile 1.61 ms, worst 3.86 ms, 3.3 KB allocated a frame, 28 draw calls, 602,000 triangles, 572 MB peak |
+
+## Checked on the published build (28 October, 05:24)
+
+`Build.bat --tiers` passed (editor 297, engine 330, PGSL 159 checks, the DX11 smoke; the attended
+full-screen check is not run unattended) and was published. On it the walk's own checks pass (the
+walker stands on the ground, the walk starts on the path), and a third-person character made from the
+recipe walks where the camera looks and stays on the ground.
+
+Found and fixed: `game.benchmark` given scripted input (`steps`) did not finish and was stopped at
+its time limit. A replay plays a recorded frame per rendered frame, so uncapped (about 890 fps here)
+its 24 s of input ran out in under two seconds, and a replay's end closes the game, which hung
+while the first room was still behind its cover. A benchmark now carries on when its input ends and
+finishes on its own clock. (The standard benchmark scenes never pass input, so this had not shown.)
 
 ## Why a game used to take days
 

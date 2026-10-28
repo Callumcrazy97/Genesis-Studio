@@ -299,7 +299,7 @@ namespace Genesis.Runtime.Project
                 {
                     ProjectPaths.EnsureDebugDirs(projectPath);
                     RenderLog.Init();
-                    StartInputReplayFromLaunch(args, projectPath, logger);
+                    StartInputReplayFromLaunch(args, projectPath, logger, quitWhenItEnds: benchmarkOutput == null);
                 }
 
                 // The project's Scripts, read and compiled on a thread of their own while the window
@@ -1116,7 +1116,14 @@ namespace Genesis.Runtime.Project
         /// ends; <c>--record</c> (or GENESIS_INPUT_RECORD) records until the game closes. A plain
         /// name is a file in the project's debug Replays folder; a path is used as it is.
         /// </summary>
-        private static void StartInputReplayFromLaunch(string[] args, string projectPath, ProjectLogger logger)
+        /// <remarks>
+        /// A benchmark ends by its own clock, not when its input does: a replay plays one recorded frame
+        /// a rendered frame, so uncapped it runs out in a fraction of the time it was written for. Closing
+        /// the game then (on 28 October, within two seconds, while the first room was still behind its
+        /// cover) left the benchmark unfinished and the game hung, so a benchmark plays its input and
+        /// carries on.
+        /// </remarks>
+        private static void StartInputReplayFromLaunch(string[] args, string projectPath, ProjectLogger logger, bool quitWhenItEnds = true)
         {
             string replay = ArgumentValue(args, ReplayArgument)
                 ?? Environment.GetEnvironmentVariable(Genesis.Runtime.Input.InputReplay.ReplayEnvironmentVariable);
@@ -1135,8 +1142,9 @@ namespace Genesis.Runtime.Project
             {
                 if (!Genesis.Runtime.Input.InputReplay.StartReplay(path))
                     throw new ArgumentException("--replay: " + Genesis.Runtime.Input.InputReplay.LastError);
-                _quitWhenReplayEnds = true;
-                logger.Line($"replaying input from {path} ({Genesis.Runtime.Input.InputReplay.FrameCount} frames)");
+                _quitWhenReplayEnds = quitWhenItEnds;
+                logger.Line($"replaying input from {path} ({Genesis.Runtime.Input.InputReplay.FrameCount} frames)"
+                    + (quitWhenItEnds ? string.Empty : "; the game carries on when it ends"));
             }
             else
             {
