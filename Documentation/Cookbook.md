@@ -39,7 +39,7 @@ rate. A new project already has a room called Start, so give yours another name.
 | Hills, a basin, a flat path | `terrain.sculpt` strokes: `Raise`, `Lower`, `Flatten` (`flattenHeight`), `Smooth`, along world points `[x, z]`. A `Raise` pass at strength 1 adds about 5 m; run more passes for more. |
 | A path you can see | `terrain.sculpt` with `"brush": "Paint", "layer": "Dirt"` along it. Scripts read it back with `Engine.Terrain.MaterialAt(x, z)` (1 grass, 2 dirt, 3 rock, 4 snow). |
 | Trees kept off the path | Give tree layers `"paintLayerMask": 1, "minimumPaintWeight": 0.92` (only nearly pure grass), and paint a faint, wider dirt verge (`"radius": 6, "strength": 0.05`) along the path under the real one. |
-| Grass | `terrain.setGrass` (`MeadowGrass`, `TallGrass`, `Wildflower`...); it grows round the camera. |
+| Grass | `terrain.setGrass` (`MeadowGrass`, `TallGrass`, `Wildflower`...); it grows round the camera, on the first painted layer unless `layerDensities` says otherwise (`[1, 0.3]` thins it onto the second); `maximumDrawnTufts` caps it. Its colour comes from the species, not a setting. |
 | Trees and rocks | `model.create` from primitives (Cylinder trunk, Cone or Sphere crowns), then `terrain.addScatterLayer` with density, spacing, height, slope, clumps, `collisionRadius` for trunks. |
 | A lake, a river, the sea | `terrain.addWater` (`Lake` with `sizeX`, `sizeZ`, `surfaceHeight`; `River` along points; `Ocean`). |
 | Dust in the light, fire, rain | `particle.create` from a preset (`DustMotes`, `Fire`, `Smoke`, `Snow`, `Rain`, `Magic`...), on an Object with `object.setComponent` `ParticleComponent`. |

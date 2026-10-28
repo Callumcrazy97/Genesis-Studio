@@ -105,11 +105,13 @@ internal static class AutomationSuite
             string terrain = PathOf(Call("resource.create", """{ "kind": "Terrain", "folder": "Assets", "name": "Field" }"""));
             string model = PathOf(Call("resource.create", """{ "kind": "Model", "folder": "Assets", "name": "Flower" }"""));
             HeadlessHarness.Assert(terrain.EndsWith(".terrain.json", StringComparison.Ordinal) && model.Length > 0, "The terrain or model was not made: " + terrain + " " + model);
-            AutomationResult grass = Call("terrain.setGrass", $$"""{ "terrain": "{{terrain}}", "enabled": true, "radius": 60 }""");
+            AutomationResult grass = Call("terrain.setGrass", $$"""{ "terrain": "{{terrain}}", "enabled": true, "radius": 60, "layerDensities": [1, 0.3], "maximumDrawnTufts": 20000 }""");
             AutomationResult layer = Call("terrain.addScatterLayer", $$"""{ "terrain": "{{terrain}}", "name": "Flowers", "model": "{{model}}", "densityPerHectare": 400 }""");
             HeadlessHarness.Assert(grass.Ok && layer.Ok, "terrain.setGrass or terrain.addScatterLayer failed: " + grass.Message + " / " + layer.Message);
             var nature = Genesis.World.Terrain.TerrainNatureSerializer.LoadOrDefault(context.Resolve(terrain));
             HeadlessHarness.Assert(nature.GrassRule.Enabled && Math.Abs(nature.GrassRule.Radius - 60f) < 0.01f
+                && Math.Abs(nature.GrassRule.Density(1) - 0.3f) < 0.001f && nature.GrassRule.Density(0) == 1f && nature.GrassRule.Density(2) == 0f
+                && nature.GrassRule.MaximumDrawnTufts == 20000
                 && nature.ScatterLayers.Count == 1 && nature.ScatterLayers[0].Model == model && Math.Abs(nature.ScatterLayers[0].DensityPerHectare - 400f) < 0.01f,
                 "The engine did not read back the grass rule and scatter layer the commands wrote.");
             AutomationResult updated = Call("terrain.updateScatterLayer", $$"""{ "terrain": "{{terrain}}", "layer": "Flowers", "densityPerHectare": 800 }""");

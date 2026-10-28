@@ -94,6 +94,8 @@ public static class TerrainCommands
         [Description("Steepest ground in degrees grass grows on (default 40).")] public float? SteepestSlopeDegrees { get; set; }
         [Description("Which tuft to grow (MeadowGrass looks like the scattered grass).")] public FoliageSpecies? Species { get; set; }
         [Description("Picks the pattern of tufts.")] public int? PatternSeed { get; set; }
+        [Description("Grass on each painted layer, first to eighth, 0 to 1 (default 1 on the first, usually Grass, and 0 on the rest): [1, 0.3] also grows thin grass on the second.")] public float[]? LayerDensities { get; set; }
+        [Description("Most tufts drawn in a frame, nearest first (default 16000, at most 32768).")] public int? MaximumDrawnTufts { get; set; }
     }
 
     public sealed class TerrainSetGrass : AutomationCommand<GrassInput>
