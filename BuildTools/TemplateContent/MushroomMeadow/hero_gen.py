@@ -125,11 +125,13 @@ music = -1; ambience = -1; titleMusic = -1; hasRules = 0; rulesRead = 0;
 // standalone (a room started directly, F5): phase-1 behaviour with a title card and restarts.
 campaign = 0;
 if (GlobalGet("campaign") == 1) { campaign = 1; }
-lives = 5; coins = 0; maxHearts = 3; hearts = 3; powerUp = 0;
+// Difficulty Kit: hearts, lives, timer and grace depend on the chosen difficulty (always Normal outside a campaign).
+diffNow = DiffLevel(); baseHearts = DiffBaseHearts(); baseLives = DiffBaseLives();
+lives = baseLives; coins = 0; maxHearts = baseHearts; hearts = baseHearts; powerUp = 0;
 if (campaign == 1) {
-    lives = GlobalGet("lives"); if (lives <= 0) { lives = 5; }
+    lives = GlobalGet("lives"); if (lives <= 0) { lives = baseLives; }
     coins = GlobalGet("coins");
-    maxHearts = Clamp(GlobalGet("maxHearts"), 3, 6);
+    maxHearts = Clamp(GlobalGet("maxHearts"), baseHearts, 6);
     hearts = GlobalGet("hearts"); if (hearts <= 0 || hearts > maxHearts) { hearts = maxHearts; }
     powerUp = Clamp(GlobalGet("power"), 0, 3);
 }
@@ -138,9 +140,14 @@ entryCoins = coins; entryPower = powerUp; entryHearts = hearts;
 GlobalSet("lives", lives); GlobalSet("coins", coins); GlobalSet("hearts", hearts);
 GlobalSet("maxHearts", maxHearts); GlobalSet("power", powerUp);
 wroteLives = lives; wroteCoins = coins; wroteHearts = hearts; wroteMaxHearts = maxHearts; wrotePower = powerUp;
+// Product state: coins seen (for the coins found counter), hits and time in this level, items already noted as found.
+coinsSeen = coins; hitsLevel = 0; levelClock = 0; seenPower = powerUp; seenHeld = 0;
 starTimer = 0; sparkleTimer = 0; shotCooldown = 0; throwTimer = 0; gliding = 0; swimming = 0;
 swimSpeed = 120; swimBob = 0;
 windVx = 0; riding = 0; contactGrace = 0; talking = 0;
+// Cheap contact tests: every collision or nearest-instance test costs a resource lookup, so the ones that cannot be missed in
+// a frame or two run on alternate frames (slowLane), and only the kinds of foe that exist are tested (foeNow, refreshed 5 times a second).
+slowLane = 0; foeScan = 0; foeNow = [];
 levelId = 1; hub = 0; dark = 0; levelName = "MUSHROOM MEADOW";
 menuItems = [0, 1, 2]; menuIndex = 0; menuNote = 0;
 clearTimer = 0; clearKind = 0; clearJingle = 0; leaveReason = 0; overTimer = 0; bannerTimer = 0;
@@ -171,6 +178,8 @@ if (GlobalExists("crt")) {
     RoomValueSet("crt", GlobalGet("crt"));
     PostEffectSetParameter("SNES Look", "Scanlines", GlobalGet("crt"));
 }
+// Every object that looks for Pip reads his id here (an InstanceFind by name walks every live instance, every call).
+RoomValueSet("heroId", id); RoomValueSet("heroX", x); RoomValueSet("heroY", y);
 RoomValueSet("frozen", 1); RoomValueSet("checkpoint", 0); RoomValueSet("musicState", 0);
 RoomValueSet("talk", 0); RoomValueSet("starlit", 0); RoomValueSet("paused", 0); RoomValueSet("heroReload", 0);
 SpriteSet("Assets/Sprites/Explorer Idle.image.json"); AnimationPlay("Idle", true);
@@ -184,8 +193,17 @@ var dt = Clamp(DeltaTime, 0, 0.05);
 // Input Kit: once per frame, before anything reads an action (detects the last-used device, sprint toggle).
 if (hasInput == 1) { InputUpdate(); }
 if (dt <= 0) { return; }
+RoomValueSet("heroX", x); RoomValueSet("heroY", y);
 // Options > Gameplay > Enable Tips (live: it can change from the pause menu).
 tipsOn = 1; if (GlobalExists("tips")) { tipsOn = GlobalGet("tips"); }
+// Achievements Kit: the "achievement unlocked" banner runs in every state, paused or not.
+AchToastStep(dt);
+// Difficulty changed in Options (pause menu): the timer keeps its proportion, the base hearts follow.
+if (campaign == 1 && DiffLevel() != diffNow) {
+    var timeScale = DiffTimeFor(DiffLevel()) / DiffTimeFor(diffNow);
+    timeLimit = timeLimit * timeScale; timeLeft = timeLeft * timeScale;
+    diffNow = DiffLevel(); baseHearts = DiffBaseFor(diffNow); baseLives = DiffBaseLives();
+}
 
 // ---- room rules (Level Rules publishes them in its Create; every Create runs before any Step)
 if (rulesRead == 0) {
@@ -195,7 +213,7 @@ if (rulesRead == 0) {
         levelName = InstanceVariableGet(InstanceFind("Level Rules", 0), "levelName");
     }
     levelId = RoomValueGet("levelId", 1); hub = RoomValueGet("hub", 0); dark = RoomValueGet("dark", 0);
-    timeLimit = RoomValueGet("timeLimit", 300); timeLeft = timeLimit;
+    timeLimit = RoomValueGet("timeLimit", 300) * DiffTimeFor(diffNow); timeLeft = timeLimit;
     if (hub == 1 || campaign == 1 || tipsOn == 0) {
         // Campaign levels, the village and (tips off) a standalone room skip the title card: play straight away.
         // The "About This Level" surfaces (title card, STAGE banner) only appear with Enable Tips on.
@@ -219,12 +237,13 @@ var reload = RoomValueGet("heroReload", 0) == 1;
 if (reload) { RoomValueSet("heroReload", 0); }
 if (reload || GlobalGet("lives") != wroteLives) { lives = GlobalGet("lives"); }
 if (reload || GlobalGet("coins") != wroteCoins) { coins = GlobalGet("coins"); }
-if (reload || GlobalGet("maxHearts") != wroteMaxHearts) { maxHearts = Clamp(GlobalGet("maxHearts"), 3, 6); }
+if (reload || GlobalGet("maxHearts") != wroteMaxHearts) { maxHearts = Clamp(GlobalGet("maxHearts"), baseHearts, 6); }
 if (reload || GlobalGet("hearts") != wroteHearts) { hearts = Clamp(GlobalGet("hearts"), 1, maxHearts); }
 if (reload || GlobalGet("power") != wrotePower) { powerUp = Clamp(GlobalGet("power"), 0, 3); }
 GlobalSet("lives", lives); GlobalSet("coins", coins); GlobalSet("hearts", hearts);
 GlobalSet("maxHearts", maxHearts); GlobalSet("power", powerUp);
 wroteLives = lives; wroteCoins = coins; wroteHearts = hearts; wroteMaxHearts = maxHearts; wrotePower = powerUp;
+coinsSeen = coins;
 
 // ---- input: every action comes from the Input Kit (bindings, both devices, sprint hold/toggle).
 // Without the kit the old direct key and gamepad reads below keep the game playable.
@@ -310,6 +329,12 @@ if (state == 4) {
 }
 talking = RoomValueGet("dialogue", 0) == 1;
 // Options page (Options Kit) opened from the pause menu: the world stays frozen and the kit owns the input.
+if (state == 2 && pauseMode == 2) {
+    // Journal Kit page (How to Play or Collection) opened from the pause menu.
+    JrnStep();
+    if (JrnIsOpen() == 0) { pauseMode = 0; }
+    return;
+}
 if (state == 2 && pauseMode == 1) {
     var optionsAlive = 0;
     if (hasOptions == 1) { OptionsStep(); optionsAlive = OptionsIsOpen(); }
@@ -327,8 +352,8 @@ if (pausePressed && !talking) {
         state = 2; RoomValueSet("frozen", 1); RoomValueSet("paused", 1); AnimationSetSpeed(0);
         menuIndex = 0; menuNote = 0; pauseMode = 0; menuStick = 0;
         menuMouseX = MouseX; menuMouseY = MouseY;
-        // 0 Resume, 1 Options, 2 Save and Quit (Options only when the Options Kit exists).
-        if (hasOptions == 1) { menuItems = [0, 1, 2]; } else { menuItems = [0, 2]; }
+        // 0 Resume, 3 How to Play, 4 Collection, 1 Options, 2 Save and Quit (Options only when the Options Kit exists).
+        if (hasOptions == 1) { menuItems = [0, 3, 4, 1, 2]; } else { menuItems = [0, 3, 4, 2]; }
     } else { state = 1; RoomValueSet("frozen", 0); RoomValueSet("paused", 0); }
     return;
 }
@@ -352,7 +377,7 @@ if (state == 2) {
     var mouseOver = -1;
     for (var mk = 0; mk < menuCount; mk = mk + 1) {
         if (mouseNowX >= 250 * menuScaleX && mouseNowX <= 640 * menuScaleX
-            && mouseNowY >= (290 + mk * 40) * menuScaleY && mouseNowY <= (330 + mk * 40) * menuScaleY) { mouseOver = mk; }
+            && mouseNowY >= (290 + mk * 36) * menuScaleY && mouseNowY <= (324 + mk * 36) * menuScaleY) { mouseOver = mk; }
     }
     if (mouseOver >= 0 && mouseOver != menuIndex && (Abs(mouseNowX - menuMouseX) > 2 || Abs(mouseNowY - menuMouseY) > 2)) {
         menuIndex = mouseOver; SFX_MOVE
@@ -366,12 +391,16 @@ if (state == 2) {
         SFX_SELECT
         if (choice == 0) { state = 1; RoomValueSet("frozen", 0); RoomValueSet("paused", 0); }
         if (choice == 1 && hasOptions == 1) { OptionsOpen(1); pauseMode = 1; }
+        if (choice == 3) { JrnOpen(1, 0, 1); pauseMode = 2; }
+        if (choice == 4) { JrnOpen(1, 1, Clamp(GlobalGet("slot"), 1, 3)); pauseMode = 2; }
         if (choice == 2) { leaveReason = 4; EventUser(3); }
     }
     return;
 }
 
 // ---- playing
+if (campaign == 1) { GlobalSet("playTime", GlobalGet("playTime") + dt); }
+if (hub == 0) { levelClock = levelClock + dt; }
 if (bannerTimer > 0) { bannerTimer = Max(0, bannerTimer - dt); }
 if (hub == 0) { timeLeft = Max(0, timeLeft - dt); }
 invulnerable = Max(0, invulnerable - dt);
@@ -417,7 +446,8 @@ if (hasRep == 1) {
         }
     }
 }
-toastTimer = Max(0, toastTimer - dt);
+// The hint waits while a conversation or the shop is open (it would be drawn over the dialogue box).
+if (RoomValueGet("dialogue", 0) == 0) { toastTimer = Max(0, toastTimer - dt); }
 
 // ---- water: the whole room (RoomValue underwater) or a non-solid tile layer named "Water"
 var inWater = RoomValueGet("underwater", 0) == 1 || TileIndexAt(x, y - 16, "Water") >= 0;
@@ -639,13 +669,11 @@ if (TileIndexAt(x + 6, y - 4, "Hazards") == 32 || TileIndexAt(x, y - 20, "Hazard
 if (thorn == 1 && invulnerable <= 0 && starTimer <= 0 && hub == 0) { hurtSource = 1; EventUser(0); return; }
 
 // ---- pickups
-var hit = CollisionRectangle(x - 7, y - 34, x + 7, y, "Sun Coin");
-if (hit > 0) {
-    ScriptExecute("Spawn Effect", 0, InstanceGetX(hit), InstanceGetY(hit));
-    InstanceDestroy(hit); coins = coins + 1; score = score + 100;
-    SFX_COIN2
-}
-hit = CollisionRectangle(x - 7, y - 34, x + 7, y, "Big Sun Coin");
+slowLane = (slowLane + 1) % 6;
+// Sun Coins collect themselves (their Step reads heroX / heroY): asking the engine about all 40 of them every frame cost a
+// resource lookup per coin.
+var hit = 0;
+if (slowLane % 2 == 1) { hit = CollisionRectangle(x - 7, y - 34, x + 7, y, "Big Sun Coin"); }
 if (hit > 0) {
     ScriptExecute("Spawn Effect", 0, InstanceGetX(hit), InstanceGetY(hit));
     InstanceDestroy(hit); coins = coins + 5; score = score + 1000; bigCoins = bigCoins + 1;
@@ -653,10 +681,12 @@ if (hit > 0) {
 }
 // Power-ups are found by distance, so they work whatever their sprite's mask is.
 for (var ii = 0; ii < 5; ii = ii + 1) {
-    var item = InstanceNearest(x, y - 17, itemNames[ii]);
+    var item = 0;
+    if (slowLane % 3 == 1) { item = InstanceNearest(x, y - 17, itemNames[ii]); }
     if (item > 0 && PointDistance(InstanceGetX(item), InstanceGetY(item), x, y - 17) < 24) {
         ScriptExecute("Spawn Effect", 0, InstanceGetX(item), InstanceGetY(item));
         InstanceDestroy(item); score = score + 500;
+        if (campaign == 1) { AchSeeItem(ii); }
         if (ii <= 2) {
             if (powerUp == ii + 1) { score = score + 500; }
             powerUp = ii + 1;
@@ -669,17 +699,31 @@ for (var ii = 0; ii < 5; ii = ii + 1) {
             SFX_STARLIT
         }
         if (ii == 4) {
-            if (hearts < maxHearts) { hearts = hearts + 1; } else { score = score + 500; }
+            if (hearts < maxHearts) { hearts = Min(maxHearts, hearts + DiffBerry()); } else { score = score + 500; }
             SFX_HEART
         }
     }
 }
 if (powerUp == 3 && InstanceNumber("Shield Ring") == 0) { CreateInstance("Shield Ring", x, y, 0); }
+// Collection counters (campaign only): coins found, and power-ups or held items noted the first time Pip has them.
+if (campaign == 1) {
+    if (coins > coinsSeen) { AchOnCoins(coins - coinsSeen); }
+    if (powerUp != seenPower) { seenPower = powerUp; if (powerUp > 0) { AchSeeItem(powerUp - 1); } }
+    if (heldNow != seenHeld) { seenHeld = heldNow; if (heldNow > 0) { AchSeeItem(4 + heldNow); } }
+}
+coinsSeen = coins;
 
 // ---- enemies (convention: enemy, hp, stompable, contactDamage, points, dead, hurt)
+foeScan = foeScan - dt;
+if (foeScan <= 0) {
+    foeScan = 0.2; foeNow = [];
+    for (var fi = 0; fi < PgListSize(enemyNames); fi = fi + 1) {
+        if (InstanceNumber(enemyNames[fi]) > 0) { PgListAdd(foeNow, enemyNames[fi]); }
+    }
+}
 if (contactGrace <= 0) {
-    for (var ei = 0; ei < PgListSize(enemyNames); ei = ei + 1) {
-        var foeName = enemyNames[ei];
+    for (var ei = 0; ei < PgListSize(foeNow); ei = ei + 1) {
+        var foeName = foeNow[ei];
         var foe = CollisionRectangle(x - 7, y - 34, x + 7, y, foeName);
         if (foe > 0 && InstanceVariableGet(foe, "dead") == 0) {
             var isBoss = foeName == "Grumblecrag" || foeName == "Duskmantle";
@@ -721,7 +765,8 @@ if (contactGrace <= 0) {
         }
     }
 }
-hit = CollisionRectangle(x - 7, y - 34, x + 7, y, "Bounce Mushroom");
+hit = 0;
+if (descending == 1) { hit = CollisionRectangle(x - 7, y - 34, x + 7, y, "Bounce Mushroom"); }
 if (hit > 0 && descending == 1 && oldY <= InstanceGetY(hit) - 14) {
     y = InstanceGetY(hit) - 20; vy = -bounceSpeed; grounded = 0; bounceLift = 1; fallPeak = 0; riding = 0;
     // The mushroom reads this room value and plays its squash ("Bounce") animation.
@@ -729,18 +774,20 @@ if (hit > 0 && descending == 1 && oldY <= InstanceGetY(hit) - 14) {
     SFX_BOUNCE
     ScriptExecute("Spawn Effect", 3, InstanceGetX(hit), InstanceGetY(hit) - 20);
 }
-if (checkpoint == 0 && PlaceMeeting(x, y, "Checkpoint")) {
+if (checkpoint == 0 && slowLane % 2 == 0 && PlaceMeeting(x, y, "Checkpoint")) {
     checkpoint = 1;
     var flag = CollisionRectangle(x - 7, y - 34, x + 7, y, "Checkpoint");
     spawnX = InstanceGetX(flag) + 24; spawnY = InstanceGetY(flag);
     RoomValueSet("checkpoint", 1); score = score + 250;
     SFX_CHECKPOINT
+    if (DiffCheckpointHeal() == 1 && hearts < maxHearts) { hearts = maxHearts; SFX_HEART }
     ScriptExecute("Spawn Effect", 0, InstanceGetX(flag), InstanceGetY(flag) - 64);
 }
 // ---- goal: the summit Finish flag or a Glowspore clears the level
 var goal = 0;
-if (PlaceMeeting(x, y, "Finish")) { goal = 1; }
-var orb = InstanceNearest(x, y - 17, "Glowspore");
+if (slowLane % 2 == 1 && PlaceMeeting(x, y, "Finish")) { goal = 1; }
+var orb = 0;
+if (slowLane % 3 == 2) { orb = InstanceNearest(x, y - 17, "Glowspore"); }
 if (orb > 0 && PointDistance(InstanceGetX(orb), InstanceGetY(orb), x, y - 17) < 30
     && InstanceVariableGet(orb, "ready") == 1) {
     goal = 2; InstanceDestroy(orb);
@@ -819,6 +866,7 @@ if (state != 1 || hub == 1 || invulnerable > 0 || starTimer > 0) { return; }
 if (hasItems == 1 && fromHazard == 0) {
     if (ItemOnHurt(1) == 1) { invulnerable = 0.5; contactGrace = 0.2; return; }
 }
+hitsLevel = hitsLevel + 1;
 ScriptExecute("Spawn Effect", 5, x, y - 20);
 if (shakeOn == 1) { ViewShake(0, 3, 0.2); }
 GamepadVibrate(0.4, 0.2, 0.15);
@@ -831,7 +879,7 @@ if (powerUp == 3) {
 }
 hearts = hearts - 1;
 if (powerUp > 0) { powerUp = 0; SFX_POWERDOWN }
-invulnerable = 1.5; hurtTimer = 0.45;
+invulnerable = DiffGrace(); hurtTimer = 0.45;
 vx = -facing * 90; vy = -260; jumpBuffer = 0; gliding = 0; riding = 0;
 SFX_HURT
 if (hearts <= 0) { EventUser(1); }
@@ -841,6 +889,7 @@ EXPLORER_LOSE_LIFE = r"""
 // User Event 1: Pip loses a life (hearts ran out, a pit, or the timer). Respawn at the start or
 // the lit checkpoint with full hearts; no lives left is game over.
 if (state != 1) { return; }
+if (campaign == 1) { GlobalSet("deaths", GlobalGet("deaths") + 1); }
 ScriptExecute("Spawn Effect", 5, x, y - 20);
 if (shakeOn == 1) { ViewShake(0, 5, 0.3); }
 lives = lives - 1; hearts = maxHearts; powerUp = 0; invulnerable = 2; hurtTimer = 0.45;
@@ -864,8 +913,9 @@ EXPLORER_CLEAR = r"""
 // User Event 2: level clear (clearKind 1 = Finish flag, 2 = Glowspore).
 if (state != 1) { return; }
 state = 3; clearTimer = 0; clearJingle = 0;
-timeBonus = ScriptExecute("Time Bonus", timeLeft);
+timeBonus = ScriptExecute("Time Bonus", timeLeft / DiffTimeFor(diffNow));
 score = score + timeBonus;
+if (campaign == 1 && hub == 0) { AchOnClear(levelId, bigCoins, hitsLevel, timeLeft / Max(1, timeLimit), levelClock); }
 RoomValueSet("frozen", 1); RoomValueSet("musicState", 2);
 StopSound(music); StopSound(ambience);
 if (starTimer > 0) { starTimer = 0; ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); RoomValueSet("starlit", 0); }
@@ -880,7 +930,7 @@ ScriptExecute("Spawn Effect", 4, x, y - 96);
 EXPLORER_LEAVE = r"""
 // User Event 3 (campaign): leave the level for the Overworld map.
 // leaveReason 1 = cleared (records clear<id>, medals<id>, glowspores, returnFromLevel),
-// 2 = Return to map, 3 = game over (lives refilled to 5), 4 = Save and Quit from the pause menu
+// 2 = Return to map, 3 = game over (lives refilled to the difficulty's 5 / 7 / 3), 4 = Save and Quit from the pause menu
 // (saves the game, then the Main Menu; a level in progress keeps what Pip entered it with).
 if (leaveReason == 4) {
     if (campaign == 1) {
@@ -914,7 +964,7 @@ if (leaveReason == 2 && hub == 0) {
     coins = entryCoins; powerUp = entryPower; hearts = entryHearts;
     GlobalSet("heldItem", entryHeld); GlobalSet("arrows", entryArrows);
 }
-if (leaveReason == 3) { lives = 5; hearts = maxHearts; powerUp = 0; }
+if (leaveReason == 3) { lives = DiffBaseLives(); hearts = maxHearts; powerUp = 0; }
 if (levelId >= 1 && levelId <= 5) { GlobalSet("mapNode", levelId); }
 GlobalSet("lives", lives); GlobalSet("coins", coins); GlobalSet("hearts", hearts);
 GlobalSet("maxHearts", maxHearts); GlobalSet("power", powerUp);
@@ -992,12 +1042,12 @@ if (showHints && hasInput == 1) {
         }
         DrawSetFont("Consolas"); DrawSetAlpha(1); DrawSetColorRgb(240, 241, 219);
         if (hintLabel != "") {
-            DrawTextScaled(hintX, 677 * sy, hintLabel, 17 * s);
-            hintX = hintX + DrawTextWidth(hintLabel, 17 * s) + 26 * sx;
+            DrawTextScaled(hintX, 677 * sy, hintLabel, 18 * s);
+            hintX = hintX + DrawTextWidth(hintLabel, 18 * s) + 26 * sx;
         }
     }
     DrawSetFont("Consolas"); DrawSetAlpha(1); DrawSetColorRgb(240, 241, 219);
-    DrawTextScaled(hintX, 677 * sy, pauseHint, 17 * s);
+    DrawTextScaled(hintX, 677 * sy, pauseHint, 18 * s);
 }
 
 DrawSetFont("Consolas"); DrawSetAlpha(1);
@@ -1054,7 +1104,7 @@ if (hasItems == 1 && (state == 1 || state == 2)) {
     DrawSetTextAlign("left"); DrawSetFont("Consolas"); DrawSetAlpha(1); DrawSetColorRgb(248, 252, 244);
 }
 // A one-line hint when the reputation stage changes (never explained).
-if (toastTimer > 0 && state == 1 && toastText != "") {
+if (toastTimer > 0 && state == 1 && toastText != "" && RoomValueGet("dialogue", 0) == 0) {
     var toastFade = Min(1, toastTimer / 0.8);
     var toastSize = 19 * s; var toastW = DrawTextWidth(toastText, toastSize);
     var toastX = 640 * sx - toastW / 2;
@@ -1068,7 +1118,7 @@ if (checkpoint == 1 && state == 1) {
     DrawSetAlpha(0.8); DrawSetColorRgb(29, 48, 67);
     DrawRectangle(28*sx, 100*sy, 230*sx, 128*sy);
     DrawSetAlpha(1); DrawSetColorRgb(255, 231, 150);
-    DrawTextScaled(40*sx, 104*sy, "CHECKPOINT SAVED", 17*s);
+    DrawTextScaled(40*sx, 104*sy, "CHECKPOINT SAVED", 18*s);
 }
 // Campaign level banner.
 if (bannerTimer > 0 && state == 1) {
@@ -1086,6 +1136,9 @@ if (bannerTimer > 0 && state == 1) {
 if (state == 2 && pauseMode == 1) {
     // The Options Kit page draws itself over the frozen world.
     if (hasOptions == 1) { OptionsDraw(); }
+} else if (state == 2 && pauseMode == 2) {
+    // The Journal Kit page (How to Play / Collection) likewise.
+    JrnDraw();
 } else if (state != 1) {
     UiSetVisible(panels, "logo", state == 0);
     UiSetVisible(panels, "ribbon", state == 0);
@@ -1135,26 +1188,28 @@ if (state == 2 && pauseMode == 1) {
             var label = "RESUME";
             if (code == 1) { label = "OPTIONS"; }
             if (code == 2) { label = "SAVE AND QUIT"; }
+            if (code == 3) { label = "HOW TO PLAY"; }
+            if (code == 4) { label = "COLLECTION"; }
             if (mi == menuIndex) {
                 DrawSetColorRgb(255, 223, 145);
-                DrawTextScaled(270*sx, (296 + mi * 40)*sy, StringJoin2("> ", label), 26*s);
+                DrawTextScaled(270*sx, (296 + mi * 36)*sy, StringJoin2("> ", label), 26*s);
             } else {
                 DrawSetColorRgb(220, 239, 224);
-                DrawTextScaled(300*sx, (296 + mi * 40)*sy, label, 26*s);
+                DrawTextScaled(300*sx, (296 + mi * 36)*sy, label, 26*s);
             }
         }
         DrawSetColorRgb(220, 239, 224);
-        DrawTextScaled(270*sx, 440*sy, StringJoin2("COINS ", StringOf(coins)), 22*s);
-        DrawTextScaled(470*sx, 440*sy, StringJoin2("LIVES ", StringOf(lives)), 22*s);
-        DrawTextScaled(670*sx, 440*sy, StringJoin2("GLOWSPORES ", StringOf(GlobalGet("glowspores"))), 22*s);
+        DrawTextScaled(270*sx, 482*sy, StringJoin2("COINS ", StringOf(coins)), 22*s);
+        DrawTextScaled(470*sx, 482*sy, StringJoin2("LIVES ", StringOf(lives)), 22*s);
+        DrawTextScaled(670*sx, 482*sy, StringJoin2("GLOWSPORES ", StringOf(GlobalGet("glowspores"))), 22*s);
         if (hasRep == 1) {
             DrawSetColorRgb(206, 196, 224);
-            DrawTextScaled(270*sx, 480*sy, StringJoin2("REPUTATION  ", RepLabel()), 22*s);
+            DrawTextScaled(270*sx, 514*sy, StringJoin3("REPUTATION  ", RepLabel(), StringJoin2("     DIFFICULTY  ", DiffName(diffNow))), 22*s);
         }
         DrawSetColorRgb(220, 239, 224);
         var pauseHelp = "UP/DOWN choose   ENTER select   ESC resume";
         if (GlobalGet("lastInput") == 1) { pauseHelp = "D-PAD choose   A select   START or B resume"; }
-        DrawTextScaled(270*sx, 530*sy, pauseHelp, 20*s);
+        DrawTextScaled(270*sx, 546*sy, pauseHelp, 20*s);
     }
     if (state == 3) {
         if (campaign == 1 || clearKind == 2) { DrawTextScaled(270*sx, 226*sy, "GLOWSPORE RECOVERED!", 40*s); }
@@ -1182,7 +1237,7 @@ if (state == 2 && pauseMode == 1) {
             DrawTextScaled(270*sx, 250*sy, "GAME OVER", 44*s);
             DrawSetColorRgb(220, 239, 224);
             DrawTextScaled(270*sx, 336*sy, "Pip heads back to the map to catch his breath.", 23*s);
-            DrawTextScaled(270*sx, 380*sy, "Lives are refilled to 5. Glowspores you found stay found.", 21*s);
+            DrawTextScaled(270*sx, 380*sy, StringJoin3("Lives are refilled to ", StringOf(DiffBaseLives()), ". Glowspores you found stay found."), 21*s);
             DrawTextScaled(270*sx, 440*sy, "ENTER: continue", 26*s);
         } else {
             DrawTextScaled(270*sx, 250*sy, "TRY AGAIN", 44*s);
@@ -1193,6 +1248,8 @@ if (state == 2 && pauseMode == 1) {
         }
     }
 }
+// Achievements Kit banner (over everything, in every state).
+AchToastDraw("Consolas");
 DrawSetAlpha(1); DrawSetColorRgb(255, 255, 255);
 """
 
@@ -1308,9 +1365,29 @@ if (petals == 1) { ScriptExecute("Spawn Effect", 7, RoomGetWidth() / 2, -8); }
 musicVolume = 0.6; ambienceVolume = 0.35;
 musicChannel = -1; ambienceChannel = -1; playing = ""; ambienceOn = 0; bossDone = 0; ducked = 0;
 RoomValueSet("musicChannel", -1); RoomValueSet("ambienceChannel", -1);
+// Fit the world to the window. The room does not letterbox on its own (scaleViewportsWithWindow is off), so the
+// HUD, drawn over the whole window, and the world share one frame at any window shape. 16:9 or wider windows
+// show more of the level to the sides (up to 864 px, 2.4:1; wider ones get bars at the sides); narrower
+// windows keep the 640x360 view with bars above and below.
+fitW = 0; fitH = 0;
+function RulesFitView() {
+    var fw = WindowGetWidth(); var fh = WindowGetHeight();
+    if (fw == self.fitW && fh == self.fitH) { return 0; }
+    self.fitW = fw; self.fitH = fh;
+    var vw = 640; var pw = fw; var ph = Floor(fw * 9 / 16);
+    if (fw * 9 >= fh * 16) {
+        vw = Min(360 * fw / fh, 864);
+        ph = fh; pw = Floor(vw * fh / 360);
+    }
+    ViewSetBounds(0, vw, 360);
+    ViewSetViewport(0, Floor((fw - pw) / 2), Floor((fh - ph) / 2), pw, ph);
+    return 0;
+}
+RulesFitView();
 """
 
 LEVEL_RULES_STEP = r"""
+RulesFitView();
 // Rooms with no Explorer play straight away (musicState defaults to 1).
 var wanted = RoomValueGet("musicState", 1);
 var boss = RoomValueGet("bossFight", 0);
@@ -1361,7 +1438,7 @@ StopSound(musicChannel); StopSound(ambienceChannel);
 SPORE_CREATE = r"""
 // Spore Shot: thrown by Pip with the Spore Puff power-up. It bounces along the ground and gives
 // the first live enemy it touches one point of `hurt` (enemy convention).
-var pip = InstanceFind("Explorer", 0);
+var pip = RoomValueGet("heroId", 0);
 dir = 1;
 if (pip > 0 && InstanceVariableGet(pip, "facing") < 0) { dir = -1; }
 vx = dir * 330; vy = -60; life = 2.2; bounces = 0;
@@ -1396,7 +1473,7 @@ for (var ei = 0; ei < PgListSize(enemyNames); ei = ei + 1) {
         InstanceVariableSet(foe, "hitDmg", 1);
         InstanceVariableSet(foe, "hitX", x); InstanceVariableSet(foe, "hitY", y);
         InstanceVariableSet(foe, "hurt", InstanceVariableGet(foe, "hurt") + 1);
-        var pip = InstanceFind("Explorer", 0);
+        var pip = RoomValueGet("heroId", 0);
         if (pip > 0) { InstanceVariableSet(pip, "score", InstanceVariableGet(pip, "score") + InstanceVariableGet(foe, "points")); }
         PlaySound("Assets/Audio/Spore Hit.audio.json", 0.85, 1, false);
         ScriptExecute("Spawn Effect", 1, x, y);
@@ -1412,7 +1489,7 @@ image_alpha = 0.9;
 """
 
 SHIELD_STEP = r"""
-var pip = InstanceFind("Explorer", 0);
+var pip = RoomValueGet("heroId", 0);
 if (pip <= 0 || InstanceVariableGet(pip, "powerUp") != 3) { InstanceDestroy(id); return; }
 x = InstanceGetX(pip); y = InstanceGetY(pip) + 2;
 if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); } else { AnimationSetSpeed(1); }
@@ -1503,7 +1580,7 @@ AnimationPlay("Walk", true); AnimationSetSpeed(0);
 """
 
 ACORN_STEP = r"""
-var dt = Clamp(DeltaTime, 0, 0.05);
+var dt = Clamp(DeltaTime, 0, 0.05) * DiffFoe();
 if (hurt > 0 && dead == 0) {
     GoreEnemyHit();
     hp = hp - hurt; hurt = 0;
@@ -1551,7 +1628,7 @@ if (y > RoomGetHeight() + 80) { InstanceDestroy(id); }
 """
 
 BEE_STEP = r"""
-var dt = Clamp(DeltaTime, 0, 0.05);
+var dt = Clamp(DeltaTime, 0, 0.05) * DiffFoe();
 if (hurt > 0 && dead == 0) {
     GoreEnemyHit();
     hp = hp - hurt; hurt = 0;
@@ -1728,6 +1805,18 @@ AnimationPlay("Spin", true); AnimationSetSpeed(0);
 COIN_STEP = """if (RoomValueGet("frozen", 1) == 1) { AnimationSetSpeed(0); return; }
 AnimationSetSpeed(1); bob = (bob + DeltaTime * 150) % 360;
 y = homeY + Sin(bob) * 2;
+// Pickup: Pip's box (x +-7, y-34..y) against this coin's 16 x 18 picture.
+var hid = RoomValueGet("heroId", 0);
+if (hid > 0) {
+    var cdx = Abs(RoomValueGet("heroX", -9999) - x); var chy = RoomValueGet("heroY", -9999);
+    if (cdx < 15 && chy > y - 9 && chy - 34 < y + 9) {
+        ScriptExecute("Spawn Effect", 0, x, y);
+        InstanceVariableSet(hid, "coins", InstanceVariableGet(hid, "coins") + 1);
+        InstanceVariableSet(hid, "score", InstanceVariableGet(hid, "score") + 100);
+        PlaySound("Assets/Audio/Coin.audio.json", 0.85, 1, false);
+        InstanceDestroy(id);
+    }
+}
 """
 BIG_COIN_CREATE = """// A secret Big Sun Coin (Sun Medal): worth 5 coins and 1000 points (collected in Explorer Step).
 homeY = y; bob = x % 360;

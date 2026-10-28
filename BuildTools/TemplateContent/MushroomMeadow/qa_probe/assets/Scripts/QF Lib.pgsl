@@ -1,0 +1,394 @@
+// QF Lib: feature-probe helpers (QA test copy only). Every function runs on the caller (the QF Probe).
+function QfCk(nm, ok, detail) {
+    var okv = 0;
+    if (ok) { okv = 1; }
+    if (okv == 1) { self.qfPass = self.qfPass + 1; } else { self.qfFail = self.qfFail + 1; }
+    TestCheck(nm, okv == 1, detail);
+    return okv;
+}
+
+function QfEq(nm, got, want) {
+    var ok = 0;
+    if (got == want) { ok = 1; }
+    QfCk(nm, ok, "got [" + got + "] want [" + want + "]");
+    return ok;
+}
+
+function QfNear(nm, got, want, tol) {
+    var ok = 0;
+    if (Abs(got - want) <= tol) { ok = 1; }
+    QfCk(nm, ok, "got " + got + " want " + want + " +-" + tol);
+    return ok;
+}
+
+function QfInfo(nm, detail) {
+    TestCheck(nm, true, detail);
+    return 1;
+}
+
+function QfShot(nm) {
+    ScreenshotSave(nm);
+    return 0;
+}
+
+// ---------------------------------------------------------------- Input Kit (no key presses needed)
+function QfLogicInput() {
+    InputInit();
+    InputResetBindings(0);
+    InputResetBindings(1);
+    QfEq("input.pad.connected.none", GamepadConnected(), false);
+    var acts = ["left", "right", "up", "down", "jump", "sprint", "use", "throw", "interact"];
+    var kb1 = ["A", "D", "W", "S", "Space", "Shift", "J", "K", "E"];
+    var kb2 = ["Left", "Right", "Up", "Down", "W", "", "MouseLeft", "MouseRight", "X"];
+    var pd1 = ["", "", "", "", "A", "L3", "X", "B", "Y"];
+    for (var i = 0; i < 9; i = i + 1) {
+        QfEq("input.default." + acts[i] + ".kb1", InputBindingGet(acts[i], 0, 1), kb1[i]);
+        QfEq("input.default." + acts[i] + ".kb2", InputBindingGet(acts[i], 0, 2), kb2[i]);
+        QfEq("input.default." + acts[i] + ".pad1", InputBindingGet(acts[i], 1, 1), pd1[i]);
+        QfEq("input.default." + acts[i] + ".pad2", InputBindingGet(acts[i], 1, 2), "");
+    }
+    QfEq("input.text.jump.kb1", InputBindingText("jump", 0, 1), "SPACE");
+    QfEq("input.text.use.kb2", InputBindingText("use", 0, 2), "L CLICK");
+    QfEq("input.text.sprint.kb2", InputBindingText("sprint", 0, 2), "NONE");
+    QfEq("input.text.jump.pad1", InputBindingText("jump", 1, 1), "A");
+    QfEq("input.text.sprint.pad1", InputBindingText("sprint", 1, 1), "LS CLICK");
+    QfEq("input.text.left.pad1", InputBindingText("left", 1, 1), "L STICK");
+    QfEq("input.text.left.pad2", InputBindingText("left", 1, 2), "D-PAD");
+    QfEq("input.glyph.jump.kb", InputGlyph("jump"), "SPACE");
+    QfEq("input.actionlabel", InputActionLabel("use"), "USE ITEM");
+    // canonical tokens and aliases
+    var ct = ["LeftShift", "ctrl", "f5", "Return", "a", "mouse1", "zz", "F13", "F12", "del", "space", "9", "  b "];
+    var cw = ["Shift", "Control", "F5", "Enter", "A", "MouseLeft", "", "", "F12", "Delete", "Space", "9", "B"];
+    for (var c = 0; c < PgListSize(ct); c = c + 1) {
+        QfEq("input.canon.kb." + ct[c], InputCanon(ct[c], 0), cw[c]);
+    }
+    QfEq("input.canon.pad.l1", InputCanon("l1", 1), "LB");
+    QfEq("input.canon.pad.ls", InputCanon("ls", 1), "L3");
+    QfEq("input.canon.pad.dpadup", InputCanon("dpadup", 1), "DPadUp");
+    QfEq("input.canon.pad.bad", InputCanon("space", 1), "");
+    // rebinding with a swap
+    var sw1 = InputSetBinding("jump", 0, 1, "K");
+    QfEq("input.rebind.swap.returns", sw1, "throw");
+    QfEq("input.rebind.jump.kb1", InputBindingGet("jump", 0, 1), "K");
+    QfEq("input.rebind.throw.kb1.gets.old", InputBindingGet("throw", 0, 1), "Space");
+    var sw2 = InputSetBinding("jump", 0, 2, "Shift");
+    QfEq("input.rebind.swap2.returns", sw2, "sprint");
+    QfEq("input.rebind.sprint.kb1.gets.old", InputBindingGet("sprint", 0, 1), "W");
+    QfEq("input.rebind.reject.P", InputSetBinding("use", 0, 1, "P"), "");
+    QfEq("input.rebind.reject.P.unchanged", InputBindingGet("use", 0, 1), "J");
+    QfEq("input.rebind.reject.escape", InputSetBinding("use", 0, 1, "Escape"), "");
+    QfEq("input.rebind.reject.escape.unchanged", InputBindingGet("use", 0, 1), "J");
+    InputSetBinding("use", 1, 1, "RB");
+    QfEq("input.rebind.pad.use", InputBindingGet("use", 1, 1), "RB");
+    QfEq("input.rebind.pad.reject.start", InputSetBinding("use", 1, 2, "Start"), "");
+    QfEq("input.rebind.pad.start.unbound", InputBindingGet("use", 1, 2), "");
+    QfEq("input.rebind.pad.direction.fixed", InputSetBinding("left", 1, 1, "A"), "");
+    QfEq("input.rebind.pad.direction.empty", InputBindingGet("left", 1, 1), "");
+    var swp = InputSetBinding("throw", 1, 1, "RB");
+    QfEq("input.rebind.pad.swap.returns", swp, "use");
+    QfEq("input.rebind.pad.swap.use", InputBindingGet("use", 1, 1), "B");
+    InputClearBinding("use", 0, 2);
+    QfEq("input.clear.use.kb2", InputBindingGet("use", 0, 2), "");
+    // persistence
+    var blob = SaveSlotRead("Input Bindings");
+    QfEq("input.save.head", StringSplitPart(blob, ",", 1), "mmin1");
+    QfEq("input.save.count", StringSplitCount(blob, ","), 37);
+    for (var ai = 0; ai < 9; ai = ai + 1) {
+        for (var dv = 0; dv < 2; dv = dv + 1) {
+            for (var sl = 1; sl <= 2; sl = sl + 1) { GlobalDelete(InputBindingName(ai, dv, sl)); }
+        }
+    }
+    QfEq("input.wiped.jump.default", InputBindingGet("jump", 0, 1), "Space");
+    QfEq("input.load.returns", InputLoadBindings(), 1);
+    QfEq("input.load.jump.kb1", InputBindingGet("jump", 0, 1), "K");
+    QfEq("input.load.use.pad1", InputBindingGet("use", 1, 1), "B");
+    QfEq("input.load.use.kb2.empty", InputBindingGet("use", 0, 2), "");
+    SaveSlotWrite("Input Bindings", "junk");
+    QfEq("input.load.junk", InputLoadBindings(), 0);
+    SaveSlotWrite("Input Bindings", "mmin1,a,b");
+    QfEq("input.load.short", InputLoadBindings(), 0);
+    SaveSlotWrite("Input Bindings", "");
+    QfEq("input.load.empty", InputLoadBindings(), 0);
+    InputResetBindings(0);
+    InputResetBindings(1);
+    QfEq("input.reset.jump", InputBindingGet("jump", 0, 1), "Space");
+    QfEq("input.reset.use.kb2", InputBindingGet("use", 0, 2), "MouseLeft");
+    QfEq("input.capture.idle", InputCapture(0), "");
+    QfEq("input.capture.pad.idle", InputCapture(1), "");
+    return 1;
+}
+
+// ---------------------------------------------------------------- Reputation Kit
+function QfLogicRep() {
+    RepReset();
+    GlobalSet("taintStage", 0);
+    var bs = [0, 5, 9.9, 24.9, 25, 37.9, 38, 49.9, 50, 74.9, 75, 100];
+    var es = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 3, 3];
+    var lastMul = 0;
+    for (var i = 0; i < PgListSize(bs); i = i + 1) {
+        GlobalSet("brutality", bs[i]);
+        GlobalSet("taintStage", 0);
+        var st = RepStage();
+        var lab = RepLabel();
+        var mul = RepPriceMul();
+        QfEq("rep.stage.at." + bs[i], st, es[i]);
+        QfInfo("rep.row.at." + bs[i], "stage " + st + " label " + lab + " mul " + StringFormatNumber(mul, 3) + " price30 " + RepPrice(30) + " pct " + RepPricePercent() + " taint " + StringFormatNumber(RepTaintAmount(), 3));
+        if (mul + 0.0001 < lastMul) { QfCk("rep.mul.monotonic." + bs[i], 0, "mul fell from " + lastMul + " to " + mul); }
+        lastMul = mul;
+        if (mul < 0.75 || mul > 1.6) { QfCk("rep.mul.range." + bs[i], 0, "mul " + mul); }
+    }
+    GlobalSet("brutality", 30); GlobalSet("taintStage", 0); RepStage();
+    QfEq("rep.label.stage1.known", RepLabel(), "KNOWN");
+    GlobalSet("brutality", 40); RepStage();
+    QfEq("rep.label.stage1.wary", RepLabel(), "WARY");
+    GlobalSet("brutality", 60); RepStage();
+    QfEq("rep.label.stage2", RepLabel(), "FEARED");
+    GlobalSet("brutality", 80); RepStage();
+    QfEq("rep.label.stage3", RepLabel(), "DREADED");
+    // hysteresis: leaving stage 1 needs 3 points less than 25
+    GlobalSet("brutality", 26); GlobalSet("taintStage", 0); RepStage();
+    GlobalSet("brutality", 23); QfEq("rep.hyst.23.stays1", RepStage(), 1);
+    GlobalSet("brutality", 21); QfEq("rep.hyst.21.drops0", RepStage(), 0);
+    // kind label: stage 0, brutality < 8, three stomps
+    RepReset();
+    QfEq("rep.label.fresh", RepLabel(), "RESPECTED");
+    for (var k = 0; k < 3; k = k + 1) { RepKill(1, 0, 0, 1); }
+    QfEq("rep.label.after3stomps", RepLabel(), "BELOVED");
+    QfEq("rep.kind.price", RepPrice(100) < 100, true);
+    QfEq("rep.stomp.count", GlobalGet("killsStomp"), 3);
+    // boss kills and feared bonus
+    RepReset();
+    QfEq("rep.boss.zero", RepKill(0, 0, 0, 2), 0);
+    self.feared = 1;
+    var fb = RepKill(2, 0, 0, 1);
+    QfNear("rep.feared.bonus", fb, 2.0, 0.001);
+    self.feared = 0;
+    // pacing: how many brutal kills to Dreaded
+    var kinds = ["gib sword", "gib arrow", "slice sword", "plain sword", "plain arrow"];
+    for (var q = 0; q < 5; q = q + 1) {
+        RepReset();
+        var n = 0;
+        while (GlobalGet("taintStage") < 3 && n < 400) {
+            if (q == 0) { RepKill(2, 1, 0, 1); }
+            if (q == 1) { RepKill(3, 1, 0, 1); }
+            if (q == 2) { RepKill(2, 0, 1, 1); }
+            if (q == 3) { RepKill(2, 0, 0, 1); }
+            if (q == 4) { RepKill(3, 0, 0, 1); }
+            n = n + 1;
+        }
+        QfInfo("rep.pacing." + kinds[q], n + " kills to DREADED");
+    }
+    RepReset();
+    for (var m = 0; m < 12; m = m + 1) { RepKill(2, 1, 0, 1); }
+    var peak = GlobalGet("brutality");
+    for (var zk = 0; zk < 40; zk = zk + 1) { RepKill(1, 0, 0, 1); }
+    QfInfo("rep.stomps.heal", "from " + StringFormatNumber(peak, 2) + " to " + StringFormatNumber(GlobalGet("brutality"), 2) + " after 40 stomps");
+    GlobalSet("repGrace", 0);
+    GlobalSet("brutality", 10);
+    RepDecay(60);
+    QfNear("rep.decay.minute", GlobalGet("brutality"), 8.8, 0.01);
+    RepReset();
+    return 1;
+}
+
+// ---------------------------------------------------------------- Item / Gore / Fear resource names
+function QfLogicNames() {
+    for (var k = 1; k <= 4; k = k + 1) {
+        QfEq("item.object.exists." + k, ResourceExists(ItemObjectName(k)), true);
+        QfEq("item.pickup.sprite." + k, ResourceExists(ItemSpriteName(k)), true);
+    }
+    var art = ["Held Sword", "Held Shield", "Held Bow", "Held Flower", "Thrown Sword", "Thrown Shield", "Thrown Bow", "Thrown Flower", "Arrow Sprite", "Pad Glyphs", "Held Item", "Thrown Item", "Arrow", "Gore Half", "Gore Chunk", "Blood Stain", "Pip Spore Cloud", "Pip Spore Leak", "Portrait Pip Spore 1", "Portrait Pip Spore 2", "Portrait Pip Spore 3"];
+    for (var a = 0; a < PgListSize(art); a = a + 1) { QfEq("res.exists." + art[a], ResourceExists(art[a]), true); }
+    var bases = ["Blood Spray", "Blood Mist", "Gore Chunks", "Blood Drip", "Slice Spray"];
+    for (var kd = 0; kd < 6; kd = kd + 1) {
+        for (var b = 0; b < 5; b = b + 1) {
+            var tail = "";
+            if (kd == 1) { tail = " Sap"; } else if (kd == 2) { tail = " Yellow"; } else if (kd == 3) { tail = " Ichor"; } else if (kd == 4) { tail = " Goo"; } else if (kd == 5) { tail = " Amber"; }
+            QfEq("gore.fx." + bases[b] + "." + kd, ResourceExists(bases[b] + tail), true);
+        }
+        var cl = GoreRgb(kd, 0) + GoreRgb(kd, 1) + GoreRgb(kd, 2);
+        QfCk("gore.rgb." + kd, cl > 0, "sum " + cl);
+    }
+    QfEq("gore.on.default", GoreOn(), 1);
+    GlobalSet("gore", 0);
+    QfEq("gore.off", GoreOn(), 0);
+    QfEq("gore.off.blood.noop", GoreBlood(100, 100, 5, 1, 0), 0);
+    QfEq("gore.off.stain.noop", GoreStain(100, 100, 0), 0);
+    GlobalSet("gore", 1);
+    return 1;
+}
+
+// ---------------------------------------------------------------- Game Save / Game Load
+function QfSetCampaign() {
+    GlobalSet("slot", 2); GlobalSet("campaign", 1);
+    GlobalSet("lives", 4); GlobalSet("coins", 77); GlobalSet("hearts", 2); GlobalSet("maxHearts", 5); GlobalSet("power", 2);
+    for (var i = 1; i <= 5; i = i + 1) { GlobalSet("clear" + i, 0); GlobalSet("medals" + i, 0); }
+    GlobalSet("clear1", 1); GlobalSet("clear2", 1); GlobalSet("medals1", 3); GlobalSet("medals2", 1);
+    GlobalSet("glowspores", 2); GlobalSet("mapNode", 3); GlobalSet("gameComplete", 0); GlobalSet("introSeen", 1);
+    GlobalSet("mapRevealed", 2);
+    for (var t = 1; t <= 5; t = t + 1) { GlobalSet("hubTalk" + t, t); }
+    GlobalSet("heldItem", 3); GlobalSet("arrows", 17); GlobalSet("brutality", 43.5);
+    GlobalSet("killsStomp", 11); GlobalSet("killsBlade", 22); GlobalSet("killsArrow", 5); GlobalSet("killsGib", 4); GlobalSet("killsSliced", 6);
+    GlobalSet("fearedBy", 8); GlobalSet("taintStage", 1);
+    return 1;
+}
+
+function QfLogicSave() {
+    QfSetCampaign();
+    QfEq("save.write", ScriptExecute("Game Save", 0), 1);
+    var txt = SaveSlotRead("Slot 2");
+    QfEq("save.head", StringSplitPart(txt, ",", 1), "mm2");
+    QfEq("save.fieldcount", StringSplitCount(txt, ","), 61);
+    // scramble everything, then load
+    GlobalSet("lives", 1); GlobalSet("coins", 0); GlobalSet("maxHearts", 3); GlobalSet("power", 0); GlobalSet("clear1", 0); GlobalSet("clear2", 0);
+    GlobalSet("heldItem", 0); GlobalSet("arrows", 0); GlobalSet("brutality", 0); GlobalSet("taintStage", 0); GlobalSet("killsBlade", 0);
+    GlobalSet("campaign", 0); GlobalSet("slot", 0);
+    QfEq("load.returns", ScriptExecute("Game Load", 2), 1);
+    QfEq("load.lives", GlobalGet("lives"), 4);
+    QfEq("load.coins", GlobalGet("coins"), 77);
+    QfEq("load.maxHearts", GlobalGet("maxHearts"), 5);
+    QfEq("load.hearts.refilled", GlobalGet("hearts"), 5);
+    QfEq("load.power", GlobalGet("power"), 2);
+    QfEq("load.clear2", GlobalGet("clear2"), 1);
+    QfEq("load.medals1", GlobalGet("medals1"), 3);
+    QfEq("load.mapNode", GlobalGet("mapNode"), 3);
+    QfEq("load.heldItem", GlobalGet("heldItem"), 3);
+    QfEq("load.arrows", GlobalGet("arrows"), 17);
+    QfNear("load.brutality", GlobalGet("brutality"), 43.5, 0.001);
+    QfEq("load.killsBlade", GlobalGet("killsBlade"), 22);
+    QfEq("load.fearedBy", GlobalGet("fearedBy"), 8);
+    QfEq("load.taintStage", GlobalGet("taintStage"), 1);
+    QfEq("load.hubTalk4", GlobalGet("hubTalk4"), 4);
+    QfEq("load.campaign", GlobalGet("campaign"), 1);
+    QfEq("load.slot", GlobalGet("slot"), 2);
+    // an older save: no round-4 fields, only the first 29 values
+    var oldTxt = "mm2,3,15,2,4,1,1,1,0,0,0,3,1,0,0,0,2,2,0,1,2,1,0,0,0,0,0.5,0.6,1,1";
+    SaveSlotWrite("Slot 3", oldTxt);
+    GlobalSet("heldItem", 4); GlobalSet("arrows", 40); GlobalSet("brutality", 99); GlobalSet("taintStage", 3);
+    QfEq("load.old.returns", ScriptExecute("Game Load", 3), 1);
+    QfEq("load.old.lives", GlobalGet("lives"), 3);
+    QfEq("load.old.heldItem.defaulted", GlobalGet("heldItem"), 0);
+    QfEq("load.old.arrows.defaulted", GlobalGet("arrows"), 0);
+    QfEq("load.old.brutality.defaulted", GlobalGet("brutality"), 0);
+    QfEq("load.old.taintStage.defaulted", GlobalGet("taintStage"), 0);
+    // wild values are clamped
+    SaveSlotWrite("Slot 3", "mm2,0,5,0,99,9,0,0,0,0,0,0,0,0,0,0,12,77,0,0,0,0,0,0,0,0,0,0,0,0,9,500,900,0,0,0,0,0,0,9");
+    QfEq("load.wild.returns", ScriptExecute("Game Load", 3), 1);
+    QfEq("load.wild.lives.floor", GlobalGet("lives"), 5);
+    QfEq("load.wild.maxHearts.cap", GlobalGet("maxHearts"), 6);
+    QfEq("load.wild.mapNode.cap", GlobalGet("mapNode"), 5);
+    QfEq("load.wild.heldItem.cap", GlobalGet("heldItem"), 4);
+    QfEq("load.wild.arrows.cap", GlobalGet("arrows"), 99);
+    QfEq("load.wild.brutality.cap", GlobalGet("brutality"), 100);
+    QfEq("load.wild.taintStage.cap", GlobalGet("taintStage"), 3);
+    // junk
+    SaveSlotWrite("Slot 3", "garbage");
+    QfEq("load.junk", ScriptExecute("Game Load", 3), 0);
+    SaveSlotWrite("Slot 3", "mm2,abc,xyz,,,");
+    QfEq("load.letters.returns", ScriptExecute("Game Load", 3), 1);
+    QfEq("load.letters.lives.floor", GlobalGet("lives"), 5);
+    SaveSlotWrite("Slot 3", "mm2");
+    QfEq("load.headonly", ScriptExecute("Game Load", 3), 1);
+    SaveSlotDelete("Slot 3");
+    QfEq("load.empty", ScriptExecute("Game Load", 3), 0);
+    GlobalSet("slot", 2);
+    QfEq("load.badslot.uses.global", ScriptExecute("Game Load", 9), 1);
+    // locale: numbers are saved with a point; Real() reads with the machine's culture
+    GlobalSet("slot", 2);
+    GlobalSet("brutality", 12.25);
+    ScriptExecute("Game Save", 0);
+    GlobalSet("brutality", 0);
+    ScriptExecute("Game Load", 2);
+    QfNear("save.decimal.roundtrip", GlobalGet("brutality"), 12.25, 0.0001);
+    // new game
+    QfEq("newgame.returns", ScriptExecute("New Game", 3), 1);
+    QfEq("newgame.lives", GlobalGet("lives"), 5);
+    QfEq("newgame.item", GlobalGet("heldItem"), 0);
+    QfEq("newgame.slot.written", SaveSlotExists("Slot 3"), true);
+    var nt = SaveSlotRead("Slot 3");
+    QfEq("newgame.save.fieldcount", StringSplitCount(nt, ","), 61);
+    SaveSlotDelete("Slot 3");
+    SaveSlotDelete("Slot 2");
+    SaveSlotDelete("Slot 1");
+    return 1;
+}
+
+// ---------------------------------------------------------------- Apply Options round trips
+function QfLogicApply() {
+    GlobalSet("musicVol", 0.35); GlobalSet("sfxVol", 0.55); GlobalSet("masterVol", 0.65); GlobalSet("ambVol", 0.45);
+    GlobalSet("crt", 1); GlobalSet("shake", 0); GlobalSet("tips", 0); GlobalSet("gore", 0);
+    GlobalSet("sprintModeKb", 1); GlobalSet("sprintModePad", 1);
+    GlobalSet("windowMode", -1); GlobalSet("vsync", -1); GlobalSet("fpsCap", 60); GlobalSet("winSize", -1);
+    QfEq("apply.save.returns", ScriptExecute("Apply Options", 1), 1);
+    var blob = SaveSlotRead("Options");
+    QfEq("apply.save.head", StringSplitPart(blob, ",", 1), "mmopt2");
+    QfEq("apply.save.count", StringSplitCount(blob, ","), 15);
+    // reload from the slot as a fresh run would
+    GlobalSet("optionsLoaded", 0);
+    ScriptExecute("Apply Options");
+    QfNear("apply.reload.music", GlobalGet("musicVol"), 0.35, 0.0001);
+    QfNear("apply.reload.sfx", GlobalGet("sfxVol"), 0.55, 0.0001);
+    QfNear("apply.reload.master", GlobalGet("masterVol"), 0.65, 0.0001);
+    QfNear("apply.reload.amb", GlobalGet("ambVol"), 0.45, 0.0001);
+    QfEq("apply.reload.crt", GlobalGet("crt"), 1);
+    QfEq("apply.reload.shake", GlobalGet("shake"), 0);
+    QfEq("apply.reload.tips", GlobalGet("tips"), 0);
+    QfEq("apply.reload.gore", GlobalGet("gore"), 0);
+    QfEq("apply.reload.sprintKb", GlobalGet("sprintModeKb"), 1);
+    QfEq("apply.reload.fps", GlobalGet("fpsCap"), 60);
+    // an old mmopt1 save keeps its ambience at the sfx volume and still loads
+    SaveSlotWrite("Options", "mmopt1,0.5,0.25,0,1,1,1,0,0,-1,-1,-1,1");
+    GlobalSet("optionsLoaded", 0);
+    ScriptExecute("Apply Options");
+    QfNear("apply.v1.music", GlobalGet("musicVol"), 0.5, 0.0001);
+    QfNear("apply.v1.amb.follows.sfx", GlobalGet("ambVol"), 0.25, 0.0001);
+    QfEq("apply.v1.gore.on", GlobalGet("gore"), 1);
+    // junk and wild values
+    SaveSlotWrite("Options", "mmopt2,5,-3,2,9,abc,,x,1,-1,-1,-1,3,0.7,-1");
+    GlobalSet("optionsLoaded", 0);
+    ScriptExecute("Apply Options");
+    QfEq("apply.wild.music.clamp", GlobalGet("musicVol"), 1);
+    QfEq("apply.wild.sfx.clamp", GlobalGet("sfxVol"), 0);
+    QfEq("apply.wild.master.clamp", GlobalGet("masterVol"), 1);
+    QfEq("apply.wild.letters.tips", GlobalGet("tips"), 0);
+    QfEq("apply.wild.pad.sprint", GlobalGet("sprintModePad"), 1);
+    // put sane values back WITHOUT applying a video change
+    SaveSlotWrite("Options", "");
+    GlobalSet("optionsLoaded", 0);
+    ScriptExecute("Apply Options");
+    GlobalSet("windowMode", -1); GlobalSet("vsync", -1); GlobalSet("fpsCap", -1); GlobalSet("winSize", -1);
+    GlobalSet("winApplied", -1); GlobalSet("sizeApplied", -1); GlobalSet("vsyncApplied", -1); GlobalSet("fpsApplied", -1);
+    ScriptExecute("Apply Options");
+    QfEq("apply.defaults.tips", GlobalGet("tips"), 1);
+    QfEq("apply.defaults.gore", GlobalGet("gore"), 1);
+    return 1;
+}
+
+// ---------------------------------------------------------------- every name in the Item Kit's foe list can be hit
+function QfLogicFoes() {
+    var names = ItemFoeList();
+    var pip = InstanceFind("Explorer", 0);
+    var bx = InstanceGetX(pip) + 400;
+    for (var i = 0; i < PgListSize(names); i = i + 1) {
+        var nm = names[i];
+        var foe = CreateInstance(nm, bx, 288, 0);
+        QfCk("foes.create." + nm, foe > 0, "id " + foe);
+        if (foe > 0) {
+            var hv = InstanceVariableExists(foe, "hp");
+            var dv = InstanceVariableExists(foe, "dead");
+            var hu = InstanceVariableExists(foe, "hurt");
+            var pv = InstanceVariableExists(foe, "points");
+            QfCk("foes.vars." + nm, dv && hu && pv, "hp " + hv + " dead " + dv + " hurt " + hu + " points " + pv);
+            var hitList = [];
+            var n = ItemScan([nm], bx - 30, 250, bx + 30, 295, 2, 1, 1, hitList, 0);
+            if (nm == "Duskmantle") {
+                QfInfo("foes.scan.boss.flies." + nm, "hits " + n + " at " + InstanceGetX(foe) + "," + InstanceGetY(foe));
+            } else {
+                QfEq("foes.scan.hits." + nm, n, 1);
+                if (hu) { QfEq("foes.scan.hurt." + nm, InstanceVariableGet(foe, "hurt"), 1); }
+            }
+            InstanceDestroy(foe);
+        }
+    }
+    return 1;
+}

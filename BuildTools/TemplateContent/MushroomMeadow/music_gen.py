@@ -1510,9 +1510,9 @@ def hollow_ambience():
 
 TRACKS = [
     # name, builder, volume, bus, peak dBFS, tempo/key description
-    ("Intro Theme", intro_theme, 0.6, "music", -6.0, "75 BPM 4/4, D major -> D minor -> F major -> D major"),
-    ("Menu Theme", menu_theme, 0.6, "music", -6.0, "96 BPM 4/4, G major"),
-    ("Overworld Theme", overworld_theme, 0.6, "music", -6.0, "120 BPM 4/4 march, F major (B: D minor)"),
+    ("Intro Theme", intro_theme, 0.45, "music", -6.0, "75 BPM 4/4, D major -> D minor -> F major -> D major"),
+    ("Menu Theme", menu_theme, 0.45, "music", -6.0, "96 BPM 4/4, G major"),
+    ("Overworld Theme", overworld_theme, 0.45, "music", -6.0, "120 BPM 4/4 march, F major (B: D minor)"),
     ("Village Theme", village_theme, 0.6, "music", -6.0, "138 BPM 3/4 waltz, Bb major (B: G minor)"),
     ("Cavern Theme", cavern_theme, 0.6, "music", -6.0, "84 BPM 4/4, A minor"),
     ("Grotto Theme", grotto_theme, 0.6, "music", -6.0, "88 BPM 4/4 (triplet arps), Eb lydian"),
@@ -1520,7 +1520,7 @@ TRACKS = [
     ("Hollow Theme", hollow_theme, 0.6, "music", -6.0, "72 BPM 4/4, E minor (phrygian b2)"),
     ("Boss Theme", boss_theme, 0.6, "music", -6.0, "160 BPM 4/4, C minor"),
     ("Duskmantle Theme", duskmantle_theme, 0.6, "music", -6.0, "150 BPM 4/4, F minor (phase 3 F major motif)"),
-    ("Credits Theme", credits_theme, 0.6, "music", -6.0, "72 BPM 4/4, C major"),
+    ("Credits Theme", credits_theme, 0.45, "music", -6.0, "72 BPM 4/4, C major"),
     ("Starlit Theme", starlit_theme, 0.6, "music", -6.0, "184 BPM 4/4, E major"),
     ("Cavern Ambience", cavern_ambience, 0.5, "ambient", -9.0, "drips, distant rumble"),
     ("Grotto Ambience", grotto_ambience, 0.5, "ambient", -9.0, "muffled underwater, bubbles"),

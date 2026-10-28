@@ -31,6 +31,7 @@ Run from the repository root, in this order (later scripts read images or rooms 
 | 16b | `items_gen.py` | `Item Kit` library plus `Held Item`, `Item Sword` / `Item Shield` / `Item Bow` / `Item Propeller Flower` pickups, `Thrown Item` and `Arrow` (run after `art_items_gen.py` so the pickups take their own masks; the level generators place the pickups) |
 | 16a | `reputation_gen.py` | `Reputation Kit` library (brutality, taint stage, shop multiplier), `Pip Spore Leak` particle and the tainted `Portrait Pip Spore 1-3` images (reads `Portrait Pip`, so it runs after `creature_art.py`; `hub_gen.py` and `frontend_gen.py` use the kit) |
 | any | `gore_gen.py` | `Gore Kit` and `Fear Kit` libraries, `Gore Half` / `Gore Chunk` / `Blood Stain` objects and the six-colour `Blood Spray` / `Blood Mist` / `Gore Chunks` / `Blood Drip` / `Slice Spray` particles plus `Pip Spore Cloud` (independent of the other generators; the enemy scripts in `hero_gen.py`, `levels_a_gen.py` and `levels_b_gen.py` call the kits; needs `Reputation Kit` for `RepKill`) |
+| 13b (after `frontend_gen.py`; imports it for the save field list) | `product_gen.py` | The finished-product libraries `Difficulty Kit` (Story / Normal / Challenge), `Achievements Kit` (18 achievements, counters, toast, best times) and `Journal Kit` (How to Play and Collection pages); `Mushroom Meadow.ico` (here and beside the template's project file) from the Pip portrait; `version` and `projectIcon` in the template's project file. Shared constants (version, save fields, enemy and item lists) live in `product_consts.py`, which `frontend_gen.py` also imports. The hooks that feed the kits are in `hero_gen.py` (Explorer), `gore_gen.py`, `hub_gen.py` and `options_kit_gen.py`. |
 | any (before the rooms run) | `input_kit_gen.py` | `Scripts/Input Kit.pgsl`: remappable bindings, last-used device, sprint hold/toggle, rebind capture, keycap and controller glyphs (independent of the other generators; reads the `Pad Glyphs` image at run time if it exists) |
 
 Static script check (starts no game): `python check_scripts.py [project folder]` builds `check_scripts_tool/` against the published engine in
@@ -63,3 +64,7 @@ Rules the content relies on:
   runs it and fails when it fails (`--no-check` skips it).
 - Validate with `Build.bat --quick --test 2d-showcase` (compiles every PGSL event and plays level 1) and
   `Build.bat --quick --test mushroom-export` (exports and plays level 1 on all five renderers).
+- `qa_probe/` is the feature-probe harness (QA only, it writes nothing into the template): `python qa_probe\qf_setup.py --steps` makes
+  the test copy `TestResults\qf` (own project id, a QF Probe object in four rooms) and `qa_probe\qfrun.ps1` runs one probe (modes
+  main, hub, loop, credits, menu, aspect, input) with `game.run` under the machine test mutex; the probe reports with `TestCheck` and
+  takes pictures (`TestResults\qf\Debug\Images`); `parse_result.py` lists failures. Its header explains the replay clock and keys.

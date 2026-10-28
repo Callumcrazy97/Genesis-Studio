@@ -31,6 +31,9 @@ public static class TwoDShowcaseTemplate
             + "Pip recovers the five Glowspores across five levels, two bosses, a village hub and an overworld map.";
         // Ambience plays on its own bus (beside the built-in music and sfx) so it can be balanced.
         if (!session.Manifest.AudioBuses.Contains("ambient")) session.Manifest.AudioBuses.Add("ambient");
+        // The game shows its version on the Main Menu and in the credits; the icon is the Pip portrait.
+        session.Manifest.Version = "1.0.0";
+        session.Manifest.ProjectIcon = "Portrait Pip";
         session.Manifest.Runtime.AllowEscapeToClose = false;
         session.Manifest.Rendering.FogEnabled = false;
     }

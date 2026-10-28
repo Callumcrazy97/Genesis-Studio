@@ -1,0 +1,354 @@
+// QF Hub: Hearthollow probe (QA test copy only): dialogue content, conversations stepped with real Enter taps, shop purchases.
+// The replay taps Enter at replay seconds 3, 4, 5 ... (1 s apart); the probe sets things up in the second half of each
+// interval and checks them in the first half after the tap. A Z press at replay second 1 synchronises the clocks.
+
+function QfHubSetStage(st) {
+    // taint stage 0..3 through brutality, kindness (4) = stage 0 with three stomps
+    RepReset();
+    if (st == 1) { GlobalSet("brutality", 30); }
+    if (st == 2) { GlobalSet("brutality", 60); }
+    if (st == 3) { GlobalSet("brutality", 90); }
+    if (st == 4) { GlobalSet("brutality", 2); GlobalSet("killsStomp", 12); }
+    GlobalSet("taintStage", 0);
+    RepStage();
+    return RepStage();
+}
+
+function QfHubSetGlow(n) {
+    for (var i = 1; i <= 5; i = i + 1) {
+        if (i <= n) { GlobalSet("clear" + i, 1); } else { GlobalSet("clear" + i, 0); }
+    }
+    GlobalSet("glowspores", Min(n, 5));
+    GlobalSet("gameComplete", 0);
+    if (n >= 6) { GlobalSet("gameComplete", 1); GlobalSet("glowspores", 5); for (var j = 1; j <= 5; j = j + 1) { GlobalSet("clear" + j, 1); } }
+    return 1;
+}
+
+// -------------------------------------------------------------- pure content check
+function QfHubContent() {
+    DrawSetFont("Consolas");
+    var sw = WindowGetWidth(); var sh = WindowGetHeight();
+    var s = Min(sw / 1280, sh / 720);
+    var avail = 856 * (sw / 1280);
+    var probeW = DrawTextWidth("MMMMMMMMMM", 25 * s);
+    QfCk("hub.measure.works", probeW > 20, "10 M = " + probeW + " px at scale " + s);
+    var perChar = probeW / 10;
+    var maxChars = Floor(avail / perChar);
+    QfInfo("hub.measure.chars", "text area " + avail + " px, " + perChar + " px a char, " + maxChars + " chars a line");
+    var worst = 0; var worstWhere = "";
+    var bad = 0; var pagesTotal = 0; var emptyPages = 0; var tallPages = 0;
+    var names = ["", "Morel", "Chanterelle", "Bram", "Puffball", "Wick"];
+    for (var npc = 1; npc <= 5; npc = npc + 1) {
+        for (var st = 0; st <= 4; st = st + 1) {
+            QfHubSetStage(st);
+            for (var gl = 0; gl <= 6; gl = gl + 1) {
+                for (var ag = 0; ag <= 1; ag = ag + 1) {
+                    var pages = HubRepPages(npc, HubVillageLines(npc, gl, ag));
+                    var pc = StringSplitCount(pages, "~");
+                    for (var pg = 1; pg <= pc; pg = pg + 1) {
+                        var raw = StringSplitPart(pages, "~", pg);
+                        pagesTotal = pagesTotal + 1;
+                        if (StringStartsWith(raw, "@")) { raw = StringDelete(raw, 1, 1); }
+                        if (StringLength(raw) == 0) { emptyPages = emptyPages + 1; }
+                        var lc = StringSplitCount(raw, "/");
+                        if (lc > 3) { tallPages = tallPages + 1; QfCk("hub.lines.tall." + names[npc] + ".st" + st + ".gl" + gl, 0, "page " + pg + " has " + lc + " lines"); }
+                        for (var ln = 1; ln <= lc; ln = ln + 1) {
+                            var lt = StringSplitPart(raw, "/", ln);
+                            var wl = StringLength(lt);
+                            if (wl > worst) { worst = wl; worstWhere = names[npc] + " st" + st + " gl" + gl + " [" + lt + "]"; }
+                            if (wl > maxChars) {
+                                bad = bad + 1;
+                                if (bad <= 12) { QfCk("hub.line.wide." + names[npc] + ".st" + st + ".gl" + gl + ".ag" + ag, 0, wl + " chars > " + maxChars + ": " + lt); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    QfCk("hub.dialogue.noEmptyPages", emptyPages == 0, pagesTotal + " pages checked, " + emptyPages + " empty");
+    QfCk("hub.dialogue.noTallPages", tallPages == 0, tallPages + " pages over three lines");
+    QfCk("hub.dialogue.fitsBox", bad == 0, bad + " lines wider than the box; widest " + worst + " chars: " + worstWhere);
+    // shop texts
+    var host = InstanceFind("Village Host", 0);
+    var info = InstanceVariableGet(host, "itemInfo");
+    var bought = InstanceVariableGet(host, "itemBought");
+    var shopBad = 0;
+    for (var ii = 0; ii < PgListSize(info); ii = ii + 1) {
+        var linesI = StringSplitCount(info[ii], "/");
+        for (var li = 1; li <= linesI; li = li + 1) { if (StringLength(StringSplitPart(info[ii], "/", li)) > maxChars) { shopBad = shopBad + 1; } }
+        if (linesI > 3) { shopBad = shopBad + 1; }
+    }
+    for (var bi = 0; bi < PgListSize(bought); bi = bi + 1) {
+        var linesB = StringSplitCount(bought[bi], "/");
+        for (var lb = 1; lb <= linesB; lb = lb + 1) { if (StringLength(StringSplitPart(bought[bi], "/", lb)) > maxChars) { shopBad = shopBad + 1; } }
+    }
+    var msgs = [InstanceVariableGet(host, "shopWelcome"), InstanceVariableGet(host, "shopPoor"), InstanceVariableGet(host, "shopFull"), InstanceVariableGet(host, "shopHave"), InstanceVariableGet(host, "shopRefuse"), InstanceVariableGet(host, "shopQuiver"), InstanceVariableGet(host, "shopKind"), InstanceVariableGet(host, "shopUneasy")];
+    for (var mi = 0; mi < PgListSize(msgs); mi = mi + 1) {
+        var linesM = StringSplitCount(msgs[mi], "/");
+        for (var lm = 1; lm <= linesM; lm = lm + 1) { if (StringLength(StringSplitPart(msgs[mi], "/", lm)) > maxChars) { shopBad = shopBad + 1; } }
+    }
+    QfCk("hub.shop.texts.fit", shopBad == 0, shopBad + " shop lines too wide");
+    QfEq("hub.shop.itemCount", PgListSize(info), 11);
+    QfEq("hub.shop.priceCount", PgListSize(InstanceVariableGet(host, "itemPrice")), 11);
+    // the Dialogue Box has every portrait the host names
+    var pids = InstanceVariableGet(host, "portraitId");
+    QfEq("hub.portraits.listed", PgListSize(pids), 9);
+    QfEq("hub.portrait.images", ResourceExists("Portrait Pip Spore 1") && ResourceExists("Portrait Pip Spore 2") && ResourceExists("Portrait Pip Spore 3"), true);
+    QfHubSetStage(0);
+    return 1;
+}
+
+// -------------------------------------------------------------- the conversation plan
+// [npc, stage (0..3, 4 = kind), glowstage, shop plan (0 none, 1 A, 2 B, 3 C, 4 D, 5 E), shot name or ""]
+function QfHubConv(i) {
+    var cv = [
+        [1, 0, 0, 0, "dlg_morel_s0"], [1, 1, 1, 0, "dlg_morel_s1"], [1, 2, 2, 0, "dlg_morel_s2_pipspore"], [1, 3, 3, 0, "dlg_morel_s3"],
+        [2, 0, 0, 1, "dlg_chanterelle_s0"], [2, 3, 5, 2, "dlg_chanterelle_s3"], [2, 2, 4, 3, ""], [2, 1, 1, 4, ""], [2, 4, 2, 5, "dlg_chanterelle_kind"],
+        [3, 0, 0, 0, ""], [3, 2, 3, 0, ""], [4, 0, 1, 0, ""], [4, 2, 2, 0, "dlg_puffball_s2"], [5, 1, 6, 0, ""], [5, 3, 4, 0, "dlg_wick_s3"],
+        [1, 4, 6, 0, ""], [3, 3, 5, 0, ""], [4, 3, 0, 0, ""], [5, 2, 3, 0, ""]
+    ];
+    if (i < 0 || i >= PgListSize(cv)) { return []; }
+    return cv[i];
+}
+
+// shop plans: [sel, kind (B buy, D deny), coins to set (-1 keep), arrows to set (-1 keep)]
+function QfHubPlan(pl) {
+    if (pl == 1) {
+        return [[0, "B", 1000, -1], [1, "B", -1, -1], [2, "B", -1, -1], [3, "B", -1, -1], [4, "B", -1, -1], [4, "D", -1, -1], [2, "B", -1, -1],
+                [5, "B", -1, -1], [5, "D", -1, -1], [6, "B", -1, -1], [7, "B", -1, -1], [7, "D", -1, -1], [8, "B", -1, -1], [9, "B", -1, -1],
+                [7, "B", -1, -1], [8, "B", -1, 95], [8, "D", -1, -1], [0, "B", -1, -1], [0, "B", -1, -1], [0, "D", -1, -1], [1, "D", 0, -1], [2, "D", 5, -1]];
+    }
+    if (pl == 2) { return [[5, "D", 1000, -1], [7, "D", -1, -1], [8, "D", -1, -1], [0, "B", -1, -1], [6, "B", -1, -1], [9, "B", -1, -1], [3, "D", 3, -1]]; }
+    if (pl == 3) { return [[0, "B", 1000, -1], [2, "B", -1, -1], [5, "B", -1, -1]]; }
+    if (pl == 4) { return [[3, "B", 1000, -1], [8, "B", -1, -1]]; }
+    if (pl == 5) { return [[0, "B", 1000, -1], [5, "B", -1, -1], [6, "B", -1, -1]]; }
+    return [];
+}
+
+function QfHubReset() {
+    GlobalSet("maxHearts", 3); GlobalSet("hearts", 3); GlobalSet("lives", 5); GlobalSet("power", 0);
+    GlobalSet("heldItem", 0); GlobalSet("arrows", 0); GlobalSet("coins", 0);
+    for (var tk = 1; tk <= 5; tk = tk + 1) { GlobalSet("hubTalk" + tk, 0); }
+    RoomValueSet("heroReload", 1);
+    return 1;
+}
+
+function QfHubStep() {
+    var tp = self.qfNow - 3.0;
+    if (tp < 0) { return 0; }
+    var k = Floor(tp);
+    var frac = tp - k;
+    var host = self.hHost;
+    var mode = InstanceVariableGet(host, "mode");
+    // keep the typewriter finished while we wait for the next tap
+    if (mode == 1 && frac > 0.55) { InstanceVariableSet(host, "reveal", InstanceVariableGet(host, "totalChars")); }
+    // a picture of the first page of a chosen conversation, text fully typed
+    if (self.hs == 1 && self.hTap == 0 && mode == 1 && StringLength(self.hWhy) > 0) {
+        if (self.hShot == 0) { self.hShot = 1; InstanceVariableSet(host, "reveal", InstanceVariableGet(host, "totalChars")); }
+        else if (self.hShot == 1) { self.hShot = 2; }
+        else if (self.hShot == 2) { self.hShot = 3; QfShot(self.hWhy); }
+    }
+    if (frac >= 0.3 && frac <= 0.58 && self.hPostDone < k) {
+        self.hPostDone = k;
+        QfHubPost(k);
+        return 1;
+    }
+    if (frac >= 0.62 && frac <= 0.97 && self.hPreDone < k + 1) {
+        self.hPreDone = k + 1;
+        QfHubPre(k + 1);
+        return 1;
+    }
+    return 0;
+}
+
+function QfHubPre(tapIx) {
+    var host = self.hHost;
+    var pip = self.qfPip;
+    var hs = self.hs;
+    if (hs == 0) {
+        var cvv = QfHubConv(self.hc);
+        if (PgListSize(cvv) == 0) { self.hs = 9; return 0; }
+        var npc = cvv[0];
+        QfHubSetGlow(cvv[2]);
+        var st = cvv[1];
+        QfHubSetStage(st);
+        QfHubReset();
+        // the NPC must be asked even when Pip stands far away: the host only reads the room value
+        RoomValueSet("talkRequest", npc);
+        self.hs = 1; self.hTap = 0; self.hShot = 0; self.hNpc = npc; self.hPlan = cvv[3]; self.hPlanI = 0;
+        self.hRepStage = RepStage(); self.hLabel = "npc" + npc + "_stage" + st;
+        self.hPagesExpect = StringSplitCount(HubRepPages(npc, HubVillageLines(npc, Clamp(cvv[2], 0, 6), 0)), "~");
+        self.hWhy = cvv[4];
+        TestCheck("hub.conv.begin." + self.hLabel, true, "conv " + self.hc + " glow " + cvv[2] + " expect pages " + self.hPagesExpect);
+        return 1;
+    }
+    if (hs == 1) {
+        var m1 = InstanceVariableGet(host, "mode");
+        if (m1 == 1) {
+            InstanceVariableSet(host, "reveal", InstanceVariableGet(host, "totalChars"));
+            if (self.hTap == 0) {
+                QfEq("hub.conv." + self.hLabel + ".opened", m1, 1);
+                QfEq("hub.conv." + self.hLabel + ".dialogueFlag", RoomValueGet("dialogue", 0), 1);
+                QfEq("hub.conv." + self.hLabel + ".talkingTo", RoomValueGet("talkingTo", 0), self.hNpc);
+                QfEq("hub.conv." + self.hLabel + ".pageCount", InstanceVariableGet(host, "pageCount"), self.hPagesExpect);
+            }
+        }
+        return 1;
+    }
+    if (hs == 2) {
+        // the shop: set up the next purchase
+        var plan = QfHubPlan(self.hPlan);
+        if (self.hPlanI >= PgListSize(plan)) {
+            InstanceVariableSet(host, "shopSel", 10);
+            self.hLeave = 1;
+            return 1;
+        }
+        var pe = plan[self.hPlanI];
+        if (pe[2] >= 0) { GlobalSet("coins", pe[2]); RoomValueSet("heroReload", 1); }
+        if (pe[3] >= 0) { GlobalSet("arrows", pe[3]); RoomValueSet("heroReload", 1); }
+        InstanceVariableSet(host, "shopSel", pe[0]);
+        InstanceVariableSet(host, "shopMsg", "");
+        self.hB = [GlobalGet("coins"), GlobalGet("maxHearts"), GlobalGet("hearts"), GlobalGet("lives"), GlobalGet("power"), GlobalGet("heldItem"), GlobalGet("arrows")];
+        self.hSwordPk = InstanceNumber("Item Sword") + InstanceNumber("Item Shield") + InstanceNumber("Item Bow") + InstanceNumber("Item Propeller Flower");
+        var ipl = InstanceVariableGet(host, "itemPrice");
+        self.hPrice = HubShopPrice(ipl[pe[0]]);
+        if (self.hPlanI == 0 || self.hPlanI == 9) { QfShot("shop_" + self.hLabel + "_" + self.hPlanI); }
+        return 1;
+    }
+    return 0;
+}
+
+function QfHubPost(tapIx) {
+    var host = self.hHost;
+    var hs = self.hs;
+    var mode = InstanceVariableGet(host, "mode");
+    if (hs == 1) {
+        self.hTap = self.hTap + 1;
+        var lbl = "hub.conv." + self.hLabel + ".tap" + self.hTap;
+        if (self.hTap < self.hPagesExpect) {
+            QfEq(lbl + ".mode", mode, 1);
+            QfEq(lbl + ".page", InstanceVariableGet(host, "page"), self.hTap + 1);
+            return 1;
+        }
+        if (self.hNpc == 2) {
+            QfEq(lbl + ".shopOpened", mode, 2);
+            QfEq(lbl + ".shopMsg", StringLength(InstanceVariableGet(host, "shopMsg")) > 5, true);
+            self.hs = 2; self.hLeave = 0; self.hPlanI = 0;
+            return 1;
+        }
+        QfEq(lbl + ".closed", mode, 0);
+        QfEq(lbl + ".dialogueFlag.clears", RoomValueGet("dialogue", 0), 0);
+        self.hs = 0; self.hc = self.hc + 1;
+        return 1;
+    }
+    if (hs == 2) {
+        if (self.hLeave == 1) {
+            QfEq("hub.shop." + self.hLabel + ".leave.closes", mode, 0);
+            // hub pickups: an item tossed out by a purchase must be takeable again
+            self.hs = 3; self.hPk = 0;
+            return 1;
+        }
+        var plan = QfHubPlan(self.hPlan);
+        var pe = plan[self.hPlanI];
+        var sel = pe[0];
+        var nm = "hub.shop." + self.hLabel + ".p" + self.hPlanI + ".sel" + sel;
+        var b = self.hB;
+        var coinsNow = GlobalGet("coins");
+        var msg = InstanceVariableGet(host, "shopMsg");
+        if (pe[1] == "B") {
+            QfEq(nm + ".buy.coinsPaid", b[0] - coinsNow, self.hPrice);
+            QfCk(nm + ".buy.mood", InstanceVariableGet(host, "shopMood") > 0, "mood " + InstanceVariableGet(host, "shopMood") + " msg [" + msg + "]");
+            if (sel == 0) { QfEq(nm + ".maxHearts+1", GlobalGet("maxHearts"), b[1] + 1); QfEq(nm + ".hearts+1", GlobalGet("hearts"), Min(b[1] + 1, b[2] + 1)); }
+            if (sel == 1) { QfEq(nm + ".lives+1", GlobalGet("lives"), b[3] + 1); }
+            if (sel >= 2 && sel <= 4) { QfEq(nm + ".power", GlobalGet("power"), sel - 1); }
+            if (sel == 5) { QfEq(nm + ".held", GlobalGet("heldItem"), 1); }
+            if (sel == 6) { QfEq(nm + ".held", GlobalGet("heldItem"), 2); }
+            if (sel == 7) { QfEq(nm + ".held", GlobalGet("heldItem"), 3); QfEq(nm + ".arrows+12", GlobalGet("arrows"), Min(99, b[6] + 12)); }
+            if (sel == 8) { QfEq(nm + ".arrows+10", GlobalGet("arrows"), Min(99, b[6] + 10)); }
+            if (sel == 9) { QfEq(nm + ".held", GlobalGet("heldItem"), 4); }
+            var pkNow = InstanceNumber("Item Sword") + InstanceNumber("Item Shield") + InstanceNumber("Item Bow") + InstanceNumber("Item Propeller Flower");
+            if (sel >= 5 && sel != 8 && b[5] > 0 && b[5] != GlobalGet("heldItem")) {
+                QfEq(nm + ".oldItem.tossed", pkNow - self.hSwordPk, 1);
+            }
+            var saved = SaveSlotRead("Slot " + GlobalGet("slot"));
+            if (GlobalGet("campaign") == 1 && GlobalGet("slot") >= 1) { QfCk(nm + ".autosaved", StringSplitPart(saved, ",", 1) == "mm2", "slot text starts [" + StringSplitPart(saved, ",", 1) + "]"); }
+        } else {
+            QfEq(nm + ".deny.coinsKept", coinsNow, b[0]);
+            QfCk(nm + ".deny.mood", InstanceVariableGet(host, "shopMood") < 0, "mood " + InstanceVariableGet(host, "shopMood") + " msg [" + msg + "]");
+            QfEq(nm + ".deny.power", GlobalGet("power"), b[4]);
+            QfEq(nm + ".deny.held", GlobalGet("heldItem"), b[5]);
+            QfEq(nm + ".deny.maxHearts", GlobalGet("maxHearts"), b[1]);
+            QfEq(nm + ".deny.arrows", GlobalGet("arrows"), b[6]);
+            QfInfo(nm + ".deny.message", msg);
+        }
+        QfEq(nm + ".shopStillOpen", mode, 2);
+        self.hPlanI = self.hPlanI + 1;
+        return 1;
+    }
+    if (hs == 3) {
+        // pickup test in the village
+        var pip = self.qfPip;
+        if (self.hPk == 0) {
+            QfClear("Item Sword"); QfClear("Item Shield"); QfClear("Item Bow"); QfClear("Item Propeller Flower");
+            self.hPk = 1;
+            QfEq("hub.pickup.pipHolds", InstanceVariableGet(pip, "itemHeld"), GlobalGet("heldItem"));
+            self.hOld = InstanceVariableGet(pip, "itemHeld");
+            var want = 1; if (self.hOld == 1) { want = 2; }
+            self.hWant = want;
+            ItemSpawnPickup(want, InstanceGetX(pip), InstanceGetY(pip) - 4, 0, 0, 0, 1);
+            return 1;
+        }
+        QfEq("hub.pickup.canBeTaken", InstanceVariableGet(pip, "itemHeld"), self.hWant);
+        QfEq("hub.pickup.consumed", InstanceNumber(ItemObjectName(self.hWant)), 0);
+        QfClear("Item Sword"); QfClear("Item Shield"); QfClear("Item Bow"); QfClear("Item Propeller Flower");
+        self.hs = 0; self.hc = self.hc + 1;
+        return 1;
+    }
+    return 0;
+}
+
+function QfRunHub() {
+    var p = self.ph;
+    if (p == 0) {
+        var pip = InstanceFind("Explorer", 0);
+        var host = InstanceFind("Village Host", 0);
+        if (pip <= 0 || host <= 0 || self.qfNow < 1.0) { return 0; }
+        self.qfPip = pip; self.hHost = host;
+        QfInfo("hub.boot", RoomGetName() + " pip " + InstanceGetX(pip) + "," + InstanceGetY(pip) + " hub " + InstanceVariableGet(pip, "hub") + " window " + WindowGetWidth() + "x" + WindowGetHeight());
+        QfEq("hub.pip.isHub", InstanceVariableGet(pip, "hub"), 1);
+        self.ph = 1;
+        return 1;
+    }
+    if (p == 1) {
+        if (self.zSeen == 1) {
+            QfInfo("hub.sync", "Z seen, replay clock set");
+            self.ph = 2;
+        } else if (self.qfNow > 8) {
+            QfCk("hub.sync", 0, "no Z key from the replay");
+            self.ph = 2;
+        }
+        return 0;
+    }
+    if (p == 2) {
+        QfHubContent();
+        self.hs = 0; self.hShot = 0; self.hc = 0; self.hPreDone = -1; self.hPostDone = -1; self.hTap = 0; self.hPlan = 0; self.hPlanI = 0; self.hLeave = 0; self.hPk = 0;
+        self.ph = 3;
+        return 1;
+    }
+    if (p == 3) {
+        if (self.hs == 9) {
+            self.ph = 4;
+            return 0;
+        }
+        QfHubStep();
+        return 0;
+    }
+    if (p == 4) {
+        TestCheck("probe.summary.hub", self.qfFail == 0, "pass " + self.qfPass + " fail " + self.qfFail + " at " + StringFormatNumber(self.qfNow, 1) + " s");
+        self.ph = 5; QfWaitFrames(30);
+        return 1;
+    }
+    if (p == 5) { GameQuit(); self.ph = 6; }
+    return 0;
+}

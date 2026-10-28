@@ -394,7 +394,7 @@ def main():
         "$schema": "genesis.room", "version": 1, "id": "9c7cd65501bf5604bb7bee6c41b18c62",
         "name": "Mushroom Meadow 1-1", "dimension": "TwoD",
         "settings": {"width": W * 32, "height": 360, "depth": 720, "windowWidth": 1280, "windowHeight": 720,
-                     "scaleViewportsWithWindow": True, "targetFps": 60, "fixedFps": 60, "vsync": True,
+                     "scaleViewportsWithWindow": False, "targetFps": 60, "fixedFps": 60, "vsync": True,
                      "captureMouse": False, "gridSize": 32, "snapEnabled": True, "pixelArtSampling": True},
         "environment": {"backgroundColor": [0.56, 0.83, 1, 1], "fogEnabled": False, "postEffects": ["SNES Look"]},
         "viewports": [{"enabled": True, "sourceX": 0, "sourceY": 0, "sourceWidth": 640, "sourceHeight": 360,

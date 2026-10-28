@@ -1,0 +1,2 @@
+facing = 1; invulnerable = 0; itemAnimT = 0; itemHeld = 0; itemSwingT = 0; itemSwingUp = 0; itemShield = 0; itemBlockT = 0; itemDrawing = 0; itemDrawT = 0; itemAimX = 1; itemAimY = 0; itemDryT = 0; itemFlowerOpen = 0;
+AnimationPlay("Idle", true);

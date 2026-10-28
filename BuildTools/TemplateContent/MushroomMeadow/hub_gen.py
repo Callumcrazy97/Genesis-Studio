@@ -175,20 +175,20 @@ PORTRAITS = [("portraitPip", "Portrait Pip"), ("portraitMorel", "Portrait Elder 
 def build_ui():
     # ---- Overworld HUD: node banner, best medals, Glowspore count, purse, help, menu, toast.
     o = [
-        panel("bannerPanel", 330, 16, 620, 98, 0),
+        panel("bannerPanel", 330, 16, 620, 124, 0),
         element("bannerSheen", "Panel", 338, 20, 604, 6, 1, background="#30FFFFFF", cornerRadius=3.0,
                 borderWidth=0.0),
         text("bannerTitle", 330, 22, 620, 44, 2, "HEARTHOLLOW", 30.0, "#FFFFEBB9", "Center", spacing=2.0),
         text("bannerSub", 330, 66, 620, 30, 3, "", 18.0, "#FFDCEFE0", "Center"),
         element("statusPlate", "Panel", 344, 30, 112, 28, 4, background="#FF4CAF3C", fill="VerticalGradient",
                 gradientEnd="#FF2F7D32", cornerRadius=6.0, borderWidth=2.0, borderColor="#FF2A1D2E"),
-        text("statusText", 344, 30, 112, 28, 5, "VILLAGE", 15.0, "#FFFFF4D6", "Center", spacing=1.0),
-        text("medalLabel", 836, 58, 104, 22, 6, "MEDALS", 13.0, "#FFFFE7A0", "Center", spacing=1.0),
+        text("statusText", 344, 30, 112, 28, 5, "VILLAGE", 18.0, "#FFFFF4D6", "Center", spacing=1.0),
+        text("medalLabel", 470, 102, 112, 26, 6, "MEDALS", 18.0, "#FFFFE7A0", "Center", spacing=1.0),
     ]
     for i in range(3):
-        o.append(element("medalPip%d" % (i + 1), "Panel", 846 + i * 30, 30, 22, 22, 7 + i,
+        o.append(element("medalPip%d" % (i + 1), "Panel", 596 + i * 30, 104, 22, 22, 7 + i,
                          background="#FF2A1D2E", cornerRadius=11.0, borderWidth=2.0, borderColor="#FFE89A1B"))
-        o.append(element("medalFill%d" % (i + 1), "Panel", 850 + i * 30, 34, 14, 14, 10 + i,
+        o.append(element("medalFill%d" % (i + 1), "Panel", 600 + i * 30, 108, 14, 14, 10 + i,
                          background="#FFFFD23F", fill="VerticalGradient", gradientEnd="#FFE89A1B",
                          cornerRadius=7.0, borderWidth=0.0))
     o += [
@@ -203,16 +203,18 @@ def build_ui():
         element("helpBar", "Panel", 20, 668, 1240, 38, 30, background="#D61D3043", cornerRadius=8.0,
                 borderWidth=2.0, borderColor="#80FFE7A0"),
         text("helpText", 36, 668, 1210, 38, 31,
-             "ARROWS / D-PAD: WALK    ENTER / A: PLAY    ESC / START: MENU", 17.0, "#FFF0F1DB"),
+             "ARROWS / D-PAD: WALK    ENTER / A: PLAY    ESC / START: MENU", 18.0, "#FFF0F1DB"),
         element("toastPanel", "Panel", 1040, 88, 220, 36, 32, background="#E0203550", cornerRadius=8.0,
                 borderWidth=2.0, borderColor="#FFFFD23F"),
-        text("toastText", 1040, 88, 220, 36, 33, "PROGRESS SAVED", 15.0, "#FFFFE7A0", "Center"),
+        text("toastText", 1040, 88, 220, 36, 33, "PROGRESS SAVED", 18.0, "#FFFFE7A0", "Center"),
         element("menuShade", "Panel", 0, 0, 1280, 720, 40, background="#801A1020", borderWidth=0.0),
-        panel("menuPanel", 420, 230, 440, 250, 41, radius=14.0, border=4.0),
-        text("menuTitle", 420, 248, 440, 48, 42, "THE VALLEY MAP", 30.0, "#FFFFDF91", "Center", spacing=2.0),
-        text("menuOpt0", 420, 318, 440, 44, 43, "RESUME", 24.0, "#FFDCEFE0", "Center"),
-        text("menuOpt1", 420, 372, 440, 44, 44, "SAVE & QUIT TO TITLE", 24.0, "#FFDCEFE0", "Center"),
-        text("menuHint", 420, 430, 440, 30, 45, "ENTER: CHOOSE   ESC: BACK", 15.0, "#B0FFF1C8", "Center"),
+        panel("menuPanel", 420, 206, 440, 340, 41, radius=14.0, border=4.0),
+        text("menuTitle", 420, 222, 440, 48, 42, "THE VALLEY MAP", 30.0, "#FFFFDF91", "Center", spacing=2.0),
+        text("menuOpt0", 420, 288, 440, 44, 43, "RESUME", 24.0, "#FFDCEFE0", "Center"),
+        text("menuOpt1", 420, 342, 440, 44, 44, "COLLECTION", 24.0, "#FFDCEFE0", "Center"),
+        text("menuOpt2", 420, 396, 440, 44, 46, "HOW TO PLAY", 24.0, "#FFDCEFE0", "Center"),
+        text("menuOpt3", 420, 450, 440, 44, 47, "SAVE & QUIT TO TITLE", 24.0, "#FFDCEFE0", "Center"),
+        text("menuHint", 420, 506, 440, 30, 45, "ENTER: CHOOSE   ESC: BACK", 18.0, "#B0FFF1C8", "Center"),
     ]
     write_ui("Overworld HUD", o)
 
@@ -252,9 +254,10 @@ def build_ui():
         if i < len(icons) - 1:
             s.append(image("coin%d" % i, rx + SHOP_ROW_W - 34, ry + 12, 16, 16, 40 + i, "Coin Icon"))
     s += [
-        panel("pursePanel", 930, 34, 200, 56, 60),
-        image("purseCoin", 944, 50, 24, 24, 61, "Coin Icon"),
-        text("purseText", 976, 34, 150, 56, 62, "0", 24.0, "#FFFFF1C8"),
+        # The purse sits in the free cell under the right column (it used to sit at the top right, behind the HUD bar).
+        panel("pursePanel", 934, 354, 192, 40, 60),
+        image("purseCoin", 946, 362, 24, 24, 61, "Coin Icon"),
+        text("purseText", 978, 354, 142, 40, 62, "0", 22.0, "#FFFFF1C8"),
     ]
     write_ui("Shop Menu", s)
 
@@ -671,13 +674,18 @@ function HubPathAt(px, py, pc, along, axis) {
     return Lerp(py[i - 1], py[i], f);
 }
 
-// Room point -> GUI pixel (the hub rooms show a 640x360 view stretched to the window).
+// Room point -> GUI pixel, read from the view itself (Level Rules' RulesFitView lays the view out in the window): the scale is
+// the port's width over the world width it shows, the offset is the port's corner.
 function HubGuiX(wx) {
-    return (wx - ViewGetPosX(0)) * WindowGetWidth() / 640;
+    var hbw = ViewGetBoundsW(0);
+    if (hbw <= 0) { hbw = 640; }
+    return ViewGetViewportX(0) + (wx - ViewGetPosX(0)) * (ViewGetViewportW(0) / hbw);
 }
 
 function HubGuiY(wy) {
-    return (wy - ViewGetPosY(0)) * WindowGetHeight() / 360;
+    var hbw = ViewGetBoundsW(0);
+    if (hbw <= 0) { hbw = 640; }
+    return ViewGetViewportY(0) + (wy - ViewGetPosY(0)) * (ViewGetViewportW(0) / hbw);
 }
 
 // Text with a 1-pixel plum drop shadow, in the current alignment.
@@ -696,7 +704,7 @@ function HubPromptBubble(bx, by, key, label, s) {
     DrawSetColorRgb(42, 29, 46); DrawRoundRectEx(bx - 4 * s, by - 2 * s, bx + 4 * s, by + 5 * s, 2 * s, 0);
     DrawSetTextAlign("center");
     DrawSetColorRgb(216, 67, 59); DrawTextScaled(bx, by - 31 * s, key, 22 * s);
-    if (!StringEquals(label, "")) { HubShadowText(bx, by - 58 * s, label, 15 * s, 255, 235, 185); }
+    if (!StringEquals(label, "")) { HubShadowText(bx, by - 58 * s, label, 18 * s, 255, 235, 185); }
     DrawSetTextAlign("left");
     DrawSetAlpha(1);
 }
@@ -814,6 +822,8 @@ GlobalSet("campaign", 1);
 HubApplyOptions();
 state = 0; t = 0; walking = 0; walkFrom = 0; walkTo = 0; walkT = 0; walkLen = 1; walkSeg = 0; stepTimer = 0;
 pendingWalk = -1; stickLatch = 0; menuSel = 0; fadeT = 0; target = ""; gone = 0;
+// Journal Kit (live): the completion percentage shown under the purse, and the Collection / How to Play pages.
+jrnLive = 1; jrnFields = JrnFieldList(); completion = JrnRefresh();
 toastT = 0; toastText = ""; seqT = 0; seqPhase = 0; seqFrom = 0; seqTo = -1; sparkT = 0;
 revealSeg = -1; revealProg = 0; revealFade = 0; saveNow = 0;
 node = Clamp(Round(GlobalGet("mapNode")), 0, 5);
@@ -848,6 +858,14 @@ music = PlaySound("Assets/Audio/Overworld Theme.audio.json", 0.7, 1, true);
 
 MARKER_STEP = """var dt = Clamp(DeltaTime, 0, 0.05);
 t += dt;
+AchToastStep(dt);
+if (GlobalGet("campaign") == 1) { GlobalSet("playTime", GlobalGet("playTime") + dt); }
+// 5: the Collection or How to Play page (Journal Kit) opened from the map menu.
+if (state == 5) {
+    JrnStep();
+    if (JrnIsOpen() == 0) { state = 3; }
+    return;
+}
 toastT = Max(0, toastT - dt);
 revealFade = Max(0, revealFade - dt);
 if (saveNow == 1) {
@@ -872,10 +890,11 @@ if (state == 4) {
 
 // 3: the map menu.
 if (state == 3) {
-    var move = KeyPressed("Up") || KeyPressed("W") || GamepadPressed("Up") || stickNew == 1;
-    move = move || KeyPressed("Down") || KeyPressed("S") || GamepadPressed("Down") || stickNew == 2;
-    if (move) {
-        menuSel = 1 - menuSel;
+    var moveUp = KeyPressed("Up") || KeyPressed("W") || GamepadPressed("Up") || stickNew == 1;
+    var moveDown = KeyPressed("Down") || KeyPressed("S") || GamepadPressed("Down") || stickNew == 2;
+    if (moveUp) { menuSel = (menuSel + 3) % 4; }
+    if (moveDown) { menuSel = (menuSel + 1) % 4; }
+    if (moveUp || moveDown) {
         PlaySound("Assets/Audio/Menu Move.audio.json", 0.6, 1, false);
     }
     if (HubMenuPressed() || HubBackPressed()) {
@@ -886,6 +905,8 @@ if (state == 3) {
     if (HubConfirmPressed() || HubActionPressed()) {
         PlaySound("Assets/Audio/Menu Select.audio.json", 0.7, 1, false);
         if (menuSel == 0) { state = 0; return; }
+        if (menuSel == 1) { JrnOpen(1, 1, Clamp(GlobalGet("slot"), 1, 3)); state = 5; return; }
+        if (menuSel == 2) { JrnOpen(1, 0, 1); state = 5; return; }
         HubSave(1);
         if (ResourceExists("Main Menu")) {
             target = "Main Menu"; state = 4; fadeT = 0;
@@ -1025,7 +1046,9 @@ MARKER_DRAWGUI = """// Overworld GUI: Glowspore count, node banner (name, best S
 // The frames come from the Overworld HUD User Interface (1280x720 design space).
 var sw = WindowGetWidth(); var sh = WindowGetHeight();
 var sx = sw / 1280; var sy = sh / 720; var s = Min(sx, sy);
-var gx = sw / 640; var gy = sh / 360;
+// The map is letterboxed by the room (one scale for the whole picture): room points land at the GUI area's corner plus
+// their position at its scale (WindowGetGui*), not at a stretch of the whole window.
+var gx = WindowGetGuiWidth() / 640; var gy = gx; var gox = WindowGetGuiX(); var goy = WindowGetGuiY();
 var ui = "Assets/User Interfaces/Overworld HUD.ui.json";
 
 // Trails: the painted dots of a trail that is still dark are dimmed; the trail being revealed
@@ -1041,7 +1064,7 @@ for (var k = 0; k < 5; k += 1) {
         if (seqPhase != 2) { ga = Clamp(revealFade / 1.2, 0, 1); }
         for (var i = 1; i < tn - 1; i += 1) {
             var f = tc[i] / tl;
-            var px = tx[i] * gx; var py = ty[i] * gy;
+            var px = gox + tx[i] * gx; var py = goy + ty[i] * gy;
             if (glowing && (lit || f <= revealProg)) {
                 DrawSetAlpha(ga * 0.45); DrawSetColorRgb(255, 214, 110); DrawCircleEx(px, py, 4.5 * s, 0);
                 DrawSetAlpha(ga); DrawSetColorRgb(255, 250, 225); DrawCircleEx(px, py, 2.2 * s, 0);
@@ -1077,10 +1100,28 @@ UiSetText(ui, "toastText", toastText);
 var menuOn = state == 3;
 UiSetVisible(ui, "menuShade", menuOn); UiSetVisible(ui, "menuPanel", menuOn); UiSetVisible(ui, "menuTitle", menuOn);
 UiSetVisible(ui, "menuOpt0", menuOn); UiSetVisible(ui, "menuOpt1", menuOn); UiSetVisible(ui, "menuHint", menuOn);
+UiSetVisible(ui, "menuOpt2", menuOn); UiSetVisible(ui, "menuOpt3", menuOn);
 DrawUi(ui);
 
+// Level select feel: the best time of the level under the marker (right of the medal pips) and the game's completion.
+if (shown > 0 && HubNodeCleared(shown) == 1) {
+    var bestSec = GlobalGet("bestTime" + shown);
+    if (bestSec > 0) {
+        DrawSetTextAlign("center");
+        HubShadowText(776 * sx, 104 * sy, StringJoin2("BEST ", JrnClock(bestSec)), 18 * s, 255, 235, 185);
+        DrawSetTextAlign("left");
+    }
+}
+DrawSetTextAlign("left");
+DrawSetAlpha(0.82); DrawSetColorRgb(29, 48, 67);
+DrawRoundRectEx(20 * sx, 86 * sy, 236 * sx, 112 * sy, 8 * s, 0);
+DrawSetAlpha(0.9); DrawSetColorRgb(255, 210, 63);
+DrawRoundRectEx(20 * sx, 86 * sy, 236 * sx, 112 * sy, 8 * s, 2 * s);
+DrawSetAlpha(1);
+HubShadowText(32 * sx, 88 * sy, StringJoin3("COMPLETION ", StringOf(completion), "%"), 18 * s, 255, 235, 185);
+
 if (menuOn) {
-    var rowY = 318 + menuSel * 54;
+    var rowY = 288 + menuSel * 54;
     var pulse = 0.7 + 0.3 * Sin(t * 360);
     DrawSetAlpha(pulse); DrawSetColorRgb(255, 210, 63);
     DrawRoundRectEx(452 * sx, (rowY + 2) * sy, 828 * sx, (rowY + 42) * sy, 8 * s, 3 * s);
@@ -1091,6 +1132,8 @@ if (state == 4) {
     DrawSetAlpha(Clamp(fadeT / 0.45, 0, 1)); DrawSetColorRgb(16, 12, 24);
     DrawRectangle(0, 0, sw, sh);
 }
+if (state == 5) { JrnDraw(); }
+AchToastDraw("Consolas");
 DrawSetAlpha(1); DrawSetColorRgb(255, 255, 255);
 """
 
@@ -1175,7 +1218,7 @@ if (npcKey == 4) {
     if (HubRepStage() >= 2) { hideNow = 1; }
     if (hideNow != hideKid) { hideKid = hideNow; SpriteSetVisible(hideKid == 0); }
 }
-var hero = InstanceFind("Explorer", 0);
+var hero = RoomValueGet("heroId", 0);
 near = 0;
 var hx = x;
 if (hero > 0) {
@@ -1319,6 +1362,7 @@ if (mode == 0) {
         var again = 0;
         if (visits > 0) { again = 1; }
         GlobalSet("hubTalk" + npc, visits + 1);
+        AchOnVillage();
         pages = HubVillageLines(npc, stage, again);
         pages = HubRepPages(npc, pages);
         pageCount = StringSplitCount(pages, "~");
@@ -1441,6 +1485,7 @@ if (mode == 2) {
             if (seller > 0) {
                 ParticleBurstAt("Assets/Particles/Shop Sparkle.particle.json", InstanceGetX(seller), InstanceGetY(seller) - 30, 0, 1, 0);
             }
+            AchOnShop();
             HubSave(0);
         }
     }
@@ -1463,7 +1508,7 @@ if (t < 3.4) {
     DrawRoundRectEx(430 * sx, 128 * sy, 850 * sx, 222 * sy, 12 * s, 3 * s);
     DrawSetTextAlign("center");
     HubShadowText(640 * sx, 138 * sy, "HEARTHOLLOW", 38 * s, 255, 235, 185);
-    HubShadowText(640 * sx, 186 * sy, "the village under the Great Lantern Tree", 17 * s, 220, 239, 224);
+    HubShadowText(640 * sx, 186 * sy, "the village under the Great Lantern Tree", 18 * s, 220, 239, 224);
     DrawSetTextAlign("left");
     DrawSetAlpha(1);
 }
@@ -1507,7 +1552,7 @@ if (mode == 1 || mode == 2) {
         var bob = Abs(Sin(t * 240)) * 5 * s;
         DrawSetTextAlign("right");
         HubShadowText(1160 * sx, 604 * sy + bob, "v", 24 * s, 255, 210, 63);
-        HubShadowText(1130 * sx, 610 * sy, StringJoin3(StringOf(page), " / ", StringOf(pageCount)), 15 * s, 200, 214, 200);
+        HubShadowText(1130 * sx, 610 * sy, StringJoin3(StringOf(page), " / ", StringOf(pageCount)), 18 * s, 200, 214, 200);
         DrawSetTextAlign("left");
     }
 }
@@ -1517,8 +1562,8 @@ if (mode == 2) {
     DrawUi(shop);
     var coinsNow = GlobalGet("coins");
     var pct = HubShopPercent();
-    if (pct < 0) { HubShadowText(166 * sx, 94 * sy, StringJoin3("FRIENDLY DISCOUNT ", StringOf(pct), "%"), 18 * s, 170, 240, 150); }
-    if (pct > 0) { HubShadowText(166 * sx, 94 * sy, StringJoin3("SURCHARGE +", StringOf(pct), "%"), 18 * s, 255, 160, 140); }
+    if (pct < 0) { HubShadowText(166 * sx, 110 * sy, StringJoin3("FRIENDLY DISCOUNT ", StringOf(pct), "%"), 18 * s, 170, 240, 150); }
+    if (pct > 0) { HubShadowText(166 * sx, 110 * sy, StringJoin3("SURCHARGE +", StringOf(pct), "%"), 18 * s, 255, 160, 140); }
     var repShop = HubRepStage();
     for (var r = 0; r < 11; r += 1) {
         var rx = shopX[r]; var ry = shopY[r];
@@ -1628,7 +1673,7 @@ image_yscale = s;
 // A background with parallax p is drawn at its room position + view left * (1 - p), repeated.
 var viewLeft = ViewGetPosX(0);
 var shift = viewLeft * (1 - housesParallax);
-var copy = Round((viewLeft + 320 - shift - homeX) / stripW);
+var copy = Round((viewLeft + ViewGetBoundsW(0) * 0.5 - shift - homeX) / stripW);
 x = homeX + shift + copy * stripW + lean;
 y = homeY - 14 - rise;
 """
@@ -1694,7 +1739,7 @@ SpriteSetDepth(120);
 EXIT_STEP = """var dt = Clamp(DeltaTime, 0, 0.05);
 t += dt;
 near = 0;
-var hero = InstanceFind("Explorer", 0);
+var hero = RoomValueGet("heroId", 0);
 if (hero > 0) {
     var hx = InstanceGetX(hero); var hy = InstanceGetY(hero);
     if (Abs(hx - x) <= 30 && Abs(hy - y) <= 40) { near = 1; }
@@ -1782,7 +1827,8 @@ def rid(text):
     return hashlib.md5(("mushroom-meadow-hub-room:" + text).encode("utf-8")).hexdigest()
 
 
-def room_shell(room_id, name, width, follow, bg_colour, nodes):
+def room_shell(room_id, name, width, follow, bg_colour, nodes, fit_view=False):
+    # fit_view: the room's Level Rules fits the world to the window (RulesFitView), so the room must not letterbox itself.
     viewport = {"enabled": True, "sourceX": 0, "sourceY": 0, "sourceWidth": 640, "sourceHeight": 360,
                 "portX": 0, "portY": 0, "portWidth": 1280, "portHeight": 720, "followTarget": follow,
                 "followMarginX": 220 if follow else 0, "followMarginY": 64 if follow else 0,
@@ -1790,7 +1836,7 @@ def room_shell(room_id, name, width, follow, bg_colour, nodes):
     return {
         "$schema": "genesis.room", "version": 1, "id": room_id, "name": name, "dimension": "TwoD",
         "settings": {"width": width, "height": 360, "depth": 720, "windowWidth": 1280, "windowHeight": 720,
-                     "scaleViewportsWithWindow": True, "targetFps": 60, "fixedFps": 60, "vsync": True,
+                     "scaleViewportsWithWindow": not fit_view, "targetFps": 60, "fixedFps": 60, "vsync": True,
                      "captureMouse": False, "gridSize": 32, "snapEnabled": True, "pixelArtSampling": True},
         "environment": {"backgroundColor": bg_colour, "fogEnabled": False, "postEffects": ["SNES Look"]},
         "viewports": [viewport],
@@ -1959,7 +2005,7 @@ def build_hearthollow():
         assert (c, r) not in solid and (c, r - 1) not in solid, label
         assert (c, r + 1) in solid, "%s must stand on solid ground (column %d row %d)" % (label, c, r)
         instance(nodes, "hh-" + prefab, label, prefab, x, y, -100 if ch == "@" else 0)
-    room = room_shell(rid("hearthollow"), "Hearthollow", W * 32, "Explorer", [0.98, 0.74, 0.52, 1], nodes)
+    room = room_shell(rid("hearthollow"), "Hearthollow", W * 32, "Explorer", [0.98, 0.74, 0.52, 1], nodes, fit_view=True)
     write_room("Hearthollow", room)
     print("Hearthollow %dx360 (%d columns), solid cells %d" % (W * 32, W, len(solid)))
     for ch, (label, _) in ACTORS.items():

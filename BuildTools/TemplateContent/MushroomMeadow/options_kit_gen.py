@@ -64,7 +64,7 @@ OPTIONS_KIT = r"""// Options Kit: a library Script. ONE options menu used by the
 //   OptionsDraw()          in Draw GUI every frame while open (draws a dim layer + the panel)
 //   OptionsIsOpen()        1 while the menu is open
 //   OptionsClose()         saves ("Apply Options", 1) and closes (Esc/B on the first screen does this)
-// Pages: Gameplay (Enable Tips, Gore, Screen Shake, Controls >), Video (Window Mode, Window Size,
+// Pages: Gameplay (Enable Tips, Gore, Screen Shake, Difficulty, Controls >), Video (Window Mode, Window Size,
 // VSync, Frame Rate Limit, CRT Scanlines), Audio (Master, Music, Sound Effects, Ambience).
 // Controls screen: Control Scheme (keyboard+mouse / controller), Sprint hold/toggle for that scheme,
 // Remap Controls >. Remap screen: nine actions x two bindings; Enter/click = press the new key or
@@ -186,6 +186,7 @@ function OptLabel(rowKey) {
     if (rowKey == "gore") { return "GORE"; }
     if (rowKey == "shake") { return "SCREEN SHAKE"; }
     if (rowKey == "controls") { return "CONTROLS"; }
+    if (rowKey == "difficulty") { return "DIFFICULTY"; }
     if (rowKey == "winmode") { return "WINDOW MODE"; }
     if (rowKey == "winsize") { return "WINDOW SIZE"; }
     if (rowKey == "vsync") { return "VSYNC"; }
@@ -212,6 +213,10 @@ function OptHelp(rowKey) {
     if (rowKey == "gore") { return "Blood and gruesome bits when foes fall. Off keeps the tidy poof."; }
     if (rowKey == "shake") { return "Shake the view on heavy hits and landings."; }
     if (rowKey == "controls") { return "Choose keyboard or controller, sprint style, and remap every button."; }
+    if (rowKey == "difficulty") {
+        if (self.optCtx == 0) { return "The difficulty offered to a new adventure. Each saved adventure keeps its own."; }
+        return DiffName(DiffRaw()) + ": " + DiffBlurb(DiffRaw(), 0);
+    }
     if (rowKey == "winmode") { return "Windowed, borderless fullscreen, or exclusive fullscreen."; }
     if (rowKey == "winsize") { return "The size of the game window while windowed."; }
     if (rowKey == "vsync") { return "Waits for your display to refresh: no tearing. Off can run faster."; }
@@ -274,6 +279,7 @@ function OptValueText(rowKey) {
     if (rowKey == "gore") { return OptOnOff(GlobalGet("gore")); }
     if (rowKey == "shake") { return OptOnOff(GlobalGet("shake")); }
     if (rowKey == "crt") { return OptOnOff(GlobalGet("crt")); }
+    if (rowKey == "difficulty") { return DiffName(DiffRaw()); }
     if (rowKey == "vsync") { return OptOnOff(OptVsync()); }
     if (rowKey == "scheme") {
         if (self.optScheme == 1) { return "CONTROLLER"; }
@@ -373,7 +379,7 @@ function OptLayout() {
 function OptRebuild() {
     var keys = [];
     if (self.optView == 0) {
-        if (self.optPage == 0) { keys = ["tips", "gore", "shake", "controls", "back"]; }
+        if (self.optPage == 0) { keys = ["tips", "gore", "shake", "difficulty", "controls", "back"]; }
         else if (self.optPage == 1) { keys = ["winmode", "winsize", "vsync", "fpscap", "crt", "back"]; }
         else { keys = ["master", "music", "sfx", "amb", "back"]; }
     } else if (self.optView == 1) {
@@ -449,6 +455,12 @@ function OptChange(rowKey, dr) {
     else if (rowKey == "gore") { GlobalSet("gore", 1 - GlobalGet("gore")); changed = 1; }
     else if (rowKey == "shake") { GlobalSet("shake", 1 - GlobalGet("shake")); changed = 1; }
     else if (rowKey == "crt") { GlobalSet("crt", 1 - GlobalGet("crt")); changed = 1; }
+    else if (rowKey == "difficulty") {
+        var diffOld = DiffRaw();
+        var diffNew = (diffOld + dr + 3) % 3;
+        DiffChange(diffOld, diffNew);
+        changed = 1;
+    }
     else if (rowKey == "scheme") { self.optScheme = 1 - self.optScheme; apply = 0; changed = 1; }
     else if (rowKey == "sprint") {
         if (self.optScheme == 0) { GlobalSet("sprintModeKb", 1 - GlobalGet("sprintModeKb")); }
@@ -566,7 +578,7 @@ function OptBack() {
         return 1;
     }
     if (self.optView == 1) {
-        self.optView = 0; self.optSel = 3; self.optScroll = 0;
+        self.optView = 0; self.optSel = 4; self.optScroll = 0;
         OptRebuild();
         OptSound(2);
         return 1;
@@ -860,7 +872,7 @@ function OptCap(cx, cy, cw, ch, msg, dev, state, fade) {
     OptRound(cx, cy, cx + cw, cy + ch, 8, 0);
     if (state == 1) { DrawSetColorRgb(255, 120, 60); DrawSetAlpha(fade); OptRound(cx, cy, cx + cw, cy + ch, 8, 3); }
     else { DrawSetColorRgb(60, 44, 70); DrawSetAlpha(0.7 * fade); OptRound(cx, cy, cx + cw, cy + ch, 8, 1.5); }
-    OptText(cx + cw / 2, cy + 7, msg, 17, "center", tr, tg, tb, fade, 0);
+    OptText(cx + cw / 2, cy + 7, msg, 18, "center", tr, tg, tb, fade, 0);
     return 0;
 }
 
@@ -957,17 +969,17 @@ function OptDrawHints(fade) {
     } else {
         OptText(px + pw / 2, py + ph - 64, OptHelp(rk), 18, "center", 206, 200, 224, fade, 1);
     }
-    var hint = "UP / DOWN  choose      LEFT / RIGHT  change      ENTER  select      ESC  back";
+    var hint = "UP / DOWN  choose     LEFT / RIGHT  change     ENTER  select     ESC  back";
     if (self.optPad == 1) { hint = "D-PAD  choose / change      A  select      B  back"; }
     if (self.optView == 0) {
-        if (self.optPad == 1) { hint = "D-PAD  choose / change      A  select      B  back      LB / RB  page"; }
-        else { hint = "UP / DOWN  choose      LEFT / RIGHT  change      ENTER  select      Q / E  page      ESC  back"; }
+        if (self.optPad == 1) { hint = "D-PAD  choose / change     A  select     B  back     LB / RB  page"; }
+        else { hint = "UP / DOWN  choose    LEFT / RIGHT  change    ENTER  select    Q / E  page    ESC  back"; }
     }
     if (self.optView == 2) {
-        if (self.optPad == 1) { hint = "A  rebind      Y  clear      LEFT / RIGHT  slot      B  back"; }
-        else { hint = "ENTER  rebind      DEL  clear      LEFT / RIGHT  slot      ESC  back"; }
+        if (self.optPad == 1) { hint = "A  rebind     Y  clear     LEFT / RIGHT  slot     B  back"; }
+        else { hint = "ENTER  rebind     DEL  clear     LEFT / RIGHT  slot     ESC  back"; }
     }
-    OptText(px + pw / 2, py + ph - 36, hint, 16, "center", 170, 176, 210, fade, 1);
+    OptText(px + pw / 2, py + ph - 36, hint, 18, "center", 170, 176, 210, fade, 1);
     return 0;
 }
 
@@ -1030,9 +1042,9 @@ function OptionsDraw() {
             else { OptText(tabX + self.optTabW / 2, tabY + 5, tabNames[ti], 21, "center", 246, 231, 193, fade, 1); }
         }
     } else if (self.optView == 1) {
-        OptText(px + pw / 2, py + 62, "CHOOSE A DEVICE, THEN HOW SPRINT BEHAVES", 17, "center", 190, 196, 226, fade, 1);
+        OptText(px + pw / 2, py + 62, "CHOOSE A DEVICE, THEN HOW SPRINT BEHAVES", 18, "center", 190, 196, 226, fade, 1);
     } else {
-        OptText(px + pw / 2, py + 62, "TWO BINDINGS PER ACTION", 17, "center", 190, 196, 226, fade, 1);
+        OptText(px + pw / 2, py + 62, "TWO BINDINGS PER ACTION", 18, "center", 190, 196, 226, fade, 1);
     }
 
     var n = PgListSize(self.optKeys);
@@ -1050,14 +1062,14 @@ function OptionsDraw() {
     // The Controls screen previews the control-hint bar the game shows when tips are on.
     if (self.optView == 1 && self.optHasInput == 1) {
         var prevY = self.optRowY0 + 4 * self.optPitch + 16;
-        OptText(self.optRowX + 22, prevY, "HINT BAR PREVIEW", 16, "left", 200, 190, 160, fade, 1);
+        OptText(self.optRowX + 22, prevY, "HINT BAR PREVIEW", 18, "left", 200, 190, 160, fade, 1);
         var gx = self.optRowX + 230;
         var glyphActs = ["jump", "sprint", "use", "throw"];
         var glyphNames = ["JUMP", "SPRINT", "USE", "THROW"];
         for (var gi = 0; gi < 4; gi = gi + 1) {
             var gw = OptInGlyph(glyphActs[gi], gx, prevY - 6, 28);
-            OptText(gx + gw + 6, prevY, glyphNames[gi], 16, "left", 236, 226, 196, fade, 1);
-            gx = gx + gw + 6 + DrawTextWidth(glyphNames[gi], 16 * self.optS) / sx + 26;
+            OptText(gx + gw + 6, prevY, glyphNames[gi], 18, "left", 236, 226, 196, fade, 1);
+            gx = gx + gw + 6 + DrawTextWidth(glyphNames[gi], 18 * self.optS) / sx + 26;
         }
     }
 

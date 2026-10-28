@@ -26,19 +26,29 @@ the Tree lights up again.
    click to skip it.
 2. **Main Menu**: choose with the arrows, W/S, the D-pad or the left stick, or point with the mouse.
    Enter, Space or A selects, and Esc, Backspace or B goes back.
-   - **New Game**: pick one of three save slots. If the slot already holds a journey you are asked
-     before it is overwritten.
+   - **New Game**: pick one of three save slots (if the slot already holds a journey you are asked
+     before it is overwritten), then choose a **difficulty**: Story, Normal or Challenge (see below).
    - **Continue**: pick a saved slot. The most recently played slot is selected. Each slot card
-     shows its Glowspores (also as five lights), coins, lives, where Pip stands on the map, and
-     "THE TREE IS LIT" once the story has been finished.
+     shows its completion percentage, Glowspores (also as five lights), coins, lives, where Pip stands
+     on the map, the difficulty, and "THE TREE IS LIT" once the story has been finished.
+   - **How to Play**: controls (keyboard and mouse beside controller, drawn from your own bindings), every
+     power-up and held item, and tips. The pause menu and the map menu have it too.
+   - **Collection**: one saved adventure at a time (Enter or the NEXT button picks the slot): completion,
+     the levels (cleared, Sun Medals, best time), totals (Glowspores, medals, coins found, creatures
+     defeated, deaths), the wildlife met by kind, the items found, and the 18 achievements. The pause menu
+     and the map menu show the live adventure.
    - **Delete** a slot with its Delete button, the Delete key or controller Y, then confirm.
-   - **Options** (also in the pause menu): Gameplay (Enable Tips, Gore, Screen Shake, Controls with
+   - **Options** (also in the pause menu): Gameplay (Enable Tips, Gore, Screen Shake, Difficulty, Controls with
      Sprint hold/toggle and full key and button remapping), Video (window mode, VSync, frame cap, CRT
      scanlines) and Audio (master, music, effects, ambience). They apply at once and are saved when you leave.
-   - **Credits** rolls the credits. **Quit** closes the game.
+   - **Credits** rolls the credits. **Quit** closes the game. The version (1.0.0) is shown at the bottom
+     right of the Main Menu and in the credits.
 3. **The valley map** (Overworld): walk Pip's marker along the open paths between the six places and
    press Enter, Space or A to go in. A cleared place shows a lit Glowspore, and the next path opens
-   when the previous place is cleared. The game saves every time you come back to the map.
+   when the previous place is cleared. The game saves every time you come back to the map. The banner
+   at the top shows the place's best Sun Medals and best time, and the completion percentage sits under
+   the purse. Any cleared place can be entered again: the best medal count and the best time are kept.
+   Esc, P or Start opens the map menu (Resume, Collection, How to Play, Save and Quit).
 
 ## Controls in play
 
@@ -50,19 +60,38 @@ the Tree lights up again.
 | Use the held item / throw a spore | J or left mouse button | X |
 | Throw the held item | K or right mouse button | B |
 | Talk / interact | E or X | Y |
-| Pause menu (Resume, Options, Save and Quit) | P or Esc | Start |
+| Pause menu (Resume, How to Play, Collection, Options, Save and Quit) | P or Esc | Start |
 
 Every action except Pause can be remapped under Options > Gameplay > Controls (two bindings each). The hint bar along the
 bottom shows the current device's buttons and appears only with Enable Tips on.
 
 Underwater Pip truly swims: he hovers in the water, W/A/S/D or the arrows swim in any direction, and jump gives a stroke burst the way you are heading. There is no walking, running or jumping underwater. With the Glide Seed, hold jump while falling to glide.
 
+## Difficulty
+
+Chosen when a New Game starts and changeable at any time under Options > Gameplay (the pause menu, or the Main
+Menu for the next new game). Each saved adventure keeps its own. Movement, jumps and level layouts are the same
+at every difficulty, so every level is completable at every difficulty; a hit always costs one heart.
+
+| | Story | Normal | Challenge |
+|---|---|---|---|
+| Hearts at the start | 5 | 3 | 2 |
+| Lives (and what Game Over refills) | 7 | 5 | 3 |
+| Level timer | x 2 | x 1 | x 0.7 |
+| The eight ordinary foes' speed | x 0.8 | x 1 | x 1.2 |
+| Invulnerability after a hit | 2.2 s | 1.5 s | 1.0 s |
+| A Heart Berry gives | 2 hearts | 1 | 1 |
+| Checkpoint flags | heal every heart | - | - |
+
+Heart containers from Chanterelle add to the base, up to 6 hearts in all. Switching difficulty moves the
+heart total with the base (a purchased container stays) and keeps the timer's proportion.
+
 ## Health, lives and power-ups
 
-- Pip starts with 3 hearts and 5 lives. A hit costs a heart (a Bark Shield breaks first instead)
-  and the current power-up, followed by a moment of invulnerability. With no hearts left Pip loses
-  a life and starts again at the last checkpoint. Falling into a pit costs a life at once. With no
-  lives left the game is over and Pip returns to the map with 5 lives.
+- On Normal Pip starts with 3 hearts and 5 lives (see Difficulty). A hit costs a heart (a Bark Shield breaks
+  first instead) and the current power-up, followed by a moment of invulnerability. With no hearts left Pip
+  loses a life and starts again at the last checkpoint. Falling into a pit costs a life at once. With no
+  lives left the game is over and Pip returns to the map with a fresh set of lives.
 - Coins are the valley's currency: spend them at Chanterelle's stall in Hearthollow.
 - Power-ups sprout from glowing **seed pods** (bump them from below) or lie in the levels:
   - **Glide Seed**: hold jump while falling to drift down slowly.
@@ -89,6 +118,21 @@ Underwater Pip truly swims: he hovers in the water, W/A/S/D or the arrows swim i
 | 3 | **Tidepool Grotto** | An undersea level you swim through: currents, Bloatfins (unstompable while puffed up), Driftjellies (never stompable: use spores), sunken ruins and treasure. |
 | 4 | **Windswept Canopy** | Treetops at golden hour: wind gusts (watch the gauge), moving leaf platforms, Dusk Moths and Burr Hoppers. Long glides make the Glide Seed shine here. |
 | 5 | **Duskmantle Hollow** | A twilight gauntlet and the final boss, **Duskmantle**: three phases of swoops, Gloom Orb volleys and summoned Dusk Moths. She can be stomped while dazed after a swoop, and spores hurt her at any time (6 hits; stomps alone are enough). If Pip loses a life the fight starts over. Defeating her returns the last Glowspore and plays the ending. |
+
+## Progress, collection and achievements
+
+Every adventure keeps statistics, shown on the Collection page: levels cleared, Sun Medals (15), Glowspores
+(5), the best time of each level, coins found, creatures defeated by kind, items found (five power-ups and four
+held items), deaths, time played and the valley's opinion of you. The **completion percentage** is 30% levels
+cleared, 40% Sun Medals, 15% items found and 15% kinds of creature defeated. It is shown on each slot card and
+under the purse on the map.
+
+Eighteen **achievements** (a gold banner slides in when one is earned) belong to the player, not to a slot, so
+they carry across all three adventures: First Stomp, First Slice, Sharp Shot, Coin Collector (100 coins),
+First Light, Golden Hands (all three medals in a level), Sun Seeker (all fifteen), Untouched (a level without a
+hit), Quick Feet (a level with half the time left), Beetle Buster, Five Lights, Dusk Breaker, Beloved and Dreaded
+(finish the story with that reputation), Well Equipped (every item found), Friendly Face (talk to everyone),
+Regular (buy something) and Challenge Accepted (finish on Challenge).
 
 ---------------------------------------------------------------------------------------------------
 
@@ -129,6 +173,10 @@ Globals (`GlobalSet` / `GlobalGet`) carry the campaign between rooms:
 | `mapRevealed`, `hubTalk1`..`hubTalk5` | which map unlock has been shown, and each villager's repeat-visit dialogue |
 | `introSeen`, `gameComplete` | the intro has played, and the story is finished |
 | `musicVol`, `sfxVol`, `crt`, `shake` | the player's options |
+| `difficulty` | 0 Story, 1 Normal, 2 Challenge (saved with the slot; the Options slot remembers the one New Game offers) |
+| `playTime`, `deaths`, `statCoins`, `itemsSeen`, `shopBuys` | the statistics of the adventure (seconds, lives lost, coins found, a bit mask of the nine items found, purchases) |
+| `bestTime1`..`bestTime5`, `foe0`..`foe9` | each level's best time in seconds, and the creatures defeated by kind (see `product_consts.py`) |
+| `achMask`, `achQueue`, `achToastT` | the achievements unlocked (a profile in the save slot "Profile", not in a slot) and the banner queue |
 
 ## Saving and options (Scripts)
 
@@ -149,6 +197,14 @@ in New Game.
 
 All rooms are 2D. Their viewport shows 640x360 world pixels in a 1280x720 window, and GUI drawing
 uses a 1280x720 design space scaled to the window.
+
+Window shapes: the level rooms and Hearthollow have `scaleViewportsWithWindow` off and their Level Rules object lays the
+view out in the window itself (`RulesFitView`, every frame the window changes). A 16:9 or wider window shows the world to its
+full height at one uniform scale and a wider slice of it (840 px at 21:9, never more than 960 px); a narrower window keeps the
+640x360 view with bars above and below. The HUD is drawn over the whole window, so at every shape it sits on the same frame
+as the world. Anything drawn in GUI space that belongs to the world (blood stains, the held item, shop prompts) converts room
+points with `GoreGuiX/Y`, `ItemWX/Y` or `HubGuiX/Y`, which read the view's own port and width. The Overworld map is exactly one
+screen, so it keeps the room's own letterbox; its GUI marks use `WindowGetGuiX/Y/Width`.
 
 | Room | Made by | Contents |
 |---|---|---|
@@ -236,7 +292,14 @@ Village Houses chimneys, following that backdrop's 0.6 parallax), Shop Stall, Ex
   Shop Menu, Main Menu UI.
 - **Scripts**: Game Save, Game Load, New Game, Apply Options, Cinematic Kit (library functions for
   the cinematics: `CkDrawPanel`, `CkDrawCaption`, `CkMotes*`...), Hub Common, Village Lines,
-  Levels B Lib, Spawn Effect, Time Bonus.
+  Levels B Lib, Spawn Effect, Time Bonus. The product libraries (`product_gen.py`): **Difficulty Kit**
+  (`DiffLevel`, `DiffBaseHearts`, `DiffTime`, `DiffFoe`, `DiffGrace`, `DiffBerry`, `DiffChange`...; the
+  ordinary foes' Step events scale their delta time by `DiffFoe()`), **Achievements Kit** (`AchGrant`,
+  `AchOnKill`, `AchOnClear`, `AchToastStep` / `AchToastDraw`...; the Gore Kit's death hook, Explorer, Village
+  Host and the Map Marker feed it) and **Journal Kit** (`JrnOpen`, `JrnStep`, `JrnDraw`: the How to Play and
+  Collection pages, opened like the Options Kit from the Main Menu, the pause menu and the map menu).
+  A new achievement is one more row in `ACHIEVEMENTS` (`product_gen.py`; at most 20) and one `AchGrant(n)`
+  call where it is earned.
 - **Paths**: the Bee Patrol routes. **Physics**: Meadow Turf and Mushroom Cap. **Note**: this guide.
 
 ## Extending the game
@@ -255,6 +318,16 @@ Village Houses chimneys, following that backdrop's 0.6 parallax), Shop Stall, Ex
   the Menu Controller's options page.
 - **A different story**: the intro and ending captions, camera moves and credits are plain tables at
   the top of `frontend_gen.py` (and of the directors' Create events in Studio).
+
+## Releasing the game
+
+The version lives in the project file (`"version": "1.0.0"`, Preferences > Project > Release > Game version) and is
+read by the game as `Engine.Game.Version` (the Main Menu footer and the credits show it; `JrnVersion()` falls
+back to "1.0.0" when a project keeps the default "1.0"). An exported game's window title and executable are the
+project's name, "Mushroom Meadow". For the Windows icon pick `Mushroom Meadow.ico` (next to the template's
+project file and in `BuildTools/TemplateContent/MushroomMeadow/`, made by `product_gen.py` from the cap of the
+Pip portrait) in the Export Game dialog. `product_gen.py` also sets the project icon (`projectIcon`) to the Pip
+portrait for the project hub.
 
 ## Acceptance checks
 

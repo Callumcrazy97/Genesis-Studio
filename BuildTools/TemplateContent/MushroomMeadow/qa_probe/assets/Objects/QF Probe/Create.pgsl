@@ -1,0 +1,4 @@
+qfPass = 0; qfFail = 0; ph = 0; qfw = 0; qi = 0; gs = 0; qj = 0; fakePad = 0; qfNow = 0; qfPip = 0;
+qfT0 = TimeMs(); qfMode = QfMode(); optOpen = 0; fakeMark = 0; zSeen = 1; qfReplaySeen = 0; qfDir = 0; qfMc = 0; hs = 0; hc = 0; gFoe = 0; gDum = [];
+ScriptExecute("Apply Options");
+TestCheck("probe.start", true, "mode " + qfMode);

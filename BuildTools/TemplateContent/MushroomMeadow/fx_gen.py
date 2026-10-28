@@ -335,7 +335,7 @@ def build_ui():
                 imageFit="Contain", borderWidth=0.0),
         element("heartIcon", "Image", 576, 59, 20, 20, 3, image="Assets/Sprites/Heart Icon.image.json",
                 imageFit="Contain", borderWidth=0.0),
-        element("bigCoinLabel", "Text", 900, 22, 140, 26, 4, text="SUN MEDALS", fontSize=15.0,
+        element("bigCoinLabel", "Text", 900, 22, 140, 26, 4, text="SUN MEDALS", fontSize=18.0,
                 foreground="#FFFFE7A0"),
     ]
     for i in range(3):
@@ -348,7 +348,7 @@ def build_ui():
     hud += [
         element("helpBar", "Panel", 20, 668, 1240, 38, 20, background="#D61D3043", cornerRadius=8.0,
                 borderWidth=2.0, borderColor="#80FFE7A0"),
-        element("helpText", "Text", 36, 672, 1210, 30, 21, fontSize=17.0, foreground="#FFF0F1DB",
+        element("helpText", "Text", 36, 672, 1210, 30, 21, fontSize=18.0, foreground="#FFF0F1DB",
                 text="A/D MOVE   SPACE JUMP   SHIFT RUN   P/ESC PAUSE   R RESTART   M MUTE   C CRT"),
     ]
     write_json("User Interfaces/Meadow HUD.ui.json",

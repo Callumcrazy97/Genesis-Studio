@@ -1,0 +1,32 @@
+function QfRun() {
+    var md = self.qfMode;
+    if (md == "main") { QfRunMain(); }
+    if (md == "hub") { QfRunHub(); }
+    if (md == "credits") { QfRunCredits(); }
+    if (md == "menu") { QfRunMenu(); }
+    if (md == "loop") { QfRunLoop(); }
+    if (md == "aspect") { QfRunAspect(); }
+    if (md == "input") { QfRunInput(); }
+    return 0;
+}
+
+function QfRunMain() {
+    var p = self.ph;
+    if (p == 0) { QfP0(); }
+    else if (p == 1) { QfP1(); }
+    else if (p == 2) { QfP2(); }
+    else if (p == 3) { QfP3(); }
+    else if (p == 4) { QfP4(); }
+    else if (p == 5) { QfP5(); }
+    else if (p == 6) { QfP6(); }
+    else if (p == 7) { QfP7(); }
+    else if (p == 8) { QfP8(); }
+    else if (p == 9) { QfP9(); }
+    else if (p == 20) { QfPWind(); }
+    else if (p == 10) {
+        TestCheck("probe.summary.main", self.qfFail == 0, "pass " + self.qfPass + " fail " + self.qfFail + " at " + StringFormatNumber(self.qfNow, 1) + " s");
+        self.ph = 11; QfWaitFrames(30);
+    }
+    else if (p == 11) { GameQuit(); self.ph = 12; }
+    return 0;
+}

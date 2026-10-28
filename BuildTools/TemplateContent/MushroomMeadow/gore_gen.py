@@ -198,9 +198,33 @@ function GoreFx(base, kind) {
     return StringJoin2(StringJoin2("Assets/Particles/", base), StringJoin2(tail, ".particle.json"));
 }
 
-// Room point -> GUI pixel (the levels show a 640x360 view stretched to the window, as Hub Common assumes).
+// Room point -> GUI pixel, read from the view itself: Level Rules (RulesFitView) lays the view out in the window (the
+// room has scaleViewportsWithWindow off), so the scale is the port's width over the world width it shows and the offset is
+// the port's corner. A GUI-space drawing that belongs to the world uses the same numbers at any window shape.
 function GoreGuiS() {
-    return WindowGetWidth() / 640;
+    var gbw = ViewGetBoundsW(0);
+    if (gbw <= 0) { gbw = 640; }
+    return ViewGetViewportW(0) / gbw;
+}
+
+function GoreGuiX(wx) {
+    return ViewGetViewportX(0) + (wx - ViewGetPosX(0)) * GoreGuiS();
+}
+
+function GoreGuiY(wy) {
+    return ViewGetViewportY(0) + (wy - ViewGetPosY(0)) * GoreGuiS();
+}
+
+// The first burst of an effect reads and prepares its file (tens of milliseconds): GoreEnemyInit calls this once per blood
+// colour in a room, while the room loads, so the first hit or kill in play does not stall a frame.
+function GoreWarm(kindW) {
+    if (GoreOn() == 0 || kindW < 0) { return 0; }
+    Particle2DBurst(GoreFx("Blood Spray", kindW), -9000, -9000, 1, 90);
+    Particle2DBurst(GoreFx("Blood Mist", kindW), -9000, -9000, 1, 90);
+    Particle2DBurst(GoreFx("Gore Chunks", kindW), -9000, -9000, 1, 90);
+    Particle2DBurst(GoreFx("Blood Drip", kindW), -9000, -9000, 1, 90);
+    Particle2DBurst(GoreFx("Slice Spray", kindW), -9000, -9000, 1, 90);
+    return 1;
 }
 
 function GoreBlood(bx, by, amount, dirX, kind) {
@@ -247,6 +271,8 @@ function GoreSpore(sx, sy) {
 
 // Call once in an enemy's Create, after hp is set.
 function GoreEnemyInit(kindArg, weakArg, oxArg, oyArg, footArg) {
+    var warmKey = StringJoin2("goreWarm", StringOf(kindArg));
+    if (RoomValueGet(warmKey, 0) == 0) { RoomValueSet(warmKey, 1); GoreWarm(kindArg); }
     self.bloodKind = kindArg; self.weak = weakArg;
     self.goreOx = oxArg; self.goreOy = oyArg; self.goreFoot = footArg;
     if (!InstanceVariableExists(self.id, "maxHp")) { self.maxHp = self.hp; }
@@ -256,11 +282,13 @@ function GoreEnemyInit(kindArg, weakArg, oxArg, oyArg, footArg) {
     self.hitKind = 0; self.hitDir = 0; self.hitDmg = 0; self.hitX = 0; self.hitY = 0;
     self.goreKind = 8; self.goreDmg = 1; self.goreDir = 1; self.goreHp = self.hp;
     self.goreName = ""; self.goreSw = 0; self.goreSh = 0; self.goreFrame = 0;
+    // Collection page: which kind of creature this is (0..9), read from its own sprite (Achievements Kit).
+    self.foeKind = AchKindOf(SpriteGet());
     return 1;
 }
 
 function GoreHeroDir() {
-    var hero = InstanceFind("Explorer", 0);
+    var hero = RoomValueGet("heroId", 0);
     if (hero > 0) {
         if (InstanceGetX(hero) > self.x) { return -1; }
     }
@@ -342,6 +370,8 @@ function GoreEnemyDeath() {
             if (ground >= 0) { GoreStain(self.x + RandomRange(-4, 4), ground, self.bloodKind); }
         }
     }
+    // Collection counters and the first-stomp / first-slice / boss achievements (Achievements Kit).
+    AchOnKill(kindNow, sliced, overkill, self.foeKind);
     if (boss == 1) { RepKill(0, 0, 0, 2); }
     else { RepKill(kindNow, overkill, sliced, self.weak); }
     return result;
@@ -483,7 +513,7 @@ function FearCheck(radius) {
     }
     var dtf = Clamp(DeltaTime, 0, 0.05);
     self.fearClock = self.fearClock + dtf;
-    var hero = InstanceFind("Explorer", 0);
+    var hero = RoomValueGet("heroId", 0);
     var seen = 0;
     if (hero > 0) {
         var reach = radius * (1 + Clamp((b - 35) / 65, 0, 1) * 1.2);
@@ -510,7 +540,7 @@ function FearCheck(radius) {
 }
 
 function FearDir() {
-    var hero = InstanceFind("Explorer", 0);
+    var hero = RoomValueGet("heroId", 0);
     if (hero > 0) {
         if (InstanceGetX(hero) > self.x) { return -1; }
     }
@@ -564,9 +594,9 @@ if (dripT <= 0 && halfUnder == 0) {
 """
 
 GORE_HALF_DRAWGUI = """if (halfW <= 0 || halfH <= 0 || halfSpr == "") { return; }
-var s = WindowGetWidth() / 640;
+var s = GoreGuiS();
 var vx0 = ViewGetPosX(0); var vy0 = ViewGetPosY(0);
-if (x < vx0 - 80 || x > vx0 + 720 || y < vy0 - 80 || y > vy0 + 440) { return; }
+if (x < vx0 - 80 || x > vx0 + ViewGetBoundsW(0) + 80 || y < vy0 - 80 || y > vy0 + 440) { return; }
 var fade = Clamp((halfLife - age) / 0.8, 0, 1);
 if (fade <= 0) { return; }
 var gl = Floor(x - halfOx);
@@ -575,7 +605,7 @@ var hh = halfCutRow; var v0 = 0; var v1 = halfCutRow / halfH;
 if (halfPart == 1) {
     gt = gt + halfCutRow; hh = halfH - halfCutRow; v0 = halfCutRow / halfH; v1 = 1;
 }
-var gx = (gl - vx0) * s; var gy = (gt - vy0) * s;
+var gx = GoreGuiX(gl); var gy = GoreGuiY(gt);
 if (halfFlip == 0) {
     DrawSpritePart(halfSpr, halfFrame, 0, v0, 1, v1, gx, gy, halfW * s, hh * s, fade);
 } else {
@@ -593,7 +623,7 @@ var edge = gt;
 if (halfPart == 0) { edge = gt + hh - 2; }
 DrawSetAlpha(fade);
 DrawSetColorRgb(GoreRgb(halfKind, 0), GoreRgb(halfKind, 1), GoreRgb(halfKind, 2));
-DrawRectangle(gx + halfW * 0.3 * s, (edge - vy0) * s, gx + halfW * 0.7 * s, (edge + 2 - vy0) * s);
+DrawRectangle(gx + halfW * 0.3 * s, GoreGuiY(edge), gx + halfW * 0.7 * s, GoreGuiY(edge + 2));
 DrawSetAlpha(1);
 """
 
@@ -624,12 +654,12 @@ if (chunkUnder == 0 && chunkGround >= 0 && y >= chunkGround - 2 && vy > 0) {
 }
 """
 
-GORE_CHUNK_DRAWGUI = """var s = WindowGetWidth() / 640;
+GORE_CHUNK_DRAWGUI = """var s = GoreGuiS();
 var vx0 = ViewGetPosX(0); var vy0 = ViewGetPosY(0);
-if (x < vx0 - 40 || x > vx0 + 680 || y < vy0 - 40 || y > vy0 + 400) { return; }
+if (x < vx0 - 40 || x > vx0 + ViewGetBoundsW(0) + 40 || y < vy0 - 40 || y > vy0 + 400) { return; }
 var fade = Clamp((chunkLife - age) / 0.6, 0, 1);
 if (fade <= 0) { return; }
-var gx = (Floor(x) - 3 - vx0) * s; var gy = (Floor(y) - 3 - vy0) * s;
+var gx = GoreGuiX(Floor(x) - 3); var gy = GoreGuiY(Floor(y) - 3);
 if (chunkSpr != "") {
     DrawSpritePart(chunkSpr, chunkFrame, chunkU, chunkV, chunkU + chunkDu, chunkV + chunkDv, gx, gy, 6 * s, 6 * s, fade);
 } else {
@@ -654,12 +684,12 @@ if (stainLife <= 0) { InstanceDestroy(id); }
 """
 
 BLOOD_STAIN_DRAWGUI = """var vx0 = ViewGetPosX(0);
-if (x < vx0 - 30 || x > vx0 + 670) { return; }
+if (x < vx0 - 30 || x > vx0 + ViewGetBoundsW(0) + 30) { return; }
 var vy0 = ViewGetPosY(0);
 if (y < vy0 - 10 || y > vy0 + 380) { return; }
-var s = WindowGetWidth() / 640;
+var s = GoreGuiS();
 var fade = Clamp(stainLife / 8, 0, 1);
-var gx = (Floor(x) - vx0) * s; var gy = (Floor(y) - vy0) * s;
+var gx = GoreGuiX(Floor(x)); var gy = GoreGuiY(Floor(y));
 var half = stainW * 0.5 * s;
 // The puddle lies in the floor's top row (below Pip's feet): a dark body with a bright highlight above it.
 DrawSetAlpha(0.85 * fade);

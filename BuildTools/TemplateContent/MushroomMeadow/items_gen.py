@@ -124,7 +124,7 @@ ITEM_KIT = r"""// Item Kit: a library Script (round 4). Every function is called
 //   ItemDrawHud()              DrawGui: held item slot, arrow count, flower fuel meter (1280x720 design space).
 // Optional hooks Explorer may call (ItemStep already does the equivalent as a fallback):
 //   ItemAdjustVelocity(dt)     returns Pip's new vertical speed; call as vy = ItemAdjustVelocity(dt) right after
-//                              gravity: flower parachute caps the fall at 90 px/s, the rise pulls toward -150 px/s.
+//                              gravity: flower parachute caps the fall at about 90 px/s (70 plus one frame of gravity), the rise settles at about 118 px/s.
 //   ItemMovementScale()        1 normally, 0.5 with the shield raised, 0.65 while drawing the bow; multiply the
 //                              target walking speed by it.
 // For shops and scripts (any object):
@@ -239,10 +239,11 @@ function ItemScan(names, x1, y1, x2, y2, kind, dmg, dirX, hitList, pip) {
 // A simple code-made picture of an item for when its sprite is missing. ang in degrees (clockwise on screen,
 // 0 = pointing right); for the flower ang is its spin.
 // ---- World drawing from a Draw event: 2D Draw events draw in WINDOW pixels (no camera), so room coordinates are converted
-// with the same uniform scale and centring the room's 640x360 view gets on screen (ItemW*).
-function ItemWScale() { return Min(WindowGetWidth() / 640, WindowGetHeight() / 360); }
-function ItemWX(wx) { var ws = ItemWScale(); return (WindowGetWidth() - 640 * ws) / 2 + (wx - ViewGetPosX(0)) * ws; }
-function ItemWY(wy) { var ws = ItemWScale(); return (WindowGetHeight() - 360 * ws) / 2 + (wy - ViewGetPosY(0)) * ws; }
+// with the numbers of the view itself (Level Rules' RulesFitView lays it out in the window): the scale is the port's width over the
+// world width it shows, the offset is the port's corner (ItemW*).
+function ItemWScale() { var wbw = ViewGetBoundsW(0); if (wbw <= 0) { wbw = 640; } return ViewGetViewportW(0) / wbw; }
+function ItemWX(wx) { return ViewGetViewportX(0) + (wx - ViewGetPosX(0)) * ItemWScale(); }
+function ItemWY(wy) { return ViewGetViewportY(0) + (wy - ViewGetPosY(0)) * ItemWScale(); }
 function ItemWSprite(img, wx, wy, fr, xs, ys, ang, al) {
     var ws = ItemWScale();
     DrawSpriteScaled(img, ItemWX(wx), ItemWY(wy), fr, xs * ws, ys * ws, ang, al);
@@ -397,7 +398,7 @@ function ItemPickup(kind) {
 }
 
 function ItemGrantGlobal(kind) {
-    var pip = InstanceFind("Explorer", 0);
+    var pip = RoomValueGet("heroId", 0);
     var old = Clamp(GlobalGet("heldItem"), 0, 4);
     if (old != 0 && old != kind && pip > 0) {
         var pf = InstanceVariableGet(pip, "facing");
@@ -494,10 +495,13 @@ function ItemMovementScale() {
 function ItemAdjustVelocity(dt) {
     var nv = self.vy;
     if (self.itemFlowerOpen == 1) {
+        // ItemStep calls this after the movement; Explorer adds gravity (+1250 px/s^2) before the next move, so the pull
+        // has to beat it: pulling 10 % a frame toward -150 settled at a rise of only 25 px/s and the "ceiling bump" test
+        // then cancelled it after 0.3 s. Pulling 40 % a frame toward -170 settles at a rise of about 118 px/s (60 fps).
         if (self.itemRising == 1) {
-            if (nv > -150) { nv = nv + (-150 - nv) * Min(1, dt * 10); }
-        } else if (nv > 90) {
-            nv = 90;
+            if (nv > -170) { nv = nv + (-170 - nv) * Min(1, dt * 24); }
+        } else if (nv > 70) {
+            nv = 70;
         }
     }
     return nv;
@@ -563,6 +567,9 @@ function ItemFireArrow() {
         InstanceVariableSet(ar, "vx", ax * spd);
         InstanceVariableSet(ar, "vy", ay * spd);
         InstanceVariableSet(ar, "pip", self.id);
+        // A fully drawn bow hits for 3: enough to burst a one-heart foe (overkill = the Gore Kit's gib). Without this
+        // no attack of the game could ever gib a body, as every blow did at most 2.
+        if (self.itemDrawT >= 0.44) { InstanceVariableSet(ar, "dmg", 3); }
     }
     self.itemArrows = self.itemArrows - 1;
     self.throwTimer = 0.2;
@@ -917,9 +924,10 @@ if (mode == 1) {
     y = homeY + Sin(bob) * 3;
 }
 if (delay <= 0) {
-    var pip = InstanceFind("Explorer", 0);
+    var pip = RoomValueGet("heroId", 0);
     if (pip > 0) {
-        if (InstanceVariableGet(pip, "state") == 1 && InstanceVariableGet(pip, "hub") == 0
+        // Also in the village: a shop purchase tosses the item Pip carried out beside him, and it must be takeable again.
+        if (InstanceVariableGet(pip, "state") == 1
             && PointDistance(x, y, InstanceGetX(pip), InstanceGetY(pip) - 17) < 22) {
             if (ItemGive(pip, kindItem, fresh) == 1) { InstanceDestroy(id); return; }
         }

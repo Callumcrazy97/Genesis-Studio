@@ -1,0 +1,837 @@
+// QF Main: the level-room probe (QA test copy only). Phases run one after another from the QF Probe's Step.
+function QfWaitFrames(n) {
+    self.qfw = n;
+    return 0;
+}
+
+function QfClear(nm) {
+    var n = InstanceNumber(nm);
+    for (var i = n - 1; i >= 0; i = i - 1) {
+        var d = InstanceFind(nm, i);
+        if (d > 0) { InstanceDestroy(d); }
+    }
+    return n;
+}
+
+function QfPipVar(nm) {
+    return InstanceVariableGet(self.qfPip, nm);
+}
+
+// ---------------------------------------------------------------- phase 0: boot
+function QfP0() {
+    var pip = InstanceFind("Explorer", 0);
+    if (pip <= 0) { return 0; }
+    self.qfPip = pip;
+    if (InstanceVariableGet(pip, "state") != 1) { return 0; }
+    if (self.qfNow < 1.2) { return 0; }
+    QfInfo("boot.room", RoomGetName() + " window " + WindowGetWidth() + "x" + WindowGetHeight() + " gui " + WindowGetGuiX() + "," + WindowGetGuiY() + " " + WindowGetGuiWidth() + "x" + WindowGetGuiHeight() + " view " + ViewGetPosX(0) + "," + ViewGetPosY(0));
+    QfEq("boot.pip.campaign", QfPipVar("campaign"), 1);
+    QfEq("boot.pip.hasInput", QfPipVar("hasInput"), 1);
+    QfEq("boot.pip.hasItems", QfPipVar("hasItems"), 1);
+    QfEq("boot.pip.hasRep", QfPipVar("hasRep"), 1);
+    QfEq("boot.pip.hasGore", QfPipVar("hasGore"), 1);
+    QfEq("boot.pip.hasOptions", QfPipVar("hasOptions"), 1);
+    QfEq("boot.pip.itemReady", QfPipVar("itemReady"), 1);
+    QfEq("boot.heldItem.overlay", InstanceNumber("Held Item"), 1);
+    QfInfo("boot.pip.pos", InstanceGetX(pip) + "," + InstanceGetY(pip) + " grounded " + QfPipVar("grounded") + " facing " + QfPipVar("facing"));
+    QfEq("boot.pip.grounded", QfPipVar("grounded"), 1);
+    QfEq("boot.pip.gamepad.emulation", GamepadConnected(), false);
+    self.ph = 1;
+    return 1;
+}
+
+// ---------------------------------------------------------------- phase 1: pure logic
+function QfP1() {
+    QfLogicNames();
+    QfLogicInput();
+    QfLogicRep();
+    QfLogicSave();
+    QfLogicApply();
+    QfLogicFoes();
+    GlobalSet("gore", 1); GlobalSet("tips", 1);
+    RepReset();
+    GlobalSet("heldItem", 0); GlobalSet("arrows", 0);
+    GlobalSet("lives", 5); GlobalSet("hearts", 3); GlobalSet("maxHearts", 3); GlobalSet("power", 0); GlobalSet("coins", 20);
+    RoomValueSet("heroReload", 1);
+    self.ph = 2; self.qi = 0; self.gs = 0;
+    self.gFoes = ["Acorn Walker", "Glow Grub", "Burr Hopper", "Buzz Bee", "Flit Bat", "Dusk Moth", "Bloatfin", "Driftjelly"];
+    self.gFly = [0, 0, 0, 1, 1, 1, 1, 1];
+    QfWaitFrames(4);
+    return 1;
+}
+
+// ---------------------------------------------------------------- phase 2: every foe x splat / slice / gib
+function QfP2() {
+    var total = PgListSize(self.gFoes) * 3;
+    if (self.qi >= total) { self.ph = 3; self.gs = 0; return 0; }
+    var fi = Floor(self.qi / 3);
+    var ty = self.qi % 3;
+    var nm = self.gFoes[fi];
+    var tn = "splat";
+    if (ty == 1) { tn = "slice"; } else if (ty == 2) { tn = "gib"; }
+    var pip = self.qfPip;
+    var fx = InstanceGetX(pip) + 190;
+    if (self.gs == 0) {
+        GlobalSet("gore", 1); RepReset();
+        QfClear("Gore Half"); QfClear("Gore Chunk");
+        var fy = 288;
+        if (self.gFly[fi] == 1) { fy = 238; }
+        var foe = CreateInstance(nm, fx, fy, 0);
+        self.gFoe = foe;
+        self.gHp = 1;
+        if (foe > 0) { self.gHp = InstanceVariableGet(foe, "hp"); }
+        QfCk("gore." + nm + "." + tn + ".created", foe > 0, "id " + foe + " hp " + self.gHp);
+        self.gs = 1;
+        QfWaitFrames(8);
+        return 1;
+    }
+    if (self.gs == 1) {
+        var foe1 = self.gFoe;
+        if (foe1 <= 0 || !InstanceExists(foe1)) { self.qi = self.qi + 1; self.gs = 0; return 0; }
+        var kind = 1; var dmg = self.gHp;
+        if (ty == 1) { kind = 2; }
+        if (ty == 2) { kind = 2; dmg = self.gHp + 2; }
+        self.gBlade0 = GlobalGet("killsBlade"); self.gStomp0 = GlobalGet("killsStomp"); self.gGib0 = GlobalGet("killsGib"); self.gSl0 = GlobalGet("killsSliced");
+        self.gStain0 = InstanceNumber("Blood Stain");
+        var ffx = InstanceGetX(foe1); var ffy = InstanceGetY(foe1);
+        ItemHitFoe(foe1, kind, dmg, 1, ffx, ffy - 10, 0);
+        self.gs = 2;
+        QfWaitFrames(3);
+        return 1;
+    }
+    if (self.gs == 2) {
+        var foe2 = self.gFoe;
+        var alive = 0;
+        if (InstanceExists(foe2)) { alive = 1; }
+        var halves = InstanceNumber("Gore Half");
+        var chunks = InstanceNumber("Gore Chunk");
+        var stains = InstanceNumber("Blood Stain") - self.gStain0;
+        var pre = "gore." + nm + "." + tn;
+        var detail = "alive " + alive + " halves " + halves + " chunks " + chunks + " newStains " + stains + " dead " + QfDead(foe2);
+        if (ty == 0) {
+            QfCk(pre + ".result", alive == 1 && halves == 0 && chunks == 0, detail);
+            QfEq(pre + ".killsStomp", GlobalGet("killsStomp") - self.gStomp0, 1);
+        } else if (ty == 1) {
+            QfCk(pre + ".result", alive == 0 && halves == 2 && chunks == 0, detail);
+            QfEq(pre + ".killsSliced", GlobalGet("killsSliced") - self.gSl0, 1);
+            QfEq(pre + ".killsBlade", GlobalGet("killsBlade") - self.gBlade0, 1);
+        } else {
+            QfCk(pre + ".result", alive == 0 && halves == 0 && chunks >= 6, detail);
+            QfEq(pre + ".killsGib", GlobalGet("killsGib") - self.gGib0, 1);
+        }
+        QfInfo(pre + ".stain", "new stains " + stains + " brutality " + StringFormatNumber(GlobalGet("brutality"), 2));
+        if (nm == "Acorn Walker" && ty == 0) { QfShot("gore_splat_acorn"); }
+        if (nm == "Acorn Walker" && ty == 1) { QfShot("gore_slice_acorn"); }
+        if (nm == "Flit Bat" && ty == 2) { QfShot("gore_gib_bat"); }
+        if (nm == "Dusk Moth" && ty == 1) { QfShot("gore_slice_moth"); }
+        if (nm == "Burr Hopper" && ty == 1) { QfShot("gore_slice_hopper"); }
+        if (nm == "Glow Grub" && ty == 2) { QfShot("gore_gib_grub"); }
+        self.gs = 3;
+        QfWaitFrames(2);
+        return 1;
+    }
+    if (self.gs == 3) {
+        if (self.gFoe > 0 && InstanceExists(self.gFoe)) { InstanceDestroy(self.gFoe); }
+        self.qi = self.qi + 1; self.gs = 0;
+        if (self.qi % 3 == 0) { QfClear("Gore Half"); QfClear("Gore Chunk"); }
+        return 1;
+    }
+    return 0;
+}
+
+function QfDead(foe) {
+    if (foe > 0 && InstanceExists(foe)) { return InstanceVariableGet(foe, "dead"); }
+    return -1;
+}
+
+// ---------------------------------------------------------------- phase 3: blood colours, stains
+function QfP3() {
+    var pip = self.qfPip;
+    if (self.gs == 0) {
+        QfClear("Gore Half"); QfClear("Gore Chunk");
+        var bx = InstanceGetX(pip) + 60;
+        for (var k = 0; k < 6; k = k + 1) {
+            GoreBlood(bx + k * 50, 270, 20, 1, k);
+            GoreStain(bx + k * 50, 290, k);
+        }
+        QfEq("gore.stains.count", InstanceNumber("Blood Stain") >= 6, true);
+        self.gs = 1; QfWaitFrames(10);
+        return 1;
+    }
+    if (self.gs == 1) {
+        QfShot("gore_kinds_row");
+        // the stain cap
+        for (var s = 0; s < 80; s = s + 1) { GoreStain(InstanceGetX(pip) + 40 + (s % 20) * 16, 290, s % 6); }
+        QfEq("gore.stains.cap60", InstanceNumber("Blood Stain") <= 60, true);
+        QfInfo("gore.stains.after80", "alive " + InstanceNumber("Blood Stain"));
+        self.gs = 2; QfWaitFrames(4);
+        return 1;
+    }
+    if (self.gs == 2) {
+        QfShot("gore_stains_pile");
+        GlobalSet("gore", 0);
+        var foeOff = CreateInstance("Acorn Walker", InstanceGetX(pip) + 190, 288, 0);
+        self.gFoe = foeOff;
+        self.gStain0 = InstanceNumber("Blood Stain");
+        self.gs = 3; QfWaitFrames(8);
+        return 1;
+    }
+    if (self.gs == 3) {
+        ItemHitFoe(self.gFoe, 2, 3, 1, InstanceGetX(self.gFoe), 270, 0);
+        self.gs = 4; QfWaitFrames(3);
+        return 1;
+    }
+    if (self.gs == 4) {
+        QfEq("gore.off.noHalves", InstanceNumber("Gore Half"), 0);
+        QfEq("gore.off.noChunks", InstanceNumber("Gore Chunk"), 0);
+        QfEq("gore.off.noNewStain", InstanceNumber("Blood Stain"), self.gStain0);
+        QfEq("gore.off.foeStillDiesTidily", InstanceExists(self.gFoe), true);
+        GlobalSet("gore", 1);
+        QfClear("Blood Stain"); QfClear("Acorn Walker");
+        self.ph = 4; self.gs = 0; self.qi = 0;
+        self.fWeak = ["Acorn Walker", "Buzz Bee", "Flit Bat", "Glow Grub", "Bloatfin", "Dusk Moth", "Burr Hopper"];
+        self.fFly = [0, 1, 1, 0, 1, 1, 0];
+        QfWaitFrames(3);
+        return 1;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------- phase 4: fear
+function QfP4() {
+    var pip = self.qfPip;
+    if (self.qi >= PgListSize(self.fWeak)) { self.ph = 5; self.gs = 0; self.qi = 0; return 0; }
+    var nm = self.fWeak[self.qi];
+    if (self.gs == 0) {
+        QfClear("Gore Half"); QfClear("Gore Chunk");
+        GlobalSet("brutality", 60); GlobalSet("fearedBy", 0); RepStage();
+        var fy = 288;
+        if (self.fFly[self.qi] == 1) { fy = 250; }
+        self.gX0 = InstanceGetX(pip) + 95;
+        self.gFoe = CreateInstance(nm, self.gX0, fy, 0);
+        self.gs = 1; QfWaitFrames(30);
+        return 1;
+    }
+    if (self.gs == 1) {
+        var foe = self.gFoe;
+        var feared = InstanceVariableGet(foe, "feared");
+        QfEq("fear." + nm + ".feared", feared, 1);
+        QfEq("fear." + nm + ".fearedBy.counted", GlobalGet("fearedBy"), 1);
+        QfCk("fear." + nm + ".tag.saved", StringLength(InstanceVariableGet(foe, "fearTag")) > 0, "tag [" + InstanceVariableGet(foe, "fearTag") + "]");
+        var moved = InstanceGetX(foe) - self.gX0;
+        QfCk("fear." + nm + ".fled.away", moved > 3 || InstanceVariableGet(foe, "fearCornered") == 1, "moved " + StringFormatNumber(moved, 1) + " cornered " + InstanceVariableGet(foe, "fearCornered"));
+        if (nm == "Acorn Walker" || nm == "Flit Bat") { QfShot("fear_" + nm); }
+        GlobalSet("brutality", 20); RepStage();
+        self.gs = 2; QfWaitFrames(6);
+        return 1;
+    }
+    if (self.gs == 2) {
+        QfEq("fear." + nm + ".calmed", InstanceVariableGet(self.gFoe, "feared"), 0);
+        QfEq("fear." + nm + ".angle.reset", InstanceVariableGet(self.gFoe, "image_angle"), 0);
+        if (InstanceExists(self.gFoe)) { InstanceDestroy(self.gFoe); }
+        self.qi = self.qi + 1; self.gs = 0;
+        QfWaitFrames(2);
+        return 1;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------- phase 5: held-item gallery (dummies), pickups, pips
+function QfP5() {
+    var pip = self.qfPip;
+    if (self.gs == 0) {
+        GlobalSet("brutality", 0); RepStage(); QfClear("Acorn Walker");
+        var gx = InstanceGetX(pip) + 70;
+        self.gDum = [];
+        // kind, swing, up, shield, drawing, drawT, flowerOpen, block, dry
+        var poses = [[1, 0, 0, 0, 0, 0, 0, 0], [1, 0.14, 0, 0, 0, 0, 0, 0], [1, 0.18, 1, 0, 0, 0, 0, 0], [2, 0, 0, 0, 0, 0, 0, 0], [2, 0, 0, 1, 0, 0, 0, 0.2], [3, 0, 0, 0, 0, 0, 0, 0], [3, 0, 0, 0, 1, 0.1, 0, 0], [3, 0, 0, 0, 1, 0.45, 0, 0], [4, 0, 0, 0, 0, 0, 0, 0], [4, 0, 0, 0, 0, 0, 1, 0]];
+        self.gPoses = poses;
+        for (var i = 0; i < PgListSize(poses); i = i + 1) {
+            var ps = poses[i];
+            var dm = CreateInstance("QF Dummy", gx + i * 44, 288, 0);
+            PgListAdd(self.gDum, dm);
+            InstanceVariableSet(dm, "itemHeld", ps[0]);
+            InstanceVariableSet(dm, "itemSwingT", ps[1]);
+            InstanceVariableSet(dm, "itemSwingUp", ps[2]);
+            InstanceVariableSet(dm, "itemShield", ps[3]);
+            InstanceVariableSet(dm, "itemDrawing", ps[4]);
+            InstanceVariableSet(dm, "itemDrawT", ps[5]);
+            InstanceVariableSet(dm, "itemFlowerOpen", ps[6]);
+            InstanceVariableSet(dm, "itemBlockT", ps[7]);
+            InstanceVariableSet(dm, "itemAimX", 0.7071);
+            InstanceVariableSet(dm, "itemAimY", -0.7071);
+            var hi = CreateInstance("Held Item", gx + i * 44, 288, 0);
+            InstanceVariableSet(hi, "owner", dm);
+        }
+        // pickups on the floor behind the gallery
+        for (var k = 1; k <= 4; k = k + 1) { ItemSpawnPickup(k, gx + (k - 1) * 40, 240, 0, 0, 5, 0); }
+        // arrows lying in the air
+        for (var a = 0; a < 3; a = a + 1) {
+            var ar = CreateInstance("Arrow", gx + 200 + a * 30, 200 + a * 12, 0);
+            InstanceVariableSet(ar, "vx", 0); InstanceVariableSet(ar, "vy", 0); InstanceVariableSet(ar, "pip", pip);
+            InstanceVariableSet(ar, "life", 99);
+        }
+        self.gs = 1; QfWaitFrames(3);
+        return 1;
+    }
+    if (self.gs == 1) {
+        // the dummies lose their swing time each frame (Held Item reads it); keep them posed
+        for (var j = 0; j < PgListSize(self.gDum); j = j + 1) {
+            var ps2 = self.gPoses[j];
+            InstanceVariableSet(self.gDum[j], "itemSwingT", ps2[1]);
+        }
+        QfShot("items_gallery");
+        self.gs = 2; QfWaitFrames(2);
+        return 1;
+    }
+    if (self.gs == 2) {
+        for (var d = 0; d < PgListSize(self.gDum); d = d + 1) { InstanceDestroy(self.gDum[d]); }
+        QfClear("Held Item"); QfClear("Arrow");
+        QfClear("Item Sword"); QfClear("Item Shield"); QfClear("Item Bow"); QfClear("Item Propeller Flower");
+        // Pip's own Held Item was removed too: make a new one the way Explorer does.
+        self.ph = 6; self.gs = 0; self.qi = 0;
+        InstanceVariableSet(pip, "itemObj", 0);
+        var ov = CreateInstance("Held Item", InstanceGetX(pip), InstanceGetY(pip), 0);
+        InstanceVariableSet(ov, "owner", pip); InstanceVariableSet(pip, "itemObj", ov);
+        QfWaitFrames(3);
+        return 1;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------- phase 6: pickups, sword, arrows, throws with the real Pip
+function QfP6() {
+    var pip = self.qfPip;
+    var px = InstanceGetX(pip); var py = InstanceGetY(pip);
+    if (self.gs == 0) {
+        // walk through the four pickups in turn
+        if (self.qi < 4) {
+            var kind = self.qi + 1;
+            self.gOld = InstanceVariableGet(pip, "itemHeld");
+            ItemSpawnPickup(kind, px, py - 4, 0, 0, 0, 1);
+            self.gs = 1; QfWaitFrames(4);
+            return 1;
+        }
+        self.gs = 10; self.qi = 0;
+        return 1;
+    }
+    if (self.gs == 1) {
+        var kd = self.qi + 1;
+        QfEq("item.pickup." + kd + ".held", InstanceVariableGet(pip, "itemHeld"), kd);
+        QfEq("item.pickup." + kd + ".global", GlobalGet("heldItem"), kd);
+        if (kd == 3) { QfEq("item.pickup.bow.arrows", GlobalGet("arrows"), 12); }
+        if (self.gOld > 0) {
+            QfCk("item.pickup." + kd + ".old.tossed", InstanceNumber(ItemObjectName(self.gOld)) >= 1, "old " + self.gOld + " count " + InstanceNumber(ItemObjectName(self.gOld)));
+        }
+        QfEq("item.pickup." + kd + ".consumed", InstanceNumber(ItemObjectName(kd)), 0);
+        QfEq("item.pickup." + kd + ".overlay.one", InstanceNumber("Held Item"), 1);
+        QfShot("held_pip_" + kd);
+        self.qi = self.qi + 1; self.gs = 0;
+        QfWaitFrames(2);
+        return 1;
+    }
+    // sword swing against an acorn in front of Pip
+    if (self.gs == 10) {
+        QfClear("Item Sword"); QfClear("Item Shield"); QfClear("Item Bow"); QfClear("Item Propeller Flower");
+        ItemGrantGlobal(1);
+        self.gs = 11; QfWaitFrames(4);
+        return 1;
+    }
+    if (self.gs == 11) {
+        QfEq("item.sword.adopted", InstanceVariableGet(pip, "itemHeld"), 1);
+        self.gFoe = CreateInstance("Acorn Walker", px + 24, 288, 0);
+        InstanceVariableSet(self.gFoe, "moveDirection", 0);
+        self.gStomp0 = GlobalGet("killsSliced");
+        self.gs = 12; QfWaitFrames(6);
+        return 1;
+    }
+    if (self.gs == 12) {
+        InstanceVariableSet(pip, "itemSwingList", []);
+        InstanceVariableSet(pip, "itemSwingUp", 0);
+        InstanceVariableSet(pip, "itemSwingT", 0.28);
+        self.gs = 13; QfWaitFrames(6);
+        return 1;
+    }
+    if (self.gs == 13) {
+        QfEq("item.sword.sliced.foe", InstanceNumber("Gore Half"), 2);
+        QfEq("item.sword.slicedCount", GlobalGet("killsSliced") - self.gStomp0, 1);
+        QfShot("sword_slice_pip");
+        QfClear("Gore Half"); QfClear("Gore Chunk");
+        self.gs = 14; QfWaitFrames(30);
+        return 1;
+    }
+    if (self.gs == 14) {
+        QfEq("item.sword.cooldown.done", InstanceVariableGet(pip, "itemSwingT"), 0);
+        self.gs = 20;
+        return 1;
+    }
+    // arrow into an acorn
+    if (self.gs == 20) {
+        ItemGrantGlobal(3);
+        self.gs = 21; QfWaitFrames(4);
+        return 1;
+    }
+    if (self.gs == 21) {
+        QfClear("Item Sword");
+        QfEq("item.bow.adopted", InstanceVariableGet(pip, "itemHeld"), 3);
+        self.gFoe = CreateInstance("Acorn Walker", px + 110, 288, 0);
+        InstanceVariableSet(self.gFoe, "moveDirection", 0);
+        self.gStomp0 = GlobalGet("killsArrow");
+        var ar = CreateInstance("Arrow", px + 20, py - 22, 0);
+        InstanceVariableSet(ar, "vx", 300); InstanceVariableSet(ar, "vy", 0); InstanceVariableSet(ar, "pip", pip);
+        self.gArrow = ar;
+        self.gs = 22; QfWaitFrames(5);
+        QfShot("arrow_in_flight");
+        return 1;
+    }
+    if (self.gs == 22) {
+        QfWaitFrames(40);
+        self.gs = 23;
+        return 1;
+    }
+    if (self.gs == 23) {
+        QfEq("item.arrow.killed.foe", GlobalGet("killsArrow") - self.gStomp0, 1);
+        QfEq("item.arrow.removed", InstanceExists(self.gArrow), false);
+        // an arrow into the floor sticks and fades
+        var ar2 = CreateInstance("Arrow", px + 70, py - 60, 0);
+        InstanceVariableSet(ar2, "vx", 60); InstanceVariableSet(ar2, "vy", 300); InstanceVariableSet(ar2, "pip", pip);
+        self.gArrow = ar2;
+        self.gs = 24; QfWaitFrames(25);
+        return 1;
+    }
+    if (self.gs == 24) {
+        QfEq("item.arrow.stuck", InstanceVariableGet(self.gArrow, "stuck"), 1);
+        QfShot("arrow_stuck");
+        QfClear("Acorn Walker");
+        self.gs = 25; QfWaitFrames(100);
+        return 1;
+    }
+    if (self.gs == 25) {
+        QfEq("item.arrow.stuck.fades", InstanceExists(self.gArrow), false);
+        self.gs = 30; self.qi = 1;
+        return 1;
+    }
+    // throws: the Probe acts as the thrower so the real Item Kit code runs on it
+    if (self.gs == 30) {
+        if (self.qi > 4) { self.gs = 40; return 0; }
+        QfClear("Acorn Walker"); QfClear("Thrown Item");
+        QfClear("Item Sword"); QfClear("Item Shield"); QfClear("Item Bow"); QfClear("Item Propeller Flower");
+        self.itemReady = 1; self.itemHasInput = 1; self.itemHeld = self.qi; self.itemWroteHeld = self.qi;
+        self.facing = 1; self.vx = 0; self.grounded = 1; self.throwTimer = 0;
+        InstanceSetX(self.id, px); InstanceSetY(self.id, py);
+        self.x = px; self.y = py;
+        self.gFoe = CreateInstance("Acorn Walker", px + 100, 288, 0);
+        InstanceVariableSet(self.gFoe, "moveDirection", 0);
+        self.gStomp0 = GlobalGet("killsBlade");
+        GlobalSet("heldItem", self.qi);
+        QfEq("item.throw." + self.qi + ".call", ItemThrow(), 1);
+        QfEq("item.throw." + self.qi + ".heldCleared", GlobalGet("heldItem"), 0);
+        QfEq("item.throw." + self.qi + ".thrownMade", InstanceNumber("Thrown Item"), 1);
+        self.gs = 31; QfWaitFrames(50);
+        return 1;
+    }
+    if (self.gs == 31) {
+        QfInfo("item.throw." + self.qi + ".hitFoe", "kills " + (GlobalGet("killsBlade") - self.gStomp0) + " thrown left " + InstanceNumber("Thrown Item") + " pickups " + InstanceNumber(ItemObjectName(self.qi)));
+        QfWaitFrames(60);
+        self.gs = 32;
+        return 1;
+    }
+    if (self.gs == 32) {
+        QfEq("item.throw." + self.qi + ".becomesPickup", InstanceNumber(ItemObjectName(self.qi)) >= 1 || InstanceVariableGet(pip, "itemHeld") == self.qi, true);
+        self.qi = self.qi + 1; self.gs = 30;
+        return 1;
+    }
+    // shield, flower, scale, drop
+    if (self.gs == 40) {
+        QfClear("Acorn Walker"); QfClear("Thrown Item");
+        QfClear("Item Sword"); QfClear("Item Shield"); QfClear("Item Bow"); QfClear("Item Propeller Flower");
+        self.itemReady = 1; self.itemHeld = 2; self.itemShield = 1; self.facing = 1; self.itemFoes = ItemFoeList(); self.itemFlowerOpen = 0;
+        self.x = px; self.y = py; self.vx = 0;
+        var fFront = CreateInstance("Acorn Walker", px + 30, 288, 0);
+        self.gFoe = fFront;
+        self.gs = 41; QfWaitFrames(3);
+        return 1;
+    }
+    if (self.gs == 41) {
+        QfEq("item.shield.blocks.front", ItemOnHurt(1), 1);
+        QfCk("item.shield.knockback", self.vx < 0, "vx " + self.vx);
+        InstanceDestroy(self.gFoe);
+        self.gFoe = CreateInstance("Acorn Walker", px - 30, 288, 0);
+        self.gs = 42; QfWaitFrames(3);
+        return 1;
+    }
+    if (self.gs == 42) {
+        self.itemShield = 1; self.itemHeld = 2; self.vx = 0;
+        QfEq("item.shield.misses.behind", ItemOnHurt(1), 0);
+        InstanceDestroy(self.gFoe);
+        QfWaitFrames(3);
+        self.gs = 43;
+        return 1;
+    }
+    if (self.gs == 43) {
+        self.itemShield = 1; self.itemHeld = 2;
+        QfEq("item.shield.blocks.noFoe", ItemOnHurt(1), 1);
+        self.itemShield = 0;
+        QfEq("item.shield.down.hurts", ItemOnHurt(1), 0);
+        QfNear("item.scale.shield", QfShieldScale(), 0.5, 0.001);
+        self.gs = 44;
+        return 1;
+    }
+    if (self.gs == 44) {
+        self.itemShield = 0; self.itemDrawing = 1;
+        QfNear("item.scale.bow", ItemMovementScale(), 0.65, 0.001);
+        self.itemDrawing = 0;
+        QfNear("item.scale.none", ItemMovementScale(), 1, 0.001);
+        self.itemFlowerOpen = 1; self.itemRising = 0; self.vy = 400;
+        QfNear("item.flower.parachute.cap", ItemAdjustVelocity(0.016), 70, 0.001);
+        self.vy = 20;
+        QfNear("item.flower.slow.fall.kept", ItemAdjustVelocity(0.016), 20, 0.001);
+        self.itemRising = 1; self.vy = 0;
+        QfCk("item.flower.rise.pulls.up", ItemAdjustVelocity(0.016) < -10, "vy " + ItemAdjustVelocity(0.016));
+        self.itemRising = 0; self.itemFlowerOpen = 0; self.vy = 400;
+        QfNear("item.flower.closed.nocap", ItemAdjustVelocity(0.016), 400, 0.001);
+        self.itemHeld = 1; self.grounded = 1;
+        QfEq("item.drop.call", ItemDrop(), 1);
+        QfEq("item.drop.pickup.made", InstanceNumber("Item Sword"), 1);
+        QfEq("item.drop.heldCleared", self.itemHeld, 0);
+        QfEq("item.drop.global", GlobalGet("heldItem"), 0);
+        QfEq("item.arrows.grant", ItemGrantArrows(500), 99);
+        GlobalSet("arrows", 0);
+        QfClear("Item Sword");
+        self.itemHeld = 0; self.itemShield = 0;
+        self.ph = 7; self.gs = 0; self.qi = 0;
+        // Pip: drop everything again
+        GlobalSet("heldItem", 0); GlobalSet("arrows", 0);
+        QfWaitFrames(5);
+        return 1;
+    }
+    return 0;
+}
+
+function QfShieldScale() {
+    var sv = self.itemShield;
+    self.itemShield = 1;
+    var r = ItemMovementScale();
+    self.itemShield = sv;
+    return r;
+}
+
+// ---------------------------------------------------------------- phase 7: Pip at taint stages 0 to 3
+function QfP7() {
+    var pip = self.qfPip;
+    var bvals = [5, 30, 60, 90];
+    if (self.qi >= 4) { self.ph = 8; self.gs = 0; self.qi = 0; return 0; }
+    if (self.gs == 0) {
+        GlobalSet("brutality", bvals[self.qi]); GlobalSet("taintStage", 0);
+        self.gs = 1; QfWaitFrames(40);
+        return 1;
+    }
+    if (self.gs == 1) {
+        var want = RepTaintAmount();
+        var got = InstanceGetShaderParameter(pip, "Taint");
+        QfNear("taint.shader.param.s" + self.qi, got, want, 0.02);
+        QfEq("taint.stage.s" + self.qi, RepStage(), self.qi);
+        QfInfo("taint.pip.s" + self.qi, "label " + RepLabel() + " toast [" + QfPipVar("toastText") + "] t " + StringFormatNumber(QfPipVar("toastTimer"), 2) + " pulse " + StringFormatNumber(InstanceGetShaderParameter(pip, "TaintPulse"), 2));
+        if (self.qi >= 1) { QfCk("taint.toast.shown.s" + self.qi, StringLength(QfPipVar("toastText")) > 0, "toast [" + QfPipVar("toastText") + "]"); }
+        QfEq("taint.spore.puff.s" + self.qi, GoreSpore(InstanceGetX(pip), InstanceGetY(pip) - 20), (self.qi >= 1));
+        QfShot("pip_taint_s" + self.qi);
+        self.qi = self.qi + 1; self.gs = 0;
+        return 1;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------- phase 8: hint bar keyboard and pad
+function QfP8() {
+    var pip = self.qfPip;
+    GlobalSet("brutality", 0); RepStage();
+    if (self.gs == 0) {
+        self.gs = 1; QfWaitFrames(4);
+        return 1;
+    }
+    if (self.gs == 1) {
+        QfShot("hint_kb_plain");
+        ItemGrantGlobal(1);
+        self.gs = 2; QfWaitFrames(4);
+        return 1;
+    }
+    if (self.gs == 2) {
+        QfShot("hint_kb_sword");
+        self.fakePad = 1; self.gs = 3; QfWaitFrames(6);
+        return 1;
+    }
+    if (self.gs == 3) {
+        QfShot("hint_pad_sword");
+        ItemGrantGlobal(3);
+        self.gs = 4; QfWaitFrames(6);
+        return 1;
+    }
+    if (self.gs == 4) {
+        QfShot("hint_pad_bow");
+        self.fakePad = 0;
+        GlobalSet("heldItem", 0);
+        InstanceVariableSet(pip, "swimming", 1);
+        self.gs = 5; QfWaitFrames(4);
+        return 1;
+    }
+    if (self.gs == 5) {
+        QfShot("hint_kb_swim");
+        InstanceVariableSet(pip, "swimming", 0);
+        self.ph = 20; self.gs = 0; self.qi = 0;
+        QfWaitFrames(3);
+        return 1;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------- wind on a standing Pip
+function QfPWind() {
+    var pip = self.qfPip;
+    if (self.gs == 0) {
+        InstanceSetX(pip, 300); InstanceVariableSet(pip, "vx", 0); InstanceVariableSet(pip, "windVx", 0);
+        self.gs = 1; QfWaitFrames(20);
+        return 1;
+    }
+    if (self.gs == 1) {
+        self.gX0 = InstanceGetX(pip);
+        RoomValueSet("windForce", 320);
+        self.gs = 2; QfWaitFrames(120);
+        return 1;
+    }
+    if (self.gs == 2) {
+        var drift = InstanceGetX(pip) - self.gX0;
+        QfInfo("wind.standing.drift", "peak gust 320 px/s^2 on a standing Pip: moved " + StringFormatNumber(drift, 1) + " px in 2 s, windVx " + StringFormatNumber(InstanceVariableGet(pip, "windVx"), 1));
+        QfCk("wind.standing.drift.small", Abs(drift) < 30, "drift " + drift);
+        RoomValueSet("windForce", 0);
+        self.gs = 3; QfWaitFrames(60);
+        return 1;
+    }
+    if (self.gs == 3) {
+        QfCk("wind.standing.settles", Abs(InstanceVariableGet(pip, "windVx")) < 1, "windVx " + InstanceVariableGet(pip, "windVx"));
+        self.ph = 9; self.gs = 0; self.qi = 0;
+        return 1;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------- phase 9: Options Kit matrix
+function QfOptShot(nm, view, page, scheme, sel, padHint, ctx) {
+    self.optCtx = ctx;
+    self.optView = view; self.optPage = page; self.optScheme = scheme; self.optSel = sel; self.optPad = padHint;
+    self.optScroll = 0;
+    OptLayout();
+    OptRebuild();
+    self.optSel = sel;
+    OptEnsureVisible();
+    self.optT = 1;
+    return 0;
+}
+
+function QfP9() {
+    if (self.gs == 0) {
+        OptionsOpen(1);
+        QfEq("opt.open", OptionsIsOpen(), 1);
+        QfOptShot("a", 0, 0, 0, 0, 0, 1);
+        self.gs = 1; QfWaitFrames(3);
+        return 1;
+    }
+    var shotsView = [0, 0, 0, 1, 1, 2, 2, 2, 2, 0];
+    var shotsPage = [0, 1, 2, 0, 0, 0, 0, 0, 0, 0];
+    var shotsScheme = [0, 0, 0, 0, 1, 0, 1, 0, 0, 0];
+    var shotsSel = [1, 2, 1, 2, 2, 4, 5, 6, 10, 0];
+    var shotsPad = [0, 0, 0, 0, 1, 0, 1, 0, 0, 1];
+    var shotsName = ["opt_gameplay", "opt_video", "opt_audio", "opt_controls_kb", "opt_controls_pad", "opt_remap_kb", "opt_remap_pad", "opt_remap_kb_scroll", "opt_remap_kb_bottom", "opt_gameplay_padhint"];
+    if (self.gs >= 1 && self.gs <= 10) {
+        var si = self.gs - 1;
+        if (self.qj == 0) {
+            QfOptShot("x", shotsView[si], shotsPage[si], shotsScheme[si], shotsSel[si], shotsPad[si], 1);
+            if (si == 7) { self.optCap = 1; self.optCapAct = 6; self.optCapSlot = 1; }
+            self.qj = 1; QfWaitFrames(3);
+            return 1;
+        }
+        QfShot(shotsName[si]);
+        self.optCap = 0;
+        self.qj = 0; self.gs = self.gs + 1;
+        return 1;
+    }
+    if (self.gs == 11) {
+        // main-menu context (shorter panel)
+        if (self.qj == 0) {
+            QfOptShot("x", 0, 0, 0, 0, 0, 0);
+            self.qj = 1; QfWaitFrames(3);
+            return 1;
+        }
+        QfShot("opt_gameplay_menuctx");
+        QfOptShot("x", 0, 1, 0, 0, 0, 0);
+        self.qj = 0; self.gs = 12; QfWaitFrames(3);
+        return 1;
+    }
+    if (self.gs == 12) {
+        QfShot("opt_video_menuctx");
+        QfOptShot("x", 2, 0, 0, 5, 0, 0);
+        self.gs = 13; QfWaitFrames(3);
+        return 1;
+    }
+    if (self.gs == 13) {
+        QfShot("opt_remap_menuctx");
+        self.optCtx = 1; QfOptShot("x", 0, 0, 0, 0, 0, 1);
+        self.gs = 20;
+        return 1;
+    }
+    if (self.gs == 20) {
+        QfOptMatrix();
+        self.gs = 30; QfWaitFrames(4);
+        return 1;
+    }
+    if (self.gs == 30) {
+        QfShot("opt_video_after_resize");
+        QfOptMatrix2();
+        self.gs = 31; QfWaitFrames(4);
+        return 1;
+    }
+    if (self.gs == 31) {
+        QfEq("opt.close.returns", OptionsClose(), 1);
+        QfEq("opt.close.closed", OptionsIsOpen(), 0);
+        QfEq("opt.close.saved.head", StringSplitPart(SaveSlotRead("Options"), ",", 1), "mmopt2");
+        self.ph = 10; self.gs = 0;
+        return 1;
+    }
+    return 0;
+}
+
+function QfFlip(rk, gname) {
+    var before = GlobalGet(gname);
+    OptChange(rk, 1);
+    var mid = GlobalGet(gname);
+    OptChange(rk, 1);
+    var after = GlobalGet(gname);
+    QfCk("opt." + rk + ".toggles", mid != before && (after == before || before < 0), before + " -> " + mid + " -> " + after);
+    QfCk("opt." + rk + ".text", StringLength(OptValueText(rk)) > 0, OptValueText(rk));
+    return 1;
+}
+
+function QfOptMatrix() {
+    self.optView = 0; self.optPage = 0; OptRebuild();
+    QfFlip("tips", "tips");
+    QfFlip("gore", "gore");
+    QfFlip("shake", "shake");
+    QfFlip("crt", "crt");
+    QfFlip("vsync", "vsync");
+    self.optPage = 2; OptRebuild();
+    var vols = ["master", "music", "sfx", "amb"];
+    var vk = ["masterVol", "musicVol", "sfxVol", "ambVol"];
+    for (var i = 0; i < 4; i = i + 1) {
+        GlobalSet(vk[i], 0.5);
+        OptChange(vols[i], 1);
+        QfNear("opt." + vols[i] + ".up", GlobalGet(vk[i]), 0.55, 0.0001);
+        OptChange(vols[i], -1);
+        OptChange(vols[i], -1);
+        QfNear("opt." + vols[i] + ".down", GlobalGet(vk[i]), 0.45, 0.0001);
+        GlobalSet(vk[i], 1); OptChange(vols[i], 1);
+        QfNear("opt." + vols[i] + ".max", GlobalGet(vk[i]), 1, 0.0001);
+        GlobalSet(vk[i], 0); OptChange(vols[i], -1);
+        QfNear("opt." + vols[i] + ".min", GlobalGet(vk[i]), 0, 0.0001);
+        self.optRowX = 226;
+        OptSliderTo(vols[i], 226 + 330 + 200);
+        QfNear("opt." + vols[i] + ".slider.mid", GlobalGet(vk[i]), 0.5, 0.0001);
+        OptSliderTo(vols[i], 2000);
+        QfNear("opt." + vols[i] + ".slider.max", GlobalGet(vk[i]), 1, 0.0001);
+        GlobalSet(vk[i], 0.8);
+    }
+    // frame-rate limit cycle
+    self.optPage = 1; OptRebuild();
+    GlobalSet("fpsCap", -1);
+    var seen = "";
+    for (var f = 0; f < 7; f = f + 1) {
+        OptChange("fpscap", 1);
+        seen = seen + GlobalGet("fpsCap") + " ";
+    }
+    QfEq("opt.fpscap.cycle", seen, "30 60 120 144 240 0 -1 ");
+    QfEq("opt.fpscap.help", StringLength(OptHelp("fpscap")) > 10, true);
+    // window mode text for every value, without applying it
+    GlobalSet("windowMode", 0); QfEq("opt.winmode.text.0", OptValueText("winmode"), "WINDOWED");
+    GlobalSet("windowMode", 1); QfEq("opt.winmode.text.1", OptValueText("winmode"), "BORDERLESS");
+    GlobalSet("windowMode", 2); QfEq("opt.winmode.text.2", OptValueText("winmode"), "FULLSCREEN");
+    OptChange("winsize", 1);
+    QfEq("opt.winsize.refused.fullscreen", self.optMsg, "WINDOW SIZE ONLY APPLIES IN WINDOWED MODE");
+    GlobalSet("windowMode", -1);
+    QfEq("opt.winmode.default.reads.window", OptValueText("winmode"), "WINDOWED");
+    GlobalSet("winSize", -1);
+    QfEq("opt.winsize.text.default", OptValueText("winsize"), "1280 x 720");
+    OptChange("winsize", 1);
+    QfEq("opt.winsize.1600", OptValueText("winsize"), "1600 x 900");
+    QfInfo("opt.winsize.window", "window now " + WindowGetWidth() + "x" + WindowGetHeight());
+    self.optVideoShotPending = 1;
+    return 1;
+}
+
+function QfOptMatrix2() {
+    QfInfo("opt.winsize.window.after", "window now " + WindowGetWidth() + "x" + WindowGetHeight());
+    GlobalSet("winSize", 0);
+    ScriptExecute("Apply Options");
+    QfInfo("opt.winsize.window.restored", "window now " + WindowGetWidth() + "x" + WindowGetHeight());
+    GlobalSet("winSize", -1); GlobalSet("sizeApplied", -1);
+    GlobalSet("vsync", -1); GlobalSet("vsyncApplied", -1);
+    GlobalSet("fpsCap", -1);
+    // controls: scheme and sprint
+    self.optView = 1; OptRebuild(); self.optScheme = 0;
+    OptChange("scheme", 1);
+    QfEq("opt.scheme.pad", self.optScheme, 1);
+    OptChange("scheme", 1);
+    QfEq("opt.scheme.kb", self.optScheme, 0);
+    GlobalSet("sprintModeKb", 0); GlobalSet("sprintModePad", 0);
+    OptChange("sprint", 1);
+    QfEq("opt.sprint.kb.toggle", GlobalGet("sprintModeKb"), 1);
+    self.optScheme = 1;
+    OptChange("sprint", 1);
+    QfEq("opt.sprint.pad.toggle", GlobalGet("sprintModePad"), 1);
+    QfEq("opt.sprint.value.pad", OptValueText("sprint"), "TOGGLE");
+    GlobalSet("sprintModeKb", 0); GlobalSet("sprintModePad", 0);
+    self.optScheme = 0;
+    // remap through the kit's own assign / clear / reset
+    self.optView = 2; OptRebuild();
+    InputResetBindings(0); InputResetBindings(1);
+    OptAssign(0, 1, "Q");
+    QfEq("opt.remap.left", InputBindingGet("left", 0, 1), "Q");
+    QfEq("opt.remap.msg.bound", self.optMsg, "BOUND");
+    OptAssign(1, 1, "Q");
+    QfEq("opt.remap.swap.msg", self.optMsg, "SWAPPED WITH MOVE LEFT");
+    QfEq("opt.remap.swap.left.gets.D", InputBindingGet("left", 0, 1), "D");
+    OptAssign(4, 1, "P");
+    QfEq("opt.remap.P.refused", self.optMsg, "P ALWAYS PAUSES THE GAME");
+    QfEq("opt.clear.use.kb2.ok", OptClearSlot(6, 2), 1);
+    QfEq("opt.clear.use.kb1.refused", OptClearSlot(6, 1), 0);
+    QfEq("opt.clear.msg", self.optMsg, "EVERY ACTION KEEPS AT LEAST ONE BINDING");
+    self.optScheme = 1;
+    QfEq("opt.clear.pad.direction.refused", OptClearSlot(0, 1), 0);
+    OptAssign(6, 2, "LB");
+    QfEq("opt.remap.pad.use2", InputBindingGet("use", 1, 2), "LB");
+    self.optScheme = 0;
+    // reset needs two activations
+    var resetRow = PgListFind(self.optKeys, "reset");
+    QfCk("opt.reset.row.exists", resetRow >= 0, "row " + resetRow);
+    OptActivate(resetRow, 1);
+    QfEq("opt.reset.confirm.asks", self.optConfirm, 1);
+    QfEq("opt.reset.label.confirm", OptLabel("reset"), "PRESS AGAIN TO CONFIRM");
+    OptActivate(resetRow, 1);
+    QfEq("opt.reset.done", InputBindingGet("left", 0, 1), "A");
+    QfEq("opt.reset.use.kb2.back", InputBindingGet("use", 0, 2), "MouseLeft");
+    // navigation helpers keep the selection in range on every view
+    for (var v = 0; v < 3; v = v + 1) {
+        self.optView = v; self.optSel = 0; OptRebuild();
+        var n = PgListSize(self.optKeys);
+        for (var s = 0; s < n * 2 + 2; s = s + 1) { OptMoveSel(1); }
+        QfCk("opt.nav.range.view" + v, self.optSel >= -1 && self.optSel < n, "sel " + self.optSel + " of " + n);
+        for (var s2 = 0; s2 < n * 2 + 2; s2 = s2 + 1) { OptMoveSel(-1); }
+        QfCk("opt.nav.range.up.view" + v, self.optSel >= -1 && self.optSel < n, "sel " + self.optSel + " of " + n);
+    }
+    // back chain
+    self.optView = 2; self.optSel = 10; OptRebuild();
+    OptBack(); QfEq("opt.back.remap.to.controls", self.optView, 1);
+    OptBack(); QfEq("opt.back.controls.to.tabs", self.optView, 0);
+    self.optView = 0; self.optPage = 1; OptRebuild();
+    OptSwitchPage(3); QfEq("opt.page.wraps", self.optPage, 0);
+    OptSwitchPage(-1); QfEq("opt.page.wraps.back", self.optPage, 2);
+    self.optView = 0; self.optPage = 0; OptRebuild(); self.optSel = 0;
+    return 1;
+}

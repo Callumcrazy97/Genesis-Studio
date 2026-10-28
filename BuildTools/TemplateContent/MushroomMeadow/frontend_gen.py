@@ -17,6 +17,10 @@ What it writes
 import hashlib
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import product_consts as PC  # noqa: E402  (version, the finished-product save fields)
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 ASSETS = os.path.join(ROOT, "Source", "Genesis.Application.Core", "Projects", "Templates",
@@ -83,13 +87,16 @@ SAVE_FIELDS = (["lives", "coins", "hearts", "maxHearts", "power"]
                   "musicVol", "sfxVol", "crt", "shake"]
                # Round 4 game state, appended so older saves (which end before these) still load.
                + ["heldItem", "arrows", "brutality", "killsStomp", "killsBlade", "killsArrow",
-                  "killsGib", "killsSliced", "fearedBy", "taintStage"])
+                  "killsGib", "killsSliced", "fearedBy", "taintStage"]
+               # Finished-product state (difficulty, play time, deaths, coins found, items found, shop buys,
+               # best times, kills by enemy kind), appended the same way (product_consts.py).
+               + PC.PRODUCT_SAVE_FIELDS)
 OPTION_FIELDS = ["musicVol", "sfxVol", "crt", "shake"]
-STATE_FIELDS = ["heldItem", "arrows", "brutality", "killsStomp", "killsBlade", "killsArrow",
-                "killsGib", "killsSliced", "fearedBy", "taintStage"]
+STATE_FIELDS = (["heldItem", "arrows", "brutality", "killsStomp", "killsBlade", "killsArrow",
+                 "killsGib", "killsSliced", "fearedBy", "taintStage"] + PC.PRODUCT_SAVE_FIELDS)
 # Options slot text: "mmopt2,<field>,<field>,..." in this order ("mmopt1" saves hold the first four).
 OPTIONS_SLOT_FIELDS = ["musicVol", "sfxVol", "crt", "shake", "tips", "gore", "sprintModeKb", "sprintModePad",
-                       "windowMode", "vsync", "fpsCap", "masterVol", "ambVol", "winSize"]
+                       "windowMode", "vsync", "fpsCap", "masterVol", "ambVol", "winSize"] + PC.PRODUCT_OPTION_FIELDS
 
 
 def field(name):
@@ -133,16 +140,20 @@ var glKeep = %(options)s;
 // after another game in the same run never inherits the other game's items or reputation.
 var glState = %(state)s;
 for (var glD = 0; glD < PgListSize(glState); glD = glD + 1) { GlobalSet(glState[glD], 0); }
+// A save from before the difficulty setting plays as Normal.
+GlobalSet("difficulty", 1);
 for (var glI = 0; glI < PgListSize(glNames); glI += 1) {
     var glName = glNames[glI];
     var glPart = StringSplitPart(glText, ",", glI + 2);
-    if (PgListFind(glKeep, glName) < 0 && glPart != "") { GlobalSet(glName, Real(glPart)); }
+    if (PgListFind(glKeep, glName) < 0 && glPart != "") { GlobalSet(glName, RealOf(glPart)); }
 }
 // A save from an older layout or a hand edit still loads into a playable state.
-if (GlobalGet("maxHearts") < 3) { GlobalSet("maxHearts", 3); }
+GlobalSet("difficulty", Clamp(Round(GlobalGet("difficulty")), 0, 2));
+var glBase = DiffBaseFor(GlobalGet("difficulty"));
+if (GlobalGet("maxHearts") < glBase) { GlobalSet("maxHearts", glBase); }
 if (GlobalGet("maxHearts") > 6) { GlobalSet("maxHearts", 6); }
 GlobalSet("hearts", GlobalGet("maxHearts"));
-if (GlobalGet("lives") < 1) { GlobalSet("lives", 5); }
+if (GlobalGet("lives") < 1) { GlobalSet("lives", DiffLivesFor(GlobalGet("difficulty"))); }
 GlobalSet("mapNode", Clamp(GlobalGet("mapNode"), 0, 5));
 GlobalSet("glowspores", Clamp(GlobalGet("glowspores"), 0, 5));
 GlobalSet("heldItem", Clamp(Round(GlobalGet("heldItem")), 0, 4));
@@ -156,16 +167,20 @@ return 1;
 """ % {"fields": pgsl_list(SAVE_FIELDS), "options": pgsl_list(OPTION_FIELDS), "state": pgsl_list(STATE_FIELDS)}
 
 NEW_GAME = """// New Game: ScriptExecute("New Game", slot) starts a fresh campaign in save slot 1-3:
-// 5 lives, 3 hearts, no coins, no power-up, nothing cleared, Pip at Hearthollow (map node 0).
+// the lives and hearts of the global `difficulty` (Story 7 / 5, Normal 5 / 3, Challenge 3 / 2), no coins, no power-up,
+// nothing cleared, Pip at Hearthollow (map node 0).
 // It writes the slot at once (so Continue finds it) and sets campaign = 1.
 var ngSlot = argument0;
 if (ngSlot < 1 || ngSlot > 3) { ngSlot = 1; }
 GlobalSet("slot", ngSlot);
 GlobalSet("campaign", 1);
-GlobalSet("lives", 5);
+// The difficulty is the global `difficulty` (the New Game page sets it before calling this): hearts and lives follow it.
+var ngDiff = DiffRaw();
+GlobalSet("difficulty", ngDiff);
+GlobalSet("lives", DiffLivesFor(ngDiff));
 GlobalSet("coins", 0);
-GlobalSet("hearts", 3);
-GlobalSet("maxHearts", 3);
+GlobalSet("hearts", DiffBaseFor(ngDiff));
+GlobalSet("maxHearts", DiffBaseFor(ngDiff));
 GlobalSet("power", 0);
 for (var ngI = 1; ngI <= 5; ngI += 1) {
     GlobalSet("clear" + StringOf(ngI), 0);
@@ -187,10 +202,13 @@ GlobalSet("heldItem", 0); GlobalSet("arrows", 0); GlobalSet("brutality", 0);
 GlobalSet("killsStomp", 0); GlobalSet("killsBlade", 0); GlobalSet("killsArrow", 0);
 GlobalSet("killsGib", 0); GlobalSet("killsSliced", 0); GlobalSet("fearedBy", 0);
 GlobalSet("taintStage", 0);
+// Finished-product state: play time, deaths, coins found, items found, shop buys, best times, kills by kind.
+var ngProduct = %(product)s;
+for (var ngP = 0; ngP < PgListSize(ngProduct); ngP += 1) { GlobalSet(ngProduct[ngP], 0); }
 GlobalSet("introSeen", 1);
 ScriptExecute("Game Save");
 return 1;
-"""
+""" % {"product": pgsl_list([f for f in PC.PRODUCT_SAVE_FIELDS if f != "difficulty"])}
 
 APPLY_OPTIONS = """// Apply Options: ScriptExecute("Apply Options") applies the player's options; the first call
 // of a run loads them from the "Options" save slot (defaults: music 0.8, sfx 0.9, CRT off,
@@ -202,6 +220,7 @@ APPLY_OPTIONS = """// Apply Options: ScriptExecute("Apply Options") applies the 
 // Round 4 options (all global numbers; the Options Kit edits them):
 //   tips (1) gore (1) shake (1) crt (0) sprintModeKb (0 hold / 1 toggle) sprintModePad (0)
 //   masterVol (1) musicVol (0.8) sfxVol (0.9) ambVol (= sfxVol of an old save, else 0.9)
+//   difficulty (0 Story, 1 Normal, 2 Challenge: the one a new adventure offers; each slot keeps its own, see Difficulty Kit)
 //   windowMode (-1 = leave as launched, else 0 windowed / 1 borderless / 2 fullscreen), winSize
 //   (-1 or 0..3 = 1280x720, 1600x900, 1920x1080, 2560x1440; windowed only), vsync (-1 = room default,
 //   0/1), fpsCap (-1 = the rooms' frame rate, 0 = unlimited, else a cap). A video value that is -1 is
@@ -224,6 +243,7 @@ if (GlobalGet("optionsLoaded") == 0) {
     GlobalSet("masterVol", 1);
     GlobalSet("ambVol", 0.9);
     GlobalSet("winSize", -1);
+    GlobalSet("difficulty", 1);
     GlobalSet("winApplied", -1);
     GlobalSet("sizeApplied", -1);
     GlobalSet("vsyncApplied", -1);
@@ -234,7 +254,7 @@ if (GlobalGet("optionsLoaded") == 0) {
         var aoNames = @OPTION_NAMES@;
         for (var aoI = 0; aoI < PgListSize(aoNames); aoI = aoI + 1) {
             var aoPart = StringSplitPart(aoText, ",", aoI + 2);
-            if (aoPart != "") { GlobalSet(aoNames[aoI], Real(aoPart)); }
+            if (aoPart != "") { GlobalSet(aoNames[aoI], RealOf(aoPart)); }
         }
         // A saved layout from before the ambience slider keeps its old ambience volume (= sound effects).
         if (aoHead == "mmopt1") { GlobalSet("ambVol", GlobalGet("sfxVol")); }
@@ -420,7 +440,9 @@ function CkDrawPanel(image, local, duration, fade, zA, zB, cxA, cyA, cxB, cyB, a
     var w = 1 / Max(1, Lerp(zA, zB, e));
     var u0 = Clamp(Lerp(cxA, cxB, e) - w / 2, 0, 1 - w);
     var v0 = Clamp(Lerp(cyA, cyB, e) - w / 2, 0, 1 - w);
-    DrawSpritePart(image, 0, u0, v0, u0 + w, v0 + w, 0, 0, sw, sh, Clamp(alpha, 0, 1));
+    // The panel keeps its 16:9 shape in any window: it covers the window and the overflow is cropped (a stretch made the art wide at 21:9).
+    var pw = Max(sw, sh * 16 / 9); var ph = pw * 9 / 16;
+    DrawSpritePart(image, 0, u0, v0, u0 + w, v0 + w, (sw - pw) / 2, (sh - ph) / 2, pw, ph, Clamp(alpha, 0, 1));
     return 0;
 }
 
@@ -609,7 +631,7 @@ var logoA = Clamp((t - (endTime - 4.6)) / 1.6, 0, 1);
 if (logoA > 0) {
     DrawSetColorRgb(255, 226, 150); DrawSetAlpha(0.16 * logoA);
     DrawCircleEx(640 * sx, 150 * sy, 260 * s, 0);
-    DrawSpriteScaled(logo, 320 * sx, (54 + (1 - logoA) * 18) * sy, 0, 2 * sx, 2 * sy, 0, logoA);
+    DrawSpriteScaled(logo, sw / 2 - 320 * s, (54 + (1 - logoA) * 18) * sy, 0, 2 * s, 2 * s, 0, logoA);
 }
 CkDrawLetterbox(sw, sh, sy, Clamp(t / 1.2, 0, 1));
 // Captions: typed in 0.8 s after a panel starts, gone as the next panel fades in.
@@ -621,7 +643,7 @@ CkDrawCaption(captionA[k], captionB[k], local, 0.8, capA, sx, sy, s);
 var hintA = Clamp((t - 1.0) / 0.8, 0, 1) * (0.55 + 0.25 * Sin(t * 160)) * (1 - finalFade);
 DrawSetFont("Georgia"); DrawSetTextAlign("right");
 DrawSetColorRgb(255, 236, 200); DrawSetAlpha(hintA);
-DrawTextScaled(1250 * sx, 12 * sy, "Press any key to skip", 17 * s);
+DrawTextScaled(1250 * sx, 12 * sy, "Press any key to skip", 18 * s);
 DrawSetTextAlign("left");
 CkDrawCrt(sw, sh, sy);
 // Fade in from black at the start; fade out at the end or when skipped.
@@ -679,15 +701,16 @@ def panel(eid, x, y, w, h, order, **extra):
     return element(eid, "Panel", x, y, w, h, order, **data)
 
 
-MAIN_IDS = ["btnNew", "btnContinue", "btnOptions", "btnCredits", "btnQuit"]
+MAIN_IDS = ["btnNew", "btnContinue", "btnHow", "btnCollect", "btnOptions", "btnCredits", "btnQuit"]
 SLOT_IDS = ["slot1", "slot2", "slot3", "slotBack"]
 OPTION_IDS = []
 CONFIRM_IDS = ["confirmYes", "confirmNo"]
+DIFF_IDS = ["diffStory", "diffNormal", "diffChallenge", "diffBack"]
 OPTION_ROWS_Y = [318, 374, 430, 486]
 
 
 def build_menu_ui():
-    groups = {"main": [], "slots": [], "options": [], "confirm": []}
+    groups = {"main": [], "slots": [], "options": [], "confirm": [], "diff": []}
     elements = []
 
     def add(group, el):
@@ -695,11 +718,11 @@ def build_menu_ui():
         if group:
             groups[group].append(el["id"])
 
-    # Main page: a column of five buttons under the logo.
-    add("main", panel("mainPanel", 470, 250, 340, 330, 10))
-    labels = ["NEW GAME", "CONTINUE", "OPTIONS", "CREDITS", "QUIT"]
+    # Main page: a column of seven buttons under the logo.
+    add("main", panel("mainPanel", 470, 232, 340, 440, 10))
+    labels = ["NEW GAME", "CONTINUE", "HOW TO PLAY", "COLLECTION", "OPTIONS", "CREDITS", "QUIT"]
     for i, (eid, label) in enumerate(zip(MAIN_IDS, labels)):
-        add("main", button(eid, 500, 266 + i * 62, 280, 50, 11 + i, label))
+        add("main", button(eid, 500, 246 + i * 60, 280, 48, 11 + i, label))
 
     # Save slot page: three cards.
     add("slots", text("slotHeader", 0, 232, 1280, 40, 20, "START A NEW ADVENTURE", 28.0, "#FFFFE7A0",
@@ -727,9 +750,9 @@ def build_menu_ui():
             add("slots", element("slot%dSpore%d" % (k, j), "Panel", sx + 3, y + 171, 16, 16, base + 6,
                                  background="#FFFFF4C0", fill="VerticalGradient", gradientEnd="#FFF2A030",
                                  cornerRadius=8.0, borderWidth=0.0))
-        add("slots", text("slot%dDone" % k, x, y + 204, 320, 30, base + 7, "THE TREE IS LIT", 16.0, "#FFFFD23F",
+        add("slots", text("slot%dDone" % k, x, y + 204, 320, 30, base + 7, "THE TREE IS LIT", 18.0, "#FFFFD23F",
                           letterSpacing=2.0))
-        add("slots", button("slot%dDel" % k, x + 95, y + 262, 130, 34, base + 8, "DELETE", 15.0,
+        add("slots", button("slot%dDel" % k, x + 95, y + 262, 130, 34, base + 8, "DELETE", 18.0,
                             background="#D63A1418", gradientEnd="#D6281014", borderColor="#90FF9A80",
                             foreground="#FFFFC8B8",
                             hover={"background": "#FFD8433B", "gradientEnd": "#FFA52D2B",
@@ -739,6 +762,15 @@ def build_menu_ui():
     add("slots", button("slotBack", 540, 614, 200, 46, 200, "BACK"))
 
     # Options page: drawn by the Options Kit (Draw GUI), so the group stays empty.
+
+    # Difficulty page (after choosing the slot of a new game): Story / Normal / Challenge.
+    add("diff", panel("diffPanel", 310, 236, 660, 420, 420))
+    add("diff", text("diffHeader", 310, 252, 660, 40, 421, "CHOOSE YOUR JOURNEY", 28.0, "#FFFFE7A0", letterSpacing=2.0))
+    for i, (eid, label) in enumerate(zip(DIFF_IDS[:3], PC.DIFFICULTIES)):
+        add("diff", button(eid, 370, 306 + i * 66, 540, 54, 422 + i, label, 24.0))
+    add("diff", text("diffBlurb1", 310, 508, 660, 30, 430, "", 20.0, "#FFF6E7C1"))
+    add("diff", text("diffBlurb2", 310, 540, 660, 30, 431, "", 18.0, "#FFDCCFB8"))
+    add("diff", button("diffBack", 540, 590, 200, 46, 432, "BACK"))
 
     # Confirmation dialog over the slot page.
     add("confirm", element("confirmShade", "Panel", 0, 0, 1280, 684, 400, background="#A0080510"))
@@ -753,9 +785,9 @@ def build_menu_ui():
     add(None, element("footer", "Panel", 0, 684, 1280, 36, 500, background="#D0140E18", fill="VerticalGradient",
                       gradientEnd="#F0080510", borderWidth=0.0))
     add(None, text("footerText", 24, 686, 900, 32, 501,
-                   "ARROWS / D-PAD  choose      ENTER / A  select      ESC / B  back", 16.0, "#FFE8DCC4",
+                   "ARROWS / D-PAD  choose      ENTER / A  select      ESC / B  back", 18.0, "#FFE8DCC4",
                    align="Left", letterSpacing=1.0))
-    add(None, text("footerRight", 900, 686, 356, 32, 502, "made with Genesis Studio", 15.0, "#FFB8A890",
+    add(None, text("footerRight", 900, 686, 356, 32, 502, "v%s   made with Genesis Studio" % PC.VERSION, 18.0, "#FFB8A890",
                    align="Right"))
 
     write_json("User Interfaces/Main Menu UI.ui.json",
@@ -766,14 +798,19 @@ def build_menu_ui():
 
 # ---------------------------------------------------------------- Main Menu object
 def menu_create(groups):
-    clickables = (MAIN_IDS + SLOT_IDS + ["slot1Del", "slot2Del", "slot3Del"] + OPTION_IDS + CONFIRM_IDS)
-    return """// Menu Controller: the Main Menu room controller. Pages: 0 main, 1 save slots, 2 options, 3 confirm.
+    clickables = (MAIN_IDS + SLOT_IDS + ["slot1Del", "slot2Del", "slot3Del"] + OPTION_IDS + CONFIRM_IDS + DIFF_IDS)
+    return """// Menu Controller: the Main Menu room controller. Pages: 0 main, 1 save slots, 2 options, 3 confirm,
+// 4 difficulty (after choosing the slot of a new game), 5 How to Play and 6 Collection (the Journal Kit).
 // Keyboard (arrows/WASD, Enter/Space, Esc/Backspace, Delete), controller (D-pad or left
 // stick, A select, B back, Y delete) and mouse (hover, click, drag sliders) all work: the
 // mouse moves the same selection the keys do. The UI is the "Main Menu UI" User Interface
 // resource; this object shows/hides its groups, sets texts and reads clicks.
 // New Game / Continue call the New Game / Game Load Scripts (campaign = 1) and go to the
 // Overworld. Options are applied live (Apply Options) and saved when leaving the page.
+// The engine's own focus navigation (arrows move a UI focus, Enter presses the focused button) is switched off: this object
+// keeps its own selection, and with both on a press of Enter clicked the button the UI focus had landed on (always New Game
+// after any arrow press) instead of the highlighted one.
+Engine.Ui.Focus.Navigation.Enabled = false;
 ScriptExecute("Apply Options");
 GlobalSet("campaign", 0);
 WindowSetCursorVisible(true);
@@ -784,11 +821,14 @@ stickCool = 0; t = 0; leaving = 0; leaveTimer = 0; leaveTo = ""; lastHover = "";
 mainIds = %(main)s;
 slotIds = %(slots)s;
 confirmIds = %(confirm)s;
+diffIds = %(diffids)s;
+diffSel = 1; pendingSlot = 1;
 clickIds = %(clicks)s;
 groupMain = %(gmain)s;
 groupSlots = %(gslots)s;
 groupOptions = %(goptions)s;
 groupConfirm = %(gconfirm)s;
+groupDiff = %(gdiff)s;
 mapNames = %(nodes)s;
 // Twinkles drawn over the logo (design pixels, phase in degrees).
 twinkleX = [352, 470, 604, 742, 880, 930, 410, 812];
@@ -800,11 +840,14 @@ function MmShowPage(p) {
     for (var b = 0; b < PgListSize(groupSlots); b += 1) { UiSetVisible(ui, groupSlots[b], p == 1 || p == 3); }
     for (var c = 0; c < PgListSize(groupOptions); c += 1) { UiSetVisible(ui, groupOptions[c], p == 2); }
     for (var d = 0; d < PgListSize(groupConfirm); d += 1) { UiSetVisible(ui, groupConfirm[d], p == 3); }
+    for (var e = 0; e < PgListSize(groupDiff); e += 1) { UiSetVisible(ui, groupDiff[e], p == 4); }
     MmRefreshSlots(p == 1 || p == 3);
     var hints = "ARROWS / D-PAD  choose      ENTER / A  select      ESC / B  back";
     if (p == 1) { hints = "LEFT / RIGHT  choose a slot      ENTER / A  play      DEL / Y  delete      ESC / B  back"; }
     if (p == 2) { hints = "ARROWS / D-PAD  choose and change      ENTER / A  select      ESC / B  back (saves)"; }
     if (p == 3) { hints = "LEFT / RIGHT  choose      ENTER / A  confirm      ESC / B  cancel"; }
+    if (p == 4) { hints = "UP / DOWN  choose      ENTER / A  begin      ESC / B  back"; }
+    if (p == 5 || p == 6) { hints = ""; }
     UiSetText(ui, "footerText", hints);
     return 0;
 }
@@ -823,17 +866,19 @@ function MmRefreshSlots(shown) {
         var complete = 0;
         if (used) {
             any = 1;
-            spores = Clamp(Real(StringSplitPart(data, ",", %(fglow)d)), 0, 5);
-            complete = Real(StringSplitPart(data, ",", %(fdone)d));
-            var node = Clamp(Real(StringSplitPart(data, ",", %(fnode)d)), 0, 5);
+            spores = Clamp(RealOf(StringSplitPart(data, ",", %(fglow)d)), 0, 5);
+            complete = RealOf(StringSplitPart(data, ",", %(fdone)d));
+            var node = Clamp(Floor(RealOf(StringSplitPart(data, ",", %(fnode)d))), 0, 5);
             UiSetText(ui, sid + "Line1", "Glowspores  " + StringOf(spores) + " / 5");
-            UiSetText(ui, sid + "Line2", "Coins " + StringOf(Real(StringSplitPart(data, ",", %(fcoins)d)))
-                + "      Lives " + StringOf(Real(StringSplitPart(data, ",", %(flives)d))));
-            UiSetText(ui, sid + "Line3", "at " + mapNames[node]);
+            UiSetText(ui, sid + "Line2", "Coins " + StringOf(RealOf(StringSplitPart(data, ",", %(fcoins)d)))
+                + "      Lives " + StringOf(RealOf(StringSplitPart(data, ",", %(flives)d))));
+            UiSetText(ui, sid + "Line3", "at " + mapNames[node] + "  -  " + DiffName(JrnSlotDiff(data)));
+            UiSetText(ui, sid + "Title", "SLOT " + StringOf(k) + "   " + StringOf(JrnSlotPercent(data)) + "%%");
         } else {
             UiSetText(ui, sid + "Line1", "- EMPTY -");
             UiSetText(ui, sid + "Line2", "A new adventure awaits");
             UiSetText(ui, sid + "Line3", "");
+            UiSetText(ui, sid + "Title", "SLOT " + StringOf(k));
         }
         for (var j = 1; j <= 5; j += 1) {
             UiSetVisible(ui, sid + "SporeBase" + StringOf(j), shown && used);
@@ -878,6 +923,16 @@ function MmLeave(target) {
     return 0;
 }
 
+function MmOpenDiff(k) {
+    self.pendingSlot = k;
+    self.diffSel = DiffRaw();
+    self.page = 4;
+    MmShowPage(4);
+    PlaySound("%(select)s", 0.7, 1, false);
+    return 0;
+}
+
+UiSetText(ui, "footerRight", "v" + JrnVersion() + "   made with Genesis Studio");
 MmShowPage(0);
 if (MmRefreshSlots(0) == 1) { sel = 1; }
 music = PlaySound("%(theme)s", 0.75, 1, true);
@@ -888,7 +943,8 @@ SpawnParticleEmitter("Assets/Particles/Menu Sparkles.particle.json", 320, 64, 0,
 """ % {
         "ui": MENU_UI, "logo": TITLE_LOGO,
         "main": pgsl_list(MAIN_IDS), "slots": pgsl_list(SLOT_IDS), "options": pgsl_list(OPTION_IDS),
-        "confirm": pgsl_list(CONFIRM_IDS), "clicks": pgsl_list(clickables),
+        "confirm": pgsl_list(CONFIRM_IDS), "clicks": pgsl_list(clickables), "diffids": pgsl_list(DIFF_IDS),
+        "gdiff": pgsl_list(groups["diff"]),
         "gmain": pgsl_list(groups["main"]), "gslots": pgsl_list(groups["slots"]),
         "goptions": pgsl_list(groups["options"]), "gconfirm": pgsl_list(groups["confirm"]),
         "nodes": pgsl_list(MAP_NODES),
@@ -950,14 +1006,14 @@ if (page == 0) {
     // anySave is kept up to date by MmRefreshSlots (Create and every page change).
     if (navUp || navDown) {
         var step = navDown ? 1 : -1;
-        sel = (sel + step + 5) %% 5;
-        if (sel == 1 && anySave == 0) { sel = (sel + step + 5) %% 5; }
+        sel = (sel + step + 7) %% 7;
+        if (sel == 1 && anySave == 0) { sel = (sel + step + 7) %% 7; }
         PlaySound("%(move)s", 0.6, 1, false);
     }
     var pick = -1;
     if (accept) { pick = sel; }
     if (clicked != "" && PgListFind(mainIds, clicked) >= 0) { pick = PgListFind(mainIds, clicked); sel = pick; }
-    if (back) { sel = 4; PlaySound("%(move)s", 0.6, 1, false); }
+    if (back) { sel = 6; PlaySound("%(move)s", 0.6, 1, false); }
     if (pick == 0 || (pick == 1 && anySave == 1)) {
         mode = pick; page = 1;
         slotSel = 0;
@@ -973,11 +1029,16 @@ if (page == 0) {
     } else if (pick == 1) {
         PlaySound("%(deny)s", 0.7, 1, false);
     } else if (pick == 2) {
+        page = 5; JrnOpen(0, 0, 1); MmShowPage(5);
+    } else if (pick == 3) {
+        if (anySave == 1) { page = 6; JrnOpen(0, 1, MmMostRecentSlot() + 1); MmShowPage(6); }
+        else { PlaySound("%(deny)s", 0.7, 1, false); }
+    } else if (pick == 4) {
         page = 2; OptionsOpen(0); MmShowPage(2);
         PlaySound("%(select)s", 0.7, 1, false);
-    } else if (pick == 3) {
+    } else if (pick == 5) {
         MmLeave("Credits");
-    } else if (pick == 4) {
+    } else if (pick == 6) {
         PlaySound("%(back)s", 0.8, 1, false);
         GameQuit();
     }
@@ -1006,7 +1067,7 @@ if (page == 0) {
         var used = MmSlotUsed(chosen + 1);
         if (mode == 0) {
             if (used) { MmConfirm(1, chosen + 1); }
-            else { ScriptExecute("New Game", chosen + 1); MmLeave("Overworld"); }
+            else { MmOpenDiff(chosen + 1); }
         } else {
             if (used && ScriptExecute("Game Load", chosen + 1) == 1) { MmLeave("Overworld"); }
             else { PlaySound("%(deny)s", 0.7, 1, false); }
@@ -1016,8 +1077,36 @@ if (page == 0) {
     // The Options Kit owns this page (Gameplay / Video / Audio, Controls, Remap) and saves on close.
     OptionsStep();
     if (OptionsIsOpen() == 0) {
-        page = 0; sel = 2; MmShowPage(0);
+        page = 0; sel = 4; MmShowPage(0);
     }
+} else if (page == 5 || page == 6) {
+    // The Journal Kit owns these pages (How to Play, Collection).
+    JrnStep();
+    if (JrnIsOpen() == 0) {
+        sel = page - 3; page = 0; MmShowPage(0);
+    }
+} else if (page == 4) {
+    // Difficulty: three choices and Back; the blurb follows the selection.
+    var hdf = PgListFind(diffIds, hovered);
+    if (hoverMoved == 1 && hdf >= 0 && hdf != diffSel) { diffSel = hdf; PlaySound("%(move)s", 0.5, 1, false); }
+    if (navUp) { diffSel = (diffSel + 3) %% 4; PlaySound("%(move)s", 0.6, 1, false); }
+    if (navDown) { diffSel = (diffSel + 1) %% 4; PlaySound("%(move)s", 0.6, 1, false); }
+    var dpick = -1;
+    if (accept) { dpick = diffSel; }
+    if (clicked != "" && PgListFind(diffIds, clicked) >= 0) { dpick = PgListFind(diffIds, clicked); diffSel = dpick; }
+    if (back) { dpick = 3; }
+    if (dpick >= 0 && dpick <= 2) {
+        GlobalSet("difficulty", dpick);
+        ScriptExecute("New Game", pendingSlot);
+        ScriptExecute("Apply Options", 1);
+        MmLeave("Overworld");
+    } else if (dpick == 3) {
+        page = 1; MmShowPage(1);
+        PlaySound("%(back)s", 0.7, 1, false);
+    }
+    var dsel = Min(diffSel, 2);
+    UiSetText(ui, "diffBlurb1", DiffName(dsel) + ":  " + DiffBlurb(dsel, 0));
+    UiSetText(ui, "diffBlurb2", DiffBlurb(dsel, 1));
 } else if (page == 3) {
     var hc = PgListFind(confirmIds, hovered);
     if (hoverMoved == 1 && hc >= 0 && hc != confirmSel) { confirmSel = hc; PlaySound("%(move)s", 0.5, 1, false); }
@@ -1029,8 +1118,7 @@ if (page == 0) {
     if (back) { answer = 1; }
     if (answer == 0) {
         if (confirmKind == 1) {
-            ScriptExecute("New Game", confirmSlot);
-            MmLeave("Overworld");
+            MmOpenDiff(confirmSlot);
         } else {
             SaveSlotDelete("Slot " + StringOf(confirmSlot));
             PlaySound("%(chime)s", 0.6, 1, false);
@@ -1044,10 +1132,11 @@ if (page == 0) {
 }
 
 // Selected looks follow the keyboard/controller selection.
-for (var m = 0; m < 5; m += 1) {
+for (var m = 0; m < 7; m += 1) {
     UiSetSelected(ui, mainIds[m], page == 0 && m == sel);
     if (m < 4) {
         UiSetSelected(ui, slotIds[m], (page == 1 || page == 3) && m == slotSel);
+        UiSetSelected(ui, diffIds[m], page == 4 && m == diffSel);
     }
     if (m < 2) { UiSetSelected(ui, confirmIds[m], page == 3 && m == confirmSel); }
 }
@@ -1057,12 +1146,14 @@ MENU_DRAWGUI = """var sw = WindowGetWidth(); var sh = WindowGetHeight();
 var sx = sw / 1280; var sy = sh / 720; var s = Min(sx, sy);
 // Title Logo (320x96 pixel art at 2x) bobbing gently, with a warm glow behind it.
 var logoIn = Clamp(t / 0.9, 0, 1);
+// The How to Play and Collection pages cover the top of the screen: no logo behind them (its top peeked over the panel).
+if (page == 5 || page == 6) { logoIn = 0; }
 var bob = Sin(t * 70) * 5;
 DrawSetColorRgb(255, 214, 130); DrawSetAlpha(0.05 * logoIn);
 DrawCircleEx(640 * sx, (124 + bob) * sy, 250 * s, 0);
 DrawSetAlpha(0.06 * logoIn);
 DrawCircleEx(640 * sx, (124 + bob) * sy, 160 * s, 0);
-DrawSpriteScaled(logo, 320 * sx, (26 + bob + (1 - logoIn) * 20) * sy, 0, 2 * sx, 2 * sy, 0, logoIn);
+DrawSpriteScaled(logo, sw / 2 - 320 * s, (26 + bob + (1 - logoIn) * 20) * sy, 0, 2 * s, 2 * s, 0, logoIn);
 // Four-point sparkles twinkling across the logo.
 for (var i = 0; i < PgListSize(twinkleX); i += 1) {
     var tw = Sin(twinklePhase[i] + t * 150);
@@ -1078,6 +1169,7 @@ for (var i = 0; i < PgListSize(twinkleX); i += 1) {
 DrawSetAlpha(1);
 DrawUi(ui);
 if (page == 2) { OptionsDraw(); }
+if (page == 5 || page == 6) { JrnDraw(); }
 // Fade in from the intro; fade out when leaving.
 var fade = Max(1 - t / 0.6, Clamp(leaveTimer / 0.5, 0, 1) * (leaving > 0));
 if (fade > 0) {
@@ -1127,6 +1219,8 @@ CREDITS = [
     (0, "MADE OF"), (2, "rooms, objects, images, tilesets, sounds, particles,"),
     (2, "shaders, post effects, paths, physics, user interfaces,"), (2, "scripts and notes"),
     (2, "every one of them editable in Genesis Studio"), (4, ""),
+    (0, "YOUR JOURNEY"), (1, "@STAT1@"), (2, "@STAT2@"), (4, ""),
+    (0, "GAME VERSION"), (1, PC.GAME_NAME), (2, "version " + PC.VERSION), (4, ""),
     (0, "SPECIAL THANKS"), (1, "Everyone who plays, edits"), (1, "and extends this meadow"),
     (4, ""), (4, ""), (4, ""),
     (3, "Thank you for playing!"), (2, ""),
@@ -1184,6 +1278,15 @@ def credits_create():
         "if (repKind == 1) { PgListSet(endSmall, 0, \"The valley will remember your kindness.\"); }",
         "PgListSet(creditText, PgListSize(creditText) - 2, endBig[repEnd]);",
         "PgListSet(creditText, PgListSize(creditText) - 1, endSmall[repEnd]);",
+        # "Your journey": the adventure's completion, time, difficulty and achievements (only after the ending).
+        "jrnLive = 1; jrnFields = JrnFieldList();",
+        "if (fromEnding) {",
+        "    var endPct = JrnRefresh();",
+        "    PgListSet(creditText, %d, \"Completion \" + StringOf(endPct) + \"%%     Time \" + JrnClock(jrnPlay));" % texts.index("@STAT1@"),
+        "    PgListSet(creditText, %d, DiffName(jrnDiff) + \" difficulty     \" + StringOf(AchTotal()) + \" of \" + StringOf(AchCount()) + \" achievements\");" % texts.index("@STAT2@"),
+        "} else {",
+        "    PgListSet(creditText, %d, \"\"); PgListSet(creditText, %d, \"\"); PgListSet(creditText, %d, \"\");" % (texts.index("@STAT1@") - 1, texts.index("@STAT1@"), texts.index("@STAT2@")),
+        "}",
         "creditStyle = %s;" % pgsl_list(styles),
         "creditTop = %s;" % pgsl_list(tops),
         "finalTop = %d;" % final_top,
@@ -1290,8 +1393,8 @@ if (phase == 0 || phase == 2) {
             var tx = 40;
             if (p % 2 == 1) { tx = 920; }
             DrawSetColorRgb(255, 214, 130); DrawSetAlpha(0.9);
-            DrawRoundRectEx((tx - 6) * sx, (ty - 6) * sy, (tx + 326) * sx, (ty + 186) * sy, 8 * s, 0);
-            DrawSpritePart(thumbs[p], 0, 0, 0, 1, 1, tx * sx, ty * sy, 320 * sx, 180 * sy, 1);
+            DrawRoundRectEx(tx * sx - 6 * s, ty * sy - 6 * s, tx * sx + 326 * s, ty * sy + 186 * s, 8 * s, 0);
+            DrawSpritePart(thumbs[p], 0, 0, 0, 1, 1, tx * sx, ty * sy, 320 * s, 180 * s, 1);
         }
     }
     DrawSetFont("Georgia"); DrawSetTextAlign("center");
@@ -1301,7 +1404,7 @@ if (phase == 0 || phase == 2) {
         if (ly > -240 && ly < 740) {
             var edge = Clamp(Min(ly + 40, 720 - ly) / 90, 0, 1);
             if (st == 5) {
-                DrawSpriteScaled(logo, 400 * sx, (ly + 6) * sy, 0, 1.5 * sx, 1.5 * sy, 0, edge);
+                DrawSpriteScaled(logo, sw / 2 - 240 * s, (ly + 6) * sy, 0, 1.5 * s, 1.5 * s, 0, edge);
             } else if (st != 4) {
                 var size = 26;
                 if (st == 0) { size = 19; DrawSetColorRgb(255, 200, 96); DrawSetTextTracking(4 * s); }
@@ -1317,7 +1420,7 @@ if (phase == 0 || phase == 2) {
     DrawSetTextAlign("left");
     var hintA = Clamp(scrollT / 2, 0, 1) * 0.6;
     DrawSetColorRgb(230, 220, 200); DrawSetAlpha(hintA * (1 - outFade));
-    DrawTextScaled(24 * sx, 690 * sy, "hold ENTER / A to speed up      ESC / B  menu", 15 * s);
+    DrawTextScaled(24 * sx, 690 * sy, "hold ENTER / A to speed up      ESC / B  menu", 18 * s);
     CkDrawCrt(sw, sh, sy);
     var fadeIn = Clamp(1 - phaseT / 1.5, 0, 1);
     var fade = Max(fadeIn, outFade);

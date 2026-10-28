@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 3,
+  "dimension": "TwoD",
+  "culling": "Default",
+  "windingOrder": "Default",
+  "sprite": "",
+  "model": "",
+  "components": [
+    {
+      "type": "TransformComponent",
+      "enabled": true,
+      "props": {
+        "Position": "0,0,0",
+        "Rotation": "0,0,0",
+        "Scale": "1,1,1"
+      }
+    },
+    {
+      "type": "SpriteComponent",
+      "enabled": true,
+      "props": {
+        "ImageSpeed": "1",
+        "Alpha": "1",
+        "Depth": "0",
+        "Sprite": ""
+      },
+      "id": "cmp-e1062aec69f7441b8bd72ce8631f147e"
+    },
+    {
+      "type": "ScriptComponent",
+      "enabled": true,
+      "props": {
+        "ScriptClass": "QF Probe"
+      }
+    }
+  ],
+  "events": [
+    "Create",
+    "DrawGui",
+    "Step"
+  ],
+  "material": "",
+  "shader": "",
+  "physics": "",
+  "visible": true,
+  "solid": false
+}

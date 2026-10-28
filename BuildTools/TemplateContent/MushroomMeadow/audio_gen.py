@@ -904,10 +904,10 @@ SOUNDS = [
     ("Land", sfx_land, SR_SFX, -3.0, 0.5, False, "sfx"),
     ("Bee Buzz", sfx_bee_buzz, SR_SFX, -3.0, 0.35, True, "sfx"),
     ("Finish Fanfare", sfx_finish, SR_SFX, -3.0, 0.8, False, "sfx"),
-    ("Game Over", sfx_game_over, SR_SFX, -3.0, 0.8, False, "sfx"),
+    ("Game Over", sfx_game_over, SR_SFX, -3.0, 0.7, False, "sfx"),
     ("Extra Life", sfx_extra_life, SR_SFX, -3.0, 0.8, False, "sfx"),
     ("Meadow Theme", meadow_theme, SR_MUSIC, -6.0, 0.6, True, "music"),
-    ("Title Theme", title_theme, SR_MUSIC, -6.0, 0.6, True, "music"),
+    ("Title Theme", title_theme, SR_MUSIC, -6.0, 0.45, True, "music"),
     ("Meadow Ambience", meadow_ambience, SR_AMB, -9.0, 0.5, True, "ambient"),
 ]
 

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 3,
+  "dimension": "TwoD",
+  "culling": "Default",
+  "windingOrder": "Default",
+  "sprite": "Explorer Idle",
+  "model": "",
+  "components": [
+    {
+      "type": "TransformComponent",
+      "enabled": true,
+      "props": {
+        "Position": "0,0,0",
+        "Rotation": "0,0,0",
+        "Scale": "1,1,1"
+      }
+    },
+    {
+      "type": "SpriteComponent",
+      "enabled": true,
+      "props": {
+        "ImageSpeed": "1",
+        "Alpha": "1",
+        "Depth": "0",
+        "Sprite": "Explorer Idle"
+      },
+      "id": "cmp-823a9286488b4a75ba5a5cbc04220fe9"
+    },
+    {
+      "type": "ScriptComponent",
+      "enabled": true,
+      "props": {
+        "ScriptClass": "QF Dummy"
+      }
+    }
+  ],
+  "events": [
+    "Create",
+    "Step"
+  ],
+  "material": "",
+  "shader": "",
+  "physics": "",
+  "visible": true,
+  "solid": false
+}

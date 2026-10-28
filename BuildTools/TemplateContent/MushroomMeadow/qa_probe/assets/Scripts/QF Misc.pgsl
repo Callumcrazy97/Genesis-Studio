@@ -1,0 +1,523 @@
+// QF Misc: credits, main menu and the 60 s gameplay loop probes (QA test copy only).
+
+// ---------------------------------------------------------------- credits at every reputation stage
+function QfCreditsVariation(k) {
+    RepReset();
+    if (k == 1) { GlobalSet("brutality", 2); GlobalSet("killsStomp", 12); }
+    if (k == 2) { GlobalSet("brutality", 30); }
+    if (k == 3) { GlobalSet("brutality", 60); }
+    if (k == 4) { GlobalSet("brutality", 90); }
+    GlobalSet("taintStage", 0);
+    RepStage();
+    return 1;
+}
+
+function QfRunCredits() {
+    var p = self.ph;
+    if (GlobalExists("qfk")) { if (GlobalGet("qfk") == 9) { QfRunCreditsEnding(); return 0; } }
+    var big = ["Thank you for playing!", "Thank you for playing!", "Thank you for playing.", "Thank you for playing?", "Rest now, little wanderer."];
+    var small = ["The valley sleeps easy tonight.", "The valley will remember your kindness.", "The valley remembers everything.", "Somewhere under the cap, something hums.", "The spots are glowing. They will wait."];
+    if (p == 0) {
+        if (!GlobalExists("qfk")) {
+            GlobalSet("qfk", 0);
+            GlobalSet("campaign", 0);
+            QfCreditsVariation(0);
+            RoomRestart();
+            self.ph = 99;
+            return 1;
+        }
+        var dir = InstanceFind("Credits Director", 0);
+        if (dir <= 0 || self.qfNow < 0.8) { return 0; }
+        self.qfDir = dir;
+        var kk = GlobalGet("qfk");
+        var ct = InstanceVariableGet(dir, "creditText");
+        var n = PgListSize(ct);
+        QfEq("credits.v" + kk + ".big", ct[n - 2], big[kk]);
+        QfEq("credits.v" + kk + ".small", ct[n - 1], small[kk]);
+        QfEq("credits.v" + kk + ".lineCount", n, 59);
+        QfEq("credits.v" + kk + ".styleCount", PgListSize(InstanceVariableGet(dir, "creditStyle")), n);
+        QfEq("credits.v" + kk + ".topCount", PgListSize(InstanceVariableGet(dir, "creditTop")), n);
+        QfInfo("credits.v" + kk + ".state", "phase " + InstanceVariableGet(dir, "phase") + " repEnd " + InstanceVariableGet(dir, "repEnd") + " repKind " + InstanceVariableGet(dir, "repKind") + " fromEnding " + InstanceVariableGet(dir, "fromEnding"));
+        if (kk == 0) { QfShot("credits_top"); }
+        self.ph = 1;
+        QfWaitFrames(3);
+        return 1;
+    }
+    if (p == 1) {
+        var d2 = self.qfDir;
+        var kk2 = GlobalGet("qfk");
+        InstanceVariableSet(d2, "scrollT", 68);
+        self.ph = 2; QfWaitFrames(6);
+        return 1;
+    }
+    if (p == 2) {
+        var kk3 = GlobalGet("qfk");
+        QfShot("credits_end_v" + kk3);
+        self.ph = 3; QfWaitFrames(2);
+        return 1;
+    }
+    if (p == 3) {
+        var kk4 = GlobalGet("qfk");
+        if (kk4 < 4) {
+            GlobalSet("qfk", kk4 + 1);
+            QfCreditsVariation(kk4 + 1);
+            RoomRestart();
+            self.ph = 99;
+            return 1;
+        }
+        // the ending cinematic, from a finished campaign
+        GlobalSet("qfk", 9);
+        QfCreditsVariation(0);
+        GlobalSet("campaign", 1); GlobalSet("slot", 1); GlobalSet("gameComplete", 0); GlobalSet("glowspores", 2);
+        SaveSlotDelete("Slot 1");
+        RoomRestart();
+        self.ph = 99;
+        return 1;
+    }
+    if (p == 4) { return 0; }
+    return 0;
+}
+
+function QfRunCreditsEnding() {
+    // pass k = 9: campaign 1 -> ending cinematic first
+    var p = self.ph;
+    if (p == 0) {
+        var dir = InstanceFind("Credits Director", 0);
+        if (dir <= 0 || self.qfNow < 0.8) { return 0; }
+        self.qfDir = dir;
+        QfEq("ending.fromEnding", InstanceVariableGet(dir, "fromEnding"), true);
+        QfEq("ending.gameComplete", GlobalGet("gameComplete"), 1);
+        QfEq("ending.glowspores", GlobalGet("glowspores"), 5);
+        QfEq("ending.saved", StringSplitPart(SaveSlotRead("Slot 1"), ",", 1), "mm2");
+        QfEq("ending.phase0", InstanceVariableGet(dir, "phase"), 0);
+        self.ph = 1; QfWaitFrames(30);
+        return 1;
+    }
+    if (p == 1) {
+        InstanceVariableSet(self.qfDir, "phaseT", 4);
+        self.ph = 2; QfWaitFrames(8);
+        return 1;
+    }
+    if (p == 2) {
+        QfShot("ending_panel1");
+        InstanceVariableSet(self.qfDir, "phaseT", 14);
+        self.ph = 3; QfWaitFrames(8);
+        return 1;
+    }
+    if (p == 3) {
+        QfShot("ending_panel2");
+        InstanceVariableSet(self.qfDir, "phaseT", 24);
+        self.ph = 4; QfWaitFrames(8);
+        return 1;
+    }
+    if (p == 4) {
+        QfShot("ending_panel3");
+        InstanceVariableSet(self.qfDir, "phaseT", 40);
+        self.ph = 5; QfWaitFrames(150);
+        return 1;
+    }
+    if (p == 5) {
+        QfEq("ending.rolls.into.credits", InstanceVariableGet(self.qfDir, "phase"), 1);
+        QfShot("ending_credits_roll");
+        TestCheck("probe.summary.credits", self.qfFail == 0, "pass " + self.qfPass + " fail " + self.qfFail);
+        SaveSlotDelete("Slot 1");
+        self.ph = 6; QfWaitFrames(20);
+        return 1;
+    }
+    if (p == 6) { GameQuit(); self.ph = 7; }
+    return 0;
+}
+
+// ---------------------------------------------------------------- main menu
+function QfRunMenu() {
+    var p = self.ph;
+    if (GlobalExists("qfLoopDone") && !GlobalExists("qfSeeded")) {
+        QfRunMenuAfterLoop();
+        return 0;
+    }
+    if (p == 0) {
+        if (!GlobalExists("qfSeeded")) {
+            GlobalSet("qfSeeded", 1);
+            QfSetCampaign();
+            GlobalSet("slot", 1);
+            ScriptExecute("Game Save", 0);
+            SaveSlotWrite("Slot 2", "mm2,3,15,2,4,1,1,1,0,0,0,3,1,0,0,0,2,9,0,1,2,1,0,0,0,0,0.5,0.6,1,1");
+            SaveSlotWrite("Slot 3", "mm2,abc,,,xyz,-4,1e9,NaN");
+            GlobalSet("campaign", 0);
+            RoomRestart();
+            self.ph = 99;
+            return 1;
+        }
+        var mc = InstanceFind("Menu Controller", 0);
+        if (mc <= 0) { return 0; }
+        self.qfMc = mc;
+        self.ph = 1;
+        QfInfo("menu.boot", "anySave " + InstanceVariableGet(mc, "anySave") + " sel " + InstanceVariableGet(mc, "sel") + " page " + InstanceVariableGet(mc, "page"));
+        return 1;
+    }
+    if (p == 1) {
+        if (self.zSeen == 1) { self.ph = 2; }
+        else if (self.qfNow > 6) { QfCk("menu.sync", 0, "no Z"); self.ph = 2; }
+        return 0;
+    }
+    var mc2 = self.qfMc;
+    var pg = InstanceVariableGet(mc2, "page");
+    var sl = InstanceVariableGet(mc2, "sel");
+    var t = self.qfNow;
+    var tkeys = ["Enter", "Backspace", "Down", "Up", "E", "Z", "Left", "Right"];
+    for (var tk = 0; tk < PgListSize(tkeys); tk = tk + 1) {
+        if (KeyPressed(tkeys[tk])) { QfInfo("menu.key", tkeys[tk] + " at " + StringFormatNumber(t, 2) + " page " + pg + " sel " + sl + " mode " + InstanceVariableGet(mc2, "mode") + " hover [" + UiGetHovered("Main Menu UI") + "] lastHover [" + InstanceVariableGet(mc2, "lastHover") + "] mouse " + MouseX + "," + MouseY); }
+    }
+    if (p == 2 && t > 1.8) {
+        QfEq("menu.anySave", InstanceVariableGet(mc2, "anySave"), 1);
+        QfEq("menu.sel.continue", sl, 1);
+        QfShot("menu_main");
+        self.ph = 3; return 1;
+    }
+    if (p == 3 && t > 3.3) {
+        QfEq("menu.slots.page", pg, 1);
+        QfEq("menu.slots.mode.continue", InstanceVariableGet(mc2, "mode"), 1);
+        QfShot("menu_slots");
+        self.ph = 4; return 1;
+    }
+    if (p == 4 && t > 5.2) {
+        QfEq("menu.howto.page", pg, 5);
+        QfShot("menu_howto");
+        self.ph = 5; return 1;
+    }
+    if (p == 5 && t > 7.2) {
+        QfEq("menu.collection.page", pg, 6);
+        QfShot("menu_collection");
+        self.ph = 6; return 1;
+    }
+    if (p == 6 && t > 9.4) {
+        QfEq("menu.options.opened", pg, 2);
+        QfShot("menu_options_gameplay");
+        self.ph = 7; return 1;
+    }
+    if (p == 7 && t > 10.9) {
+        QfShot("menu_options_audio");
+        self.ph = 8; return 1;
+    }
+    if (p == 8 && t > 12.0) {
+        QfEq("menu.options.closed", pg, 0);
+        QfEq("menu.options.sel.restored", sl, 4);
+        QfEq("menu.options.saved", StringSplitPart(SaveSlotRead("Options"), ",", 1), "mmopt2");
+        self.ph = 9; return 1;
+    }
+    if (p == 9 && t > 15.5) {
+        QfInfo("menu.leaving", "leaving " + InstanceVariableGet(mc2, "leaving") + " page " + pg + " campaign " + GlobalGet("campaign") + " slot " + GlobalGet("slot"));
+        QfEq("menu.continue.campaign", GlobalGet("campaign"), 1);
+        QfCk("menu.continue.lives.sane", GlobalGet("lives") >= 1, "lives " + GlobalGet("lives") + " coins " + GlobalGet("coins") + " mapNode " + GlobalGet("mapNode") + " (most recent slot was the corrupt one)");
+        TestCheck("probe.summary.menu", self.qfFail == 0, "pass " + self.qfPass + " fail " + self.qfFail);
+        self.ph = 10; QfWaitFrames(30); return 1;
+    }
+    if (p == 10) { GameQuit(); self.ph = 11; }
+    return 0;
+}
+
+// after the loop run's Save and Quit: the slot it wrote
+function QfRunMenuAfterLoop() {
+    var p = self.ph;
+    if (p == 0) {
+        var mc = InstanceFind("Menu Controller", 0);
+        if (mc <= 0 || self.qfNow < 0.8) { return 0; }
+        var txt = SaveSlotRead("Slot 2");
+        QfEq("saveq.head", StringSplitPart(txt, ",", 1), "mm2");
+        QfEq("saveq.fields", StringSplitCount(txt, ","), 61);
+        QfEq("saveq.coins.entry", RealOf(StringSplitPart(txt, ",", 3)), GlobalGet("qfE_coins"));
+        QfEq("saveq.mapNode", RealOf(StringSplitPart(txt, ",", 18)), 1);
+        QfEq("saveq.heldItem.entry", RealOf(StringSplitPart(txt, ",", 31)), GlobalGet("qfE_held"));
+        QfEq("saveq.arrows.entry", RealOf(StringSplitPart(txt, ",", 32)), GlobalGet("qfE_arrows"));
+        QfEq("saveq.power.entry", RealOf(StringSplitPart(txt, ",", 6)), GlobalGet("qfE_power"));
+        QfInfo("saveq.brutality", "saved " + StringSplitPart(txt, ",", 33) + " runtime " + GlobalGet("brutality") + " kills " + StringSplitPart(txt, ",", 34) + "/" + StringSplitPart(txt, ",", 35) + "/" + StringSplitPart(txt, ",", 36));
+        QfInfo("saveq.text", txt);
+        QfEq("saveq.menu.page", InstanceVariableGet(mc, "page"), 0);
+        QfEq("saveq.campaign.cleared", GlobalGet("campaign"), 0);
+        QfShot("saveq_menu");
+        // continuing from that slot restores the entry state
+        QfEq("saveq.load", ScriptExecute("Game Load", 2), 1);
+        QfEq("saveq.load.held", GlobalGet("heldItem"), GlobalGet("qfE_held"));
+        TestCheck("probe.summary.saveq", self.qfFail == 0, "pass " + self.qfPass + " fail " + self.qfFail);
+        self.ph = 1; QfWaitFrames(20);
+        return 1;
+    }
+    if (p == 1) { GameQuit(); self.ph = 2; }
+    return 0;
+}
+
+// ---------------------------------------------------------------- the 60 s loop with real keys
+function QfRunLoop() {
+    var p = self.ph;
+    if (InstanceNumber("Menu Controller") > 0) { QfRunMenu(); return 0; }
+    if (p == 0) {
+        var pip = InstanceFind("Explorer", 0);
+        if (pip <= 0 || self.qfNow < 1.0 || InstanceVariableGet(pip, "state") != 1) { return 0; }
+        self.qfPip = pip;
+        GlobalSet("slot", 2);
+        self.lF = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        self.lMaxFall = 0; self.lLastArrows = 0; self.lLastHeld = 0; self.lLives0 = GlobalGet("lives"); self.lX0 = InstanceGetX(pip);
+        self.lMaxX = self.lX0; self.lSpawn = 0; self.lSpawnFoe = 0; self.lMaxRise = 0; self.lRiseFrames = 0; self.lStateMax = 1; self.lFuelMin = 9;
+        GlobalSet("qfE_coins", InstanceVariableGet(pip, "entryCoins"));
+        GlobalSet("qfE_held", 0); GlobalSet("qfE_arrows", 0); GlobalSet("qfE_power", InstanceVariableGet(pip, "entryPower"));
+        QfInfo("loop.boot", "pip " + InstanceGetX(pip) + "," + InstanceGetY(pip) + " entry coins " + GlobalGet("qfE_coins"));
+        self.ph = 1;
+        return 1;
+    }
+    var pp = self.qfPip;
+    var t = self.qfNow;
+    var lf = self.lF;
+    if (p == 1) {
+        // observations every frame
+        var held = InstanceVariableGet(pp, "itemHeld");
+        var state = InstanceVariableGet(pp, "state");
+        if (state > self.lStateMax) { self.lStateMax = state; }
+        if (InstanceVariableGet(pp, "itemSwingT") > 0) { lf[0] = 1; }
+        if (InstanceVariableGet(pp, "itemShield") == 1) { lf[1] = 1; }
+        if (InstanceVariableGet(pp, "itemDrawing") == 1) { lf[2] = 1; }
+        var ar = InstanceVariableGet(pp, "itemArrows");
+        if (held == 3 && ar < self.lLastArrows) { lf[3] = 1; }
+        self.lLastArrows = ar;
+        if (InstanceVariableGet(pp, "itemFlowerOpen") == 1) {
+            lf[4] = 1;
+            var vyNow = InstanceVariableGet(pp, "vy");
+            if (InstanceVariableGet(pp, "itemRising") == 0 && vyNow > self.lMaxFall) { self.lMaxFall = vyNow; }
+            if (InstanceVariableGet(pp, "itemRising") == 1) { lf[5] = 1; if (vyNow < self.lMaxRise) { self.lMaxRise = vyNow; } if (vyNow < -40 && vyNow > -300) { self.lRiseFrames = self.lRiseFrames + 1; } }
+        }
+        var fuel = InstanceVariableGet(pp, "flowerFuel");
+        if (fuel < self.lFuelMin) { self.lFuelMin = fuel; }
+        if (self.lLastHeld > 0 && held == 0 && state == 1 && InstanceNumber("Thrown Item") > 0) { lf[6] = 1; }
+        if (InstanceNumber("Thrown Item") > 0) { lf[7] = 1; }
+        self.lLastHeld = held;
+        if (state == 2) { lf[8] = 1; }
+        if (InstanceVariableGet(pp, "pauseMode") == 1 && InstanceVariableGet(pp, "optOpen") == 1) { lf[9] = 1; }
+        var px = InstanceGetX(pp);
+        if (px > self.lMaxX) { self.lMaxX = px; }
+        // the schedule
+        if (t > 2.0 && self.lSpawn < 1) { ItemGrantGlobal(1); self.lSpawn = 1; }
+        if (t > 14.0 && self.lSpawn < 2) { ItemGrantGlobal(2); self.lSpawn = 2; }
+        if (t > 26.0 && self.lSpawn < 3) { ItemGrantGlobal(3); self.lSpawn = 3; }
+        if (t > 38.0 && self.lSpawn < 4) { ItemGrantGlobal(4); self.lSpawn = 4; }
+        if (t > 50.0 && self.lSpawn < 5) { ItemGrantGlobal(1); self.lSpawn = 5; }
+        // a foe in front of Pip every four seconds while playing
+        if (state == 1 && Floor(t / 4) > self.lSpawnFoe) {
+            self.lSpawnFoe = Floor(t / 4);
+            var fx = InstanceGetX(pp) + 70 + Random(40);
+            CreateInstance("Acorn Walker", fx, InstanceGetY(pp) - 10, 0);
+        }
+        if (t > 59.0 && self.lSpawn < 6) {
+            self.lSpawn = 6;
+            GlobalSet("qfE_coins", InstanceVariableGet(pp, "entryCoins"));
+            GlobalSet("qfE_held", InstanceVariableGet(pp, "entryHeld"));
+            GlobalSet("qfE_arrows", InstanceVariableGet(pp, "entryArrows"));
+            GlobalSet("qfE_power", InstanceVariableGet(pp, "entryPower"));
+            QfInfo("loop.report.expect", "entry coins " + GlobalGet("qfE_coins") + " held " + GlobalGet("qfE_held") + " arrows " + GlobalGet("qfE_arrows") + " now coins " + GlobalGet("coins") + " held " + GlobalGet("heldItem"));
+            QfCk("loop.sword.swung", lf[0] == 1, "seen " + lf[0]);
+            QfCk("loop.shield.raised", lf[1] == 1, "seen " + lf[1]);
+            QfCk("loop.bow.drawn", lf[2] == 1, "seen " + lf[2]);
+            QfCk("loop.bow.fired.arrows.spent", lf[3] == 1, "seen " + lf[3]);
+            QfCk("loop.flower.opened", lf[4] == 1, "seen " + lf[4]);
+            QfCk("loop.flower.rose", lf[5] == 1, "seen " + lf[5] + " best vy " + self.lMaxRise);
+            QfCk("loop.flower.parachute.cap", self.lMaxFall > 0 && self.lMaxFall <= 125, "fastest fall while open (not rising) " + StringFormatNumber(self.lMaxFall, 1));
+            QfCk("loop.flower.fuel.used", self.lFuelMin < 1.5, "min fuel " + StringFormatNumber(self.lFuelMin, 2));
+            QfCk("loop.flower.rise.sustained", self.lRiseFrames >= 30, "frames rising at -40..-300 px/s: " + self.lRiseFrames);
+            QfCk("loop.throw.item.flew", lf[7] == 1, "seen " + lf[7]);
+            QfCk("loop.throw.dropped.heldItem", lf[6] == 1, "seen " + lf[6]);
+            QfInfo("loop.progress", "max x " + StringFormatNumber(self.lMaxX, 0) + " from " + StringFormatNumber(self.lX0, 0) + " lives " + self.lLives0 + " -> " + GlobalGet("lives") + " brutality " + StringFormatNumber(GlobalGet("brutality"), 2) + " kills blade " + GlobalGet("killsBlade") + " arrow " + GlobalGet("killsArrow") + " stomp " + GlobalGet("killsStomp") + " gib " + GlobalGet("killsGib") + " sliced " + GlobalGet("killsSliced"));
+            QfCk("loop.some.kills", GlobalGet("killsBlade") + GlobalGet("killsArrow") + GlobalGet("killsStomp") > 0, "kills seen");
+            self.ph = 2;
+        }
+        return 0;
+    }
+    if (p == 2) {
+        // pause menu keys: Escape (pause), Down, Down, Enter (Save and Quit)
+        var st2 = InstanceVariableGet(pp, "state");
+        if (st2 == 2) { lf[8] = 1; }
+        if (st2 == 2 && InstanceVariableGet(pp, "menuIndex") == 4) {
+            QfCk("loop.pause.opened", 1, "pause menu reached Save and Quit");
+            QfShot("loop_pause");
+            GlobalSet("qfLoopDone", 1);
+            TestCheck("probe.summary.loop", self.qfFail == 0, "pass " + self.qfPass + " fail " + self.qfFail);
+            self.ph = 3;
+        } else if (t > 68.0) {
+            QfCk("loop.pause.opened", 0, "paused seen " + lf[8] + " state " + st2);
+            GlobalSet("qfLoopDone", 1);
+            TestCheck("probe.summary.loop", false, "pass " + self.qfPass + " fail " + self.qfFail);
+            self.ph = 3;
+        }
+        return 0;
+    }
+    if (p == 3) {
+        if (t > 62.9) {
+            QfInfo("loop.pause.menu", "state " + InstanceVariableGet(pp, "state") + " menuIndex " + InstanceVariableGet(pp, "menuIndex") + " leaveReason " + InstanceVariableGet(pp, "leaveReason"));
+            GlobalSet("qfLoopDone", 1);
+            TestCheck("probe.summary.loop", self.qfFail == 0, "pass " + self.qfPass + " fail " + self.qfFail);
+            self.ph = 4;
+        }
+        return 0;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------- aspect ratios: world-aligned drawing at other window shapes
+function QfRunAspect() {
+    var p = self.ph;
+    var ws = [1000, 1920, 1000, 1280, 1280, 640];
+    var hs = [500, 800, 750, 720, 800, 360];
+    if (p == 0) {
+        var pip = InstanceFind("Explorer", 0);
+        if (pip <= 0 || self.qfNow < 1.0 || InstanceVariableGet(pip, "state") != 1) { return 0; }
+        self.qfPip = pip; self.qi = 0;
+        GlobalSet("tips", 1); GlobalSet("gore", 1);
+        self.ph = 1;
+        return 1;
+    }
+    if (p == 1) {
+        if (self.qi >= 6) { self.ph = 9; return 0; }
+        WindowSetSize(ws[self.qi], hs[self.qi]);
+        self.ph = 2; QfWaitFrames(30);
+        return 1;
+    }
+    var pp = self.qfPip;
+    var px = InstanceGetX(pp);
+    if (p == 2) {
+        QfInfo("aspect.window." + self.qi, "window " + WindowGetWidth() + "x" + WindowGetHeight() + " gui " + WindowGetGuiX() + "," + WindowGetGuiY() + " " + WindowGetGuiWidth() + "x" + WindowGetGuiHeight() + " scale " + WindowGetGuiScale() + " view " + ViewGetPosX(0) + "," + ViewGetPosY(0));
+        QfClear("QF Dummy"); QfClear("Held Item"); QfClear("Sun Coin"); QfClear("Blood Stain"); QfClear("Gore Half"); QfClear("Gore Chunk"); QfClear("Item Sword"); QfClear("Item Shield"); QfClear("Item Bow"); QfClear("Item Propeller Flower"); QfClear("Arrow"); QfClear("Acorn Walker");
+        self.gDum = [];
+        var gx = px + 60;
+        for (var i = 0; i < 4; i = i + 1) {
+            var dm = CreateInstance("QF Dummy", gx + i * 40, 288, 0);
+            PgListAdd(self.gDum, dm);
+            InstanceVariableSet(dm, "itemHeld", i + 1);
+            InstanceVariableSet(dm, "itemShield", 1 * (i == 1));
+            InstanceVariableSet(dm, "itemSwingT", 0.14 * (i == 0));
+            InstanceVariableSet(dm, "itemFlowerOpen", 1 * (i == 3));
+            InstanceVariableSet(dm, "itemDrawing", 1 * (i == 2));
+            InstanceVariableSet(dm, "itemDrawT", 0.3);
+            InstanceVariableSet(dm, "itemAimX", 1);
+            var hi = CreateInstance("Held Item", gx + i * 40, 288, 0);
+            InstanceVariableSet(hi, "owner", dm);
+            // engine-drawn reference at the same spot as a pickup: a Sun Coin one tile above each dummy
+            CreateInstance("Sun Coin", gx + i * 40, 240, 0);
+            ItemSpawnPickup(i + 1, gx + i * 40, 240, 0, 0, 99, 0);
+        }
+        for (var a = 0; a < 3; a = a + 1) {
+            var ar = CreateInstance("Arrow", gx + 180 + a * 24, 200, 0);
+            InstanceVariableSet(ar, "vx", 0); InstanceVariableSet(ar, "vy", 0); InstanceVariableSet(ar, "life", 99);
+            CreateInstance("Sun Coin", gx + 180 + a * 24, 200, 0);
+        }
+        for (var s = 0; s < 6; s = s + 1) { GoreStain(gx + s * 30, 288, s); }
+        var fo = CreateInstance("Acorn Walker", gx + 220, 288, 0);
+        InstanceVariableSet(fo, "moveDirection", 0);
+        self.gFoe = fo;
+        self.ph = 3; QfWaitFrames(8);
+        return 1;
+    }
+    if (p == 3) {
+        // keep poses; slice the acorn
+        for (var j = 0; j < PgListSize(self.gDum); j = j + 1) { InstanceVariableSet(self.gDum[j], "itemSwingT", 0.14 * (j == 0)); }
+        ItemHitFoe(self.gFoe, 2, 1, 1, InstanceGetX(self.gFoe), 270, 0);
+        self.ph = 4; QfWaitFrames(5);
+        return 1;
+    }
+    if (p == 4) {
+        for (var j2 = 0; j2 < PgListSize(self.gDum); j2 = j2 + 1) { InstanceVariableSet(self.gDum[j2], "itemSwingT", 0.14 * (j2 == 0)); }
+        self.fakeMark = 1;
+        QfShot("aspect_" + ws[self.qi] + "x" + hs[self.qi]);
+        self.ph = 5; QfWaitFrames(2);
+        return 1;
+    }
+    if (p == 5) {
+        self.fakeMark = 0;
+        self.qi = self.qi + 1;
+        self.ph = 1;
+        return 1;
+    }
+    if (p == 9) {
+        TestCheck("probe.summary.aspect", true, "shots taken");
+        self.ph = 10; QfWaitFrames(20);
+        return 1;
+    }
+    if (p == 10) { GameQuit(); self.ph = 11; }
+    return 0;
+}
+
+// ---------------------------------------------------------------- real key and stick input through the Input Kit
+function QfRunInput() {
+    var p = self.ph;
+    var t = self.qfNow;
+    var pip = self.qfPip;
+    if (p == 0) {
+        pip = InstanceFind("Explorer", 0);
+        if (pip <= 0 || InstanceVariableGet(pip, "state") != 1 || t < 1.0) { return 0; }
+        self.qfPip = pip;
+        QfEq("input.run.padConnected", GamepadConnected(), true);
+        InputResetBindings(0); InputResetBindings(1);
+        GlobalSet("sprintModeKb", 0); GlobalSet("sprintModePad", 0);
+        QfEq("input.run.rebind.interact", InputSetBinding("interact", 0, 1, "L"), "");
+        QfEq("input.run.rebind.sprint", InputSetBinding("sprint", 0, 1, "K"), "throw");
+        self.iSeen = [0, 0, 0, 0, 0, 0, 0, 0];
+        self.ph = 1;
+        return 1;
+    }
+    var sn = self.iSeen;
+    if (p == 1) {
+        // window 1: L held 3.5 .. 5.5
+        if (InputPressed("interact")) { sn[0] = 1; }
+        if (t > 4.5 && sn[1] == 0) {
+            sn[1] = 1;
+            QfEq("input.run.L.interact.down", InputDown("interact"), 1);
+            QfEq("input.run.L.jump.not", InputDown("jump"), 0);
+            QfEq("input.run.L.explorer.keyCheck", KeyCheck("L"), 1);
+            QfCk("input.run.L.interact.pressedSeen", sn[0] == 1, "InputPressed(interact) seen " + sn[0]);
+            QfEq("input.run.E.old.binding.dead", KeyCheck("E") && InputDown("interact"), 0);
+        }
+        if (t > 5.8) { self.ph = 2; }
+        return 0;
+    }
+    if (p == 2) {
+        // window 2: K held 6.0 .. 8.0 (now the sprint key)
+        if (t > 7.0 && sn[2] == 0) {
+            sn[2] = 1;
+            QfEq("input.run.K.sprint.down", InputDown("sprint"), 1);
+            QfEq("input.run.K.sprintHeld", InputSprintHeld(), 1);
+            QfEq("input.run.K.throw.not", InputDown("throw"), 0);
+            QfEq("input.run.K.explorer.runHeld.speed", InstanceVariableGet(pip, "runSpeed") > 0, true);
+        }
+        if (t > 8.2) { self.ph = 3; }
+        return 0;
+    }
+    if (p == 3) {
+        // window 3: the left stick pushed right 8.5 .. 10.5 (a controller is connected for the whole run)
+        if (t > 9.5 && sn[3] == 0) {
+            sn[3] = 1;
+            QfEq("input.run.stick.axisX", InputAxisX() > 0.9, true);
+            QfEq("input.run.stick.device", InputDevice(), 1);
+            QfEq("input.run.stick.right.down", InputDown("right"), 1);
+            QfEq("input.run.stick.explorer.lastInput", GlobalGet("lastInput"), 1);
+            QfShot("hint_pad_real");
+        }
+        if (t > 10.7) { self.ph = 4; }
+        return 0;
+    }
+    if (p == 4) {
+        // window 4: sprint toggle mode: D and K pressed 11.5 .. 12.5, then everything released
+        if (t > 11.0 && sn[4] == 0) { sn[4] = 1; GlobalSet("sprintModeKb", 1); }
+        if (t > 12.3 && sn[5] == 0) {
+            sn[5] = 1;
+            QfEq("input.run.toggle.on.explorer", InstanceVariableGet(pip, "inpSprintKb"), 1);
+            QfEq("input.run.toggle.sprintHeld.explorerState", InstanceVariableGet(pip, "inpModeKb"), 1);
+        }
+        if (t > 14.5 && sn[6] == 0) {
+            sn[6] = 1;
+            QfEq("input.run.toggle.auto.off", InstanceVariableGet(pip, "inpSprintKb"), 0);
+            GlobalSet("sprintModeKb", 0);
+            InputResetBindings(0);
+            TestCheck("probe.summary.input", self.qfFail == 0, "pass " + self.qfPass + " fail " + self.qfFail);
+            self.ph = 5; QfWaitFrames(20);
+        }
+        return 0;
+    }
+    if (p == 5) { GameQuit(); self.ph = 6; }
+    return 0;
+}

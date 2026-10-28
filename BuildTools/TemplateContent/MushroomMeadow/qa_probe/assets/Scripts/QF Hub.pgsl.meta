@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "guid": "9e9e2c19abe74510ae42f426296a5868",
+  "kind": "PgslScript",
+  "displayName": "QF Hub",
+  "resourceName": "QF Hub",
+  "libraryTags": [],
+  "createdUtc": "2026-10-28T00:38:37.4959929Z",
+  "modifiedUtc": "2026-10-28T00:38:37.4969087Z"
+}

@@ -562,7 +562,7 @@ def make_room(level, room_name, room_key, tileset, backgrounds, env_color, post_
     room = {
         "$schema": "genesis.room", "version": 1, "id": gid("room"), "name": room_name, "dimension": "TwoD",
         "settings": {"width": level.width * 32, "height": height, "depth": 720, "windowWidth": 1280,
-                     "windowHeight": 720, "scaleViewportsWithWindow": True, "targetFps": 60, "fixedFps": 60,
+                     "windowHeight": 720, "scaleViewportsWithWindow": False, "targetFps": 60, "fixedFps": 60,
                      "vsync": True, "captureMouse": False, "gridSize": 32, "snapEnabled": True,
                      "pixelArtSampling": True},
         "environment": {"backgroundColor": env_color, "fogEnabled": False, "postEffects": post_effects},
@@ -726,7 +726,7 @@ ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); ShaderSetParameter("Flash",
 
 BLOATFIN_STEP = """
 if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); return; }
-var dt = Clamp(DeltaTime, 0, 0.05);
+var dt = Clamp(DeltaTime, 0, 0.05) * DiffFoe();
 if (dt <= 0) { return; }
 AnimationSetSpeed(1);
 if (dead == 1) {
@@ -750,7 +750,7 @@ if (hurt > 0) {
 }
 flash = Max(0, flash - dt);
 ShaderSetParameter("Flash", Min(1, flash * 4));
-if (hero == 0 || !InstanceExists(hero)) { hero = InstanceFind("Explorer", 0); }
+if (hero == 0 || !InstanceExists(hero)) { hero = RoomValueGet("heroId", 0); }
 var near = 0;
 if (hero > 0) {
     var dx = InstanceGetX(hero) - x; var dy = InstanceGetY(hero) - 17 - y;
@@ -806,7 +806,7 @@ ShaderSetParameter("Shimmer", 0.5); ShaderSetParameter("ShimmerSpeed", 0.6);
 
 JELLY_STEP = """
 if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); return; }
-var dt = Clamp(DeltaTime, 0, 0.05);
+var dt = Clamp(DeltaTime, 0, 0.05) * DiffFoe();
 if (dt <= 0) { return; }
 AnimationSetSpeed(1);
 if (dead == 1) {
@@ -830,7 +830,7 @@ if (hurt > 0) {
 }
 flash = Max(0, flash - dt);
 ShaderSetParameter("Flash", Min(1, flash * 4));
-if (hero == 0 || !InstanceExists(hero)) { hero = InstanceFind("Explorer", 0); }
+if (hero == 0 || !InstanceExists(hero)) { hero = RoomValueGet("heroId", 0); }
 if (hero > 0 && Abs(InstanceGetX(hero) - x) > 900) { return; }
 phase = (phase + dt * 55) % 720;
 // Pulse-and-glide: it rises on each bell pulse and sinks slowly between them.
@@ -855,7 +855,7 @@ CURRENT_STEP = """
 if (RoomValueGet("frozen", 0) == 1) { return; }
 var dt = Clamp(DeltaTime, 0, 0.05);
 if (dt <= 0) { return; }
-if (hero == 0 || !InstanceExists(hero)) { hero = InstanceFind("Explorer", 0); }
+if (hero == 0 || !InstanceExists(hero)) { hero = RoomValueGet("heroId", 0); }
 if (hero > 0) {
     var hx = InstanceGetX(hero); var hy = InstanceGetY(hero);
     var cy = hy - 17;
@@ -867,7 +867,8 @@ if (hero > 0) {
 }
 // Streaks only while the zone overlaps the view.
 var vx0 = ViewGetPosX(0); var vy0 = ViewGetPosY(0);
-if (x + zoneW < vx0 || x > vx0 + 640 || y + zoneH < vy0 || y > vy0 + 360) { return; }
+var vwNow = ViewGetBoundsW(0); if (vwNow <= 0) { vwNow = 640; }
+if (x + zoneW < vx0 || x > vx0 + vwNow || y + zoneH < vy0 || y > vy0 + 360) { return; }
 streak = streak - dt;
 if (streak <= 0) {
     streak = 0.16;
@@ -921,7 +922,8 @@ if (ventTimer <= 0 && ventCount > 0) {
     ventIndex = (ventIndex + 1) % ventCount;
 @PICK@
     var vx0 = ViewGetPosX(0); var vy0 = ViewGetPosY(0);
-    if (ventX > vx0 - 32 && ventX < vx0 + 672 && ventY > vy0 - 32 && ventY < vy0 + 400) {
+    var vwNow = ViewGetBoundsW(0); if (vwNow <= 0) { vwNow = 640; }
+    if (ventX > vx0 - 32 && ventX < vx0 + vwNow + 32 && ventY > vy0 - 32 && ventY < vy0 + 400) {
         ParticleBurstAt("Assets/Particles/Vent Bubbles.particle.json", ventX + RandomRange(-6, 6), ventY, 0, 1, 0);
     }
 }
@@ -942,7 +944,7 @@ if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); return; }
 var dt = Clamp(DeltaTime, 0, 0.05);
 if (dt <= 0) { return; }
 AnimationSetSpeed(1);
-if (hero == 0 || !InstanceExists(hero)) { hero = InstanceFind("Explorer", 0); }
+if (hero == 0 || !InstanceExists(hero)) { hero = RoomValueGet("heroId", 0); }
 var pop = 0;
 if (hurt > 0 || dead == 1) { pop = 1; }
 life = life - dt;
@@ -1021,7 +1023,7 @@ if (RoomValueGet("frozen", 0) == 1) { return; }
 moteTimer = moteTimer - dt;
 if (moteTimer <= 0) {
     moteTimer = 0.18;
-    Particle2DBurst("Assets/Particles/Hollow Motes.particle.json", ViewGetPosX(0) + Random(640), ViewGetPosY(0) + 120 + Random(260), 1, 90);
+    Particle2DBurst("Assets/Particles/Hollow Motes.particle.json", ViewGetPosX(0) + Random(ViewGetBoundsW(0)), ViewGetPosY(0) + 120 + Random(260), 1, 90);
 }
 """
 
@@ -1057,7 +1059,7 @@ var dt = Clamp(DeltaTime, 0, 0.05);
 if (dt <= 0) { return; }
 if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); return; }
 AnimationSetSpeed(1);
-if (hero == 0 || !InstanceExists(hero)) { hero = InstanceFind("Explorer", 0); }
+if (hero == 0 || !InstanceExists(hero)) { hero = RoomValueGet("heroId", 0); }
 var hx = arenaCx; var hy = floorY;
 if (hero > 0) { hx = InstanceGetX(hero); hy = InstanceGetY(hero); }
 // ---- Pip lost a life (he respawns at the checkpoint, outside the nest): the fight resets cleanly.

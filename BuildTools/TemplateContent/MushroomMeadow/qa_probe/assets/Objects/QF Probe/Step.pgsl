@@ -1,0 +1,16 @@
+if (InputReplayActive()) {
+    qfNow = InputReplayFrame() / 60;
+    if (qfReplaySeen == 0) { qfReplaySeen = 1; TestCheck("probe.replay.clock", true, "probe first frame at replay frame " + InputReplayFrame()); }
+} else {
+    qfNow = (TimeMs() - qfT0) / 1000;
+}
+if (fakePad == 1) {
+    var fpPip = InstanceFind("Explorer", 0);
+    if (fpPip > 0) {
+        InstanceVariableSet(fpPip, "inpDev", 1);
+        InstanceVariableSet(fpPip, "inpStamp", TimeMs() + 100000);
+        GlobalSet("lastInput", 1);
+    }
+}
+if (qfw > 0) { qfw = qfw - 1; return; }
+QfRun();

@@ -311,8 +311,8 @@ CANOPY_SECTIONS = [
         "",
         "",
         ".....m.............m..........",
-        "...............5..............",
-        ".........ooo.........ooo......",
+        "",
+        ".........ooo...5.....ooo......",
         "",
         "",
         "=======....======....=====...#",
@@ -526,7 +526,7 @@ class Room:
         room = {
             "$schema": "genesis.room", "version": 1, "id": self.gid("room"), "name": self.name, "dimension": "TwoD",
             "settings": {"width": self.W * CELL, "height": 360, "depth": 720, "windowWidth": 1280,
-                         "windowHeight": 720, "scaleViewportsWithWindow": True, "targetFps": 60, "fixedFps": 60,
+                         "windowHeight": 720, "scaleViewportsWithWindow": False, "targetFps": 60, "fixedFps": 60,
                          "vsync": True, "captureMouse": False, "gridSize": 32, "snapEnabled": True,
                          "pixelArtSampling": True},
             "environment": {"backgroundColor": background_colour, "fogEnabled": False, "postEffects": environment},
@@ -669,7 +669,7 @@ ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); ShaderSetParameter("Flash",
 """
 
 FLIT_BAT_STEP = """if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); return; }
-var dt = Clamp(DeltaTime, 0, 0.05);
+var dt = Clamp(DeltaTime, 0, 0.05) * DiffFoe();
 if (dt <= 0) { return; }
 if (hurt > 0 && dead == 0) {
     GoreEnemyHit();
@@ -690,7 +690,7 @@ if (dead == 1) {
     if (dieTime > 0.7) { InstanceDestroy(id); }
     return;
 }
-var hero = InstanceFind("Explorer", 0);
+var hero = RoomValueGet("heroId", 0);
 var hx = x; var hy = y - 1000;
 if (hero > 0) { hx = InstanceGetX(hero); hy = InstanceGetY(hero); }
 cool = Max(0, cool - dt);
@@ -761,7 +761,7 @@ Light2DPoint(lightId, x, y - 9, 72, 0.9, 0.55, 1.0, 0.5);
 """
 
 GLOW_GRUB_STEP = """if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); return; }
-var dt = Clamp(DeltaTime, 0, 0.05);
+var dt = Clamp(DeltaTime, 0, 0.05) * DiffFoe();
 if (dt <= 0) { return; }
 if (hurt > 0 && dead == 0) {
     GoreEnemyHit();
@@ -826,7 +826,7 @@ if (dt <= 0) { return; }
 var shatter = 0;
 if (hurt > 0) { hurt = 0; shatter = 1; }
 if (mode == 0) {
-    var hero = InstanceFind("Explorer", 0);
+    var hero = RoomValueGet("heroId", 0);
     if (hero > 0) {
         var hx = InstanceGetX(hero); var hy = InstanceGetY(hero);
         if (Abs(hx - x) < 66 && hy > y + 40 && hy - y < 330) {
@@ -863,7 +863,7 @@ AnimationPlay("Solid", true); AnimationSetSpeed(0);
 CRUMBLE_STEP = """if (RoomValueGet("frozen", 0) == 1) { return; }
 var dt = Clamp(DeltaTime, 0, 0.05);
 if (dt <= 0) { return; }
-var hero = InstanceFind("Explorer", 0);
+var hero = RoomValueGet("heroId", 0);
 var hx = -1000; var hy = -1000;
 if (hero > 0) { hx = InstanceGetX(hero); hy = InstanceGetY(hero); }
 if (mode == 0) {
@@ -939,7 +939,7 @@ Light2DPoint(lightId, x, y + offY, radius, power, cr, cg, cb);
 GLOW_STEP = """var dt = Clamp(DeltaTime, 0, 0.05);
 if (dt <= 0) { return; }
 var vx = ViewGetPosX(0);
-if (x < vx - 240 || x > vx + 880) { return; }
+if (x < vx - 240 || x > vx + ViewGetBoundsW(0) + 240) { return; }
 t = (t + dt * rate) % 360;
 var wobble = Sin(t) * 0.06 + Sin(t * 2.7) * 0.03;
 Light2DPoint(lightId, x, y + offY, radius * (1 + wobble), power * (1 + wobble), cr, cg, cb);
@@ -1007,7 +1007,7 @@ if (dt <= 0) { return; }
 image_angle = 0; tilt = 0;
 graceT = Max(0, graceT - dt);
 if (state >= 2 && state != 9) { AnimationSetSpeed(1); }
-var hero = InstanceFind("Explorer", 0);
+var hero = RoomValueGet("heroId", 0);
 var hx = x; var hy = y;
 if (hero > 0) { hx = InstanceGetX(hero); hy = InstanceGetY(hero); }
 t = t + dt;
@@ -1178,7 +1178,7 @@ DrawSetAlpha(0.88 * alpha); DrawSetColorRgb(29, 20, 40);
 DrawRoundRect(430 * sx, 104 * sy, 850 * sx, 156 * sy, 10 * s, false);
 DrawSetAlpha(alpha); DrawSetColorRgb(255, 196, 110);
 DrawRoundRect(430 * sx, 104 * sy, 850 * sx, 156 * sy, 10 * s, true);
-DrawTextScaled(446 * sx, 110 * sy, "GRUMBLECRAG", 17 * s);
+DrawTextScaled(446 * sx, 110 * sy, "GRUMBLECRAG", 18 * s);
 var i = 0;
 while (i < maxHp) {
     var x1 = (446 + i * 132) * sx; var x2 = (566 + i * 132) * sx;
@@ -1194,7 +1194,7 @@ while (i < maxHp) {
 }
 if (state == 5) {
     DrawSetColorRgb(255, 240, 160);
-    if (Floor(t * 4) % 2 == 0) { DrawTextScaled(690 * sx, 110 * sy, "STOMP IT NOW!", 17 * s); }
+    if (Floor(t * 4) % 2 == 0) { DrawTextScaled(690 * sx, 110 * sy, "STOMP IT NOW!", 18 * s); }
 }
 DrawSetAlpha(1);
 """
@@ -1210,7 +1210,7 @@ ShaderSetParameter("Shimmer", 0.4); ShaderSetParameter("ShimmerSpeed", 0.9);
 """
 
 MOTH_STEP = """if (RoomValueGet("frozen", 0) == 1) { AnimationSetSpeed(0); return; }
-var dt = Clamp(DeltaTime, 0, 0.05);
+var dt = Clamp(DeltaTime, 0, 0.05) * DiffFoe();
 if (dt <= 0) { return; }
 if (hurt > 0 && dead == 0) {
     GoreEnemyHit();
@@ -1247,7 +1247,7 @@ if (scared == 1) {
     return;
 }
 if (mode == 4) { mode = 3; t = 0; sx = x; sy = y; }
-var hero = InstanceFind("Explorer", 0);
+var hero = RoomValueGet("heroId", 0);
 var hx = x; var hy = y + 1000;
 if (hero > 0) { hx = InstanceGetX(hero); hy = InstanceGetY(hero) - 18; }
 cool = Max(0, cool - dt);
@@ -1299,7 +1299,7 @@ ShaderSet("Assets/Shaders/Pixel Flash.shader.json"); ShaderSetParameter("Flash",
 """
 
 HOPPER_STEP = """if (RoomValueGet("frozen", 0) == 1) { return; }
-var dt = Clamp(DeltaTime, 0, 0.05);
+var dt = Clamp(DeltaTime, 0, 0.05) * DiffFoe();
 if (dt <= 0) { return; }
 if (hurt > 0 && dead == 0) {
     GoreEnemyHit();
@@ -1320,7 +1320,7 @@ if (dead == 1) {
     if (dieTime >= 0.45) { InstanceDestroy(id); }
     return;
 }
-var hero = InstanceFind("Explorer", 0);
+var hero = RoomValueGet("heroId", 0);
 var hx = x;
 if (hero > 0) { hx = InstanceGetX(hero); }
 var scared = FearCheck(150);
@@ -1384,7 +1384,7 @@ var nx = homeX; var ny = homeY;
 if (axis == 0) { nx = homeX + off; } else { ny = homeY + off; }
 // It dips a few pixels under Pip's weight.
 var riding = 0;
-var hero = InstanceFind("Explorer", 0);
+var hero = RoomValueGet("heroId", 0);
 if (hero > 0) {
     var hx = InstanceGetX(hero); var hy = InstanceGetY(hero);
     if (Abs(hy - platformTop) < 3 && hx + 7 > x && hx - 7 < x + platformW) { riding = 1; }
@@ -1475,7 +1475,7 @@ if (phase == 1) {
     DrawTriangle((cx + dir * (len + 12)) * sx, cy * sy, (cx + dir * len) * sx, (cy - 9) * sy, (cx + dir * len) * sx, (cy + 9) * sy, false);
 } else {
     DrawSetColorRgb(200, 180, 150);
-    DrawTextScaled((cx - 24) * sx, (cy - 11) * sy, "calm", 16 * s);
+    DrawTextScaled((cx - 20) * sx, (cy - 12) * sy, "calm", 18 * s);
 }
 DrawSetAlpha(1);
 """

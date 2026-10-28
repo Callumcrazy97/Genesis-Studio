@@ -1,0 +1,18 @@
+if (optOpen == 1) { OptionsDraw(); }
+if (fakeMark == 1) {
+    // reference marks drawn from the engine's own GUI-area numbers: where room point (x, y) lands in the letterboxed view
+    var gsc = WindowGetGuiWidth() / 640;
+    var gox = WindowGetGuiX(); var goy = WindowGetGuiY();
+    DrawSetAlpha(1);
+    DrawSetColorRgb(0, 255, 0);
+    var mx0 = ViewGetPosX(0);
+    for (var mk = 0; mk < 20; mk = mk + 1) {
+        var wx = InstanceGetX(qfPip) - 60 + mk * 40;
+        var sxm = gox + (wx - mx0) * gsc;
+        var sym = goy + (288 - ViewGetPosY(0)) * gsc;
+        DrawRectangle(sxm - 1, sym - 6, sxm + 1, sym + 6);
+        DrawRectangle(sxm - 6, sym - 1, sxm + 6, sym + 1);
+    }
+    DrawRectangle(gox, goy, gox + 3, goy + 3);
+    DrawRectangle(gox + WindowGetGuiWidth() - 3, goy + WindowGetGuiHeight() - 3, gox + WindowGetGuiWidth(), goy + WindowGetGuiHeight());
+}

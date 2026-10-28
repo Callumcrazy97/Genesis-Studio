@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "guid": "2e0e9d1ec8ad4820b97616f103a8e609",
+  "kind": "PgslScript",
+  "displayName": "QF Main",
+  "resourceName": "QF Main",
+  "libraryTags": [],
+  "createdUtc": "2026-10-28T00:38:37.4959929Z",
+  "modifiedUtc": "2026-10-28T00:38:37.4969087Z"
+}
