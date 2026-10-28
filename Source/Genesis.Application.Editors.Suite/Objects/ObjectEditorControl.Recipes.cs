@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Windows.Forms;
 using Genesis.Application.Core.UI;
+using Genesis.Application.Core.Objects;
 
 namespace Genesis.Application.Editors.Suite.Objects;
 
@@ -21,7 +22,7 @@ public sealed partial class ObjectEditorControl
     public void ShowBehaviourRecipes()
     {
         EnsureRecipePage();
-        _recipeGallery!.SetItems(ObjectBehaviourRecipes.For(IsThreeD).Select(recipe =>
+        _recipeGallery!.SetItems(OfferedRecipes().Select(recipe =>
             new StarterItem(recipe.Id, recipe.Title, recipe.Description)
             {
                 Category = recipe.Category,
@@ -58,6 +59,8 @@ public sealed partial class ObjectEditorControl
     {
         ObjectBehaviourRecipe recipe = ObjectBehaviourRecipes.Find(id)
             ?? throw new ArgumentException($"'{id}' is not a behaviour recipe.", nameof(id));
+        // A 3D player chosen for an Object that shows nothing yet makes it a 3D Object.
+        if (recipe.ThreeD && !recipe.TwoD && !IsThreeD) SetVisualDimension(true);
         List<string> changed = [];
         foreach ((string eventId, string block) in recipe.Events)
         {
@@ -79,6 +82,19 @@ public sealed partial class ObjectEditorControl
         ShowVisualActions();
         UpdateStatus($"Added '{recipe.Title}' to {string.Join(" and ", changed)}. It is ordinary code: change the numbers to tune it.");
         return changed;
+    }
+
+    /// <summary>
+    /// The recipes for this Object's dimension. An Object that shows nothing yet (no image, no model)
+    /// is also offered the 3D players, since a first-person walker needs no look of its own.
+    /// </summary>
+    private IEnumerable<ObjectBehaviourRecipe> OfferedRecipes()
+    {
+        bool showsNothing = !IsThreeD && string.IsNullOrWhiteSpace((string?)_document["sprite"]) && string.IsNullOrWhiteSpace(InitialModelBinding);
+        IEnumerable<ObjectBehaviourRecipe> offered = ObjectBehaviourRecipes.For(IsThreeD);
+        return showsNothing
+            ? offered.Concat(ObjectBehaviourRecipes.All.Where(recipe => recipe.ThreeD && !recipe.TwoD && recipe.Category == ObjectBehaviourRecipes.MovementCategory))
+            : offered;
     }
 
     private bool HasRecipe(ObjectBehaviourRecipe recipe) =>

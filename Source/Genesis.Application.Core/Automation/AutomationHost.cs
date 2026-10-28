@@ -110,7 +110,11 @@ public static class AutomationHost
     /// </summary>
     public static void ServeMcp(AutomationRegistry registry, AutomationContext context, TextReader input, TextWriter output)
     {
-        var toolNames = new Dictionary<string, string>(StringComparer.Ordinal) { [ToolName(AutomationRegistry.ListCommand)] = AutomationRegistry.ListCommand };
+        var toolNames = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [ToolName(AutomationRegistry.ListCommand)] = AutomationRegistry.ListCommand,
+            [ToolName(AutomationRegistry.BatchCommand)] = AutomationRegistry.BatchCommand,
+        };
         foreach (IAutomationCommand command in registry.Commands) toolNames[ToolName(command.Name)] = command.Name;
 
         string? line;

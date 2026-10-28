@@ -1,5 +1,23 @@
 # Genesis Studio Master
 
+## A finished product, measured: 28 October 2026
+
+The owner asked why a quick three.js game looks better than a game that takes days in Genesis.
+The same small game (a walk round a lake) was built both ways and compared; the bar, the
+measurements and the changes are in [Design/FinishedProduct.md](Design/FinishedProduct.md).
+
+- **The look was never the limit:** built with Genesis's own terrain, scatter, grass, water and
+  sky, the walk looked as good as the three.js one on the first run.
+- **What made games slow is fixed:** `batch` runs a scene's commands in one go (the whole walk in
+  1.6 s, 33 commands); `room.create` makes 3D rooms that open on a sky (the Room editor's Sky cards
+  are one shared list); Object recipes **Walk in first person**, **Third-person character** and a
+  3D **Spin**, in the Object editor and through automation; the Terrain editor's Use in game room
+  opens on a sunny day.
+- **[Cookbook.md](Cookbook.md):** the loop (make, look, change), a 3D place, a player, the PGSL
+  wanted most, the look and the pitfalls; its snippets are compiled by the tests. It and
+  Automation.md now ship with Studio.
+- **Benchmark:** `BuildTools\Benchmarks\NatureWalk\NatureWalk.ps1` builds, plays and measures it.
+
 ## Release readiness, 25 October 2026
 
 The list agreed with the owner on 24 October, all done

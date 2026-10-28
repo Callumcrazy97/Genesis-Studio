@@ -1,6 +1,6 @@
 using Genesis.Application.Core.UI;
 
-namespace Genesis.Application.Editors.Suite.Objects;
+namespace Genesis.Application.Core.Objects;
 
 /// <summary>A ready-made behaviour: the PGSL it adds to each event.</summary>
 /// <param name="Id">Stable identifier (also the marker that stops it being added twice).</param>
@@ -220,6 +220,136 @@ public static class ObjectBehaviourRecipes
                     floatAngle = floatAngle + 3;
                     if (floatAngle > 360) { floatAngle = floatAngle - 360; }
                     y = floatHomeY + (Sin(floatAngle) * 0.25);
+                    """,
+            }),
+        // 3D players: the engine's character mover (walls, steps, slopes, scatter colliders) under
+        // keyboard, mouse and controller, in metres per second. A game starts walking with one card.
+        new("FirstPerson", "Walk in first person", "Look with the mouse, walk with WASD, run with Shift, jump with Space; a controller works too. The camera is the eyes.",
+            MovementCategory, UiGlyphs.Walk, "#4FB6A5", TwoD: false, ThreeD: true, new Dictionary<string, string>
+            {
+                ["Create"] = """
+                    // Recipe: Walk in first person
+                    walkSpeed = 3.6;
+                    runSpeed = 7.5;
+                    jumpSpeed = 4.5;
+                    lookSpeed = 0.14;
+                    eyeHeight = 1.7;
+                    // The Audio resource played at each footstep ("" for none).
+                    stepSound = "";
+                    // Looks the way it was placed in the room to begin with (0 along +z, 90 along +x).
+                    walkYaw = Engine.Instance.Yaw;
+                    walkPitch = 0;
+                    walkFall = 0;
+                    walkBob = 0;
+                    walkStepTimer = 0;
+                    // The camera is the walker's eyes, so its own body is not drawn.
+                    visible = false;
+                    CharacterCreate(0.3, 1.8, 0.45, 50);
+                    SetMouseCaptured(true);
+                    """,
+                ["Step"] = """
+                    // Recipe: Walk in first person
+                    var walkDt = Clamp(DeltaTime, 0, 0.05);
+                    walkYaw = AngleNormalise(walkYaw + GetMouseLookDeltaX() * lookSpeed);
+                    walkPitch = Clamp(walkPitch - GetMouseLookDeltaY() * lookSpeed, -80, 80);
+                    if (Abs(GamepadAxis("RightX")) > 0.15) { walkYaw = AngleNormalise(walkYaw + GamepadAxis("RightX") * 120 * walkDt); }
+                    if (Abs(GamepadAxis("RightY")) > 0.15) { walkPitch = Clamp(walkPitch - GamepadAxis("RightY") * 70 * walkDt, -80, 80); }
+                    var walkAcross = 0;
+                    var walkAhead = 0;
+                    if (KeyCheck("W") || KeyCheck("Up")) { walkAhead = walkAhead + 1; }
+                    if (KeyCheck("S") || KeyCheck("Down")) { walkAhead = walkAhead - 1; }
+                    if (KeyCheck("D") || KeyCheck("Right")) { walkAcross = walkAcross + 1; }
+                    if (KeyCheck("A") || KeyCheck("Left")) { walkAcross = walkAcross - 1; }
+                    if (Abs(GamepadAxis("LeftX")) > 0.15) { walkAcross = walkAcross + GamepadAxis("LeftX"); }
+                    if (Abs(GamepadAxis("LeftY")) > 0.15) { walkAhead = walkAhead + GamepadAxis("LeftY"); }
+                    var walkAmount = Sqrt(walkAcross * walkAcross + walkAhead * walkAhead);
+                    if (walkAmount > 1) { walkAcross = walkAcross / walkAmount; walkAhead = walkAhead / walkAmount; }
+                    var walkPace = walkSpeed;
+                    if (KeyCheck("Shift") || GamepadCheck("L3")) { walkPace = runSpeed; }
+                    var walkFx = Sin(walkYaw);
+                    var walkFz = Cos(walkYaw);
+                    if (CharacterGrounded() && (KeyPressed("Space") || GamepadPressed("A"))) { walkFall = jumpSpeed; }
+                    walkFall = walkFall - 9.8 * walkDt;
+                    CharacterMove((walkFx * walkAhead + walkFz * walkAcross) * walkPace * walkDt, walkFall * walkDt, (walkFz * walkAhead - walkFx * walkAcross) * walkPace * walkDt);
+                    if (CharacterGrounded() && walkFall < 0) { walkFall = 0; }
+                    x = CharacterX();
+                    y = CharacterY();
+                    z = CharacterZ();
+                    if (walkAmount > 0.1 && CharacterGrounded()) {
+                        walkBob = walkBob + walkDt * walkPace * 95;
+                        walkStepTimer = walkStepTimer - walkDt;
+                        if (walkStepTimer <= 0) {
+                            if (stepSound != "") { PlaySound(stepSound, 0.4, RandomRange(0.9, 1.1), false); }
+                            walkStepTimer = 1.9 / walkPace;
+                        }
+                    }
+                    var walkEye = y + eyeHeight + Abs(Sin(walkBob)) * 0.05;
+                    SetCameraPosition(x, walkEye, z);
+                    SetCameraTarget(x + walkFx * Cos(walkPitch), walkEye + Sin(walkPitch), z + walkFz * Cos(walkPitch));
+                    """,
+            }),
+        new("ThirdPerson", "Third-person character", "Walks where the camera looks with WASD or a stick, runs with Shift, jumps with Space; the mouse turns the camera behind it.",
+            MovementCategory, UiGlyphs.Walk, "#6C8CFF", TwoD: false, ThreeD: true, new Dictionary<string, string>
+            {
+                ["Create"] = """
+                    // Recipe: Third-person character
+                    heroSpeed = 4;
+                    heroRunSpeed = 8;
+                    heroJumpSpeed = 5;
+                    // Turn the model by this much if it faces sideways or backwards when it walks.
+                    heroModelTurn = 0;
+                    heroFall = 0;
+                    CharacterCreate(0.35, 1.8, 0.45, 50);
+                    Engine.Camera.Orbit.Distance = 6;
+                    Engine.Camera.Orbit.Pitch = 15;
+                    SetMouseCaptured(true);
+                    """,
+                ["Step"] = """
+                    // Recipe: Third-person character
+                    var heroDt = Clamp(DeltaTime, 0, 0.05);
+                    var heroAhead = 0;
+                    var heroAcross = 0;
+                    if (KeyCheck("W") || KeyCheck("Up")) { heroAhead = heroAhead + 1; }
+                    if (KeyCheck("S") || KeyCheck("Down")) { heroAhead = heroAhead - 1; }
+                    if (KeyCheck("D") || KeyCheck("Right")) { heroAcross = heroAcross + 1; }
+                    if (KeyCheck("A") || KeyCheck("Left")) { heroAcross = heroAcross - 1; }
+                    if (Abs(GamepadAxis("LeftX")) > 0.15) { heroAcross = heroAcross + GamepadAxis("LeftX"); }
+                    if (Abs(GamepadAxis("LeftY")) > 0.15) { heroAhead = heroAhead + GamepadAxis("LeftY"); }
+                    // Ahead is where the camera looks, flattened onto the ground.
+                    var heroFx = GetCameraForwardX();
+                    var heroFz = GetCameraForwardZ();
+                    var heroFlat = Sqrt(heroFx * heroFx + heroFz * heroFz);
+                    if (heroFlat > 0.001) { heroFx = heroFx / heroFlat; heroFz = heroFz / heroFlat; }
+                    var heroRx = GetCameraRightX();
+                    var heroRz = GetCameraRightZ();
+                    var heroRight = Sqrt(heroRx * heroRx + heroRz * heroRz);
+                    if (heroRight > 0.001) { heroRx = heroRx / heroRight; heroRz = heroRz / heroRight; }
+                    var heroMx = heroFx * heroAhead + heroRx * heroAcross;
+                    var heroMz = heroFz * heroAhead + heroRz * heroAcross;
+                    var heroAmount = Sqrt(heroMx * heroMx + heroMz * heroMz);
+                    if (heroAmount > 1) { heroMx = heroMx / heroAmount; heroMz = heroMz / heroAmount; }
+                    var heroPace = heroSpeed;
+                    if (KeyCheck("Shift") || GamepadCheck("L3")) { heroPace = heroRunSpeed; }
+                    if (CharacterGrounded() && (KeyPressed("Space") || GamepadPressed("A"))) { heroFall = heroJumpSpeed; }
+                    heroFall = heroFall - 9.8 * heroDt;
+                    CharacterMove(heroMx * heroPace * heroDt, heroFall * heroDt, heroMz * heroPace * heroDt);
+                    if (CharacterGrounded() && heroFall < 0) { heroFall = 0; }
+                    x = CharacterX();
+                    y = CharacterY();
+                    z = CharacterZ();
+                    if (heroAmount > 0.1) { Engine.Instance.Yaw = ArcTan2(heroMx, heroMz) + heroModelTurn; }
+                    """,
+            }),
+        new("Spin3D", "Spin", "Turns round and round on the spot. Change spinSpeed (degrees a second) for faster or slower turning.",
+            PickupCategory, UiGlyphs.Refresh, "#B07CF2", TwoD: false, ThreeD: true, new Dictionary<string, string>
+            {
+                ["Create"] = """
+                    // Recipe: Spin
+                    spinSpeed = 90;
+                    """,
+                ["Step"] = """
+                    // Recipe: Spin
+                    Engine.Instance.Yaw = AngleNormalise(Engine.Instance.Yaw + spinSpeed * DeltaTime);
                     """,
             }),
         new("Timed", "Disappear after 3 seconds", "Removes itself three seconds after it appears: sparks, pop-ups and shots.",

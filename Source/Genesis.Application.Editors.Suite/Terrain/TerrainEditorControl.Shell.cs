@@ -136,6 +136,8 @@ public sealed partial class TerrainEditorControl
         ResourceService resources = ProjectAssetIndex.OpenResourceService(ProjectRoot);
         string path = resources.CreateResource(ResourceFolderPolicy.RootFor(resources.Project, ResourceKind.Room), ResourceKind.Room, validName);
         RoomAsset room = RoomAsset.Create(validName, RoomDimension.ThreeD);
+        // Open on a sky, as automation's room.create does, not on a dark void; the Sky cards change it.
+        Genesis.Application.Core.Projects.RoomScenePresets.Find(Genesis.Application.Core.Projects.RoomScenePresets.DefaultOutdoor)!.Apply(room.Environment);
         room.Nodes.Add(new RoomNode { Name = ResourceNames.Name(ProjectRoot, ResourcePath), Kind = RoomNodeKind.Terrain,
             LayerId = room.Layers[0].Id, EnabledIn2D = false,
             Terrain = new RoomTerrainData { Asset = ResourceNames.Name(ProjectRoot, ResourcePath) } });

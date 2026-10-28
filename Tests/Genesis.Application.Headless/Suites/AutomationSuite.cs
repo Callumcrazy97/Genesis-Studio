@@ -576,6 +576,66 @@ internal static class AutomationSuite
                 "A room change dropped the timed pictures' clock, so no picture was taken after it.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.AScenesCallsRunInOneBatchWithA3DRoomAndAWalker", () =>
+        {
+            // A batch: a 3D room with a sky, a walker from the first-person recipe whose own code comes
+            // after the recipe's, a spinning prop and a third-person rider; checked once, strictly, at the end.
+            AutomationResult batch = Call(AutomationRegistry.BatchCommand, """
+                { "calls": [
+                    { "command": "room.create", "input": { "name": "Walk Room", "folder": "Assets/Rooms", "dimension": "3D", "depth": 200 } },
+                    { "command": "object.create", "input": { "name": "Walk Hero", "folder": "Assets/Objects", "recipes": ["FirstPerson"], "events": { "Create": "walkSpeed = 2;" } } },
+                    { "command": "object.create", "input": { "name": "Walk Prop", "folder": "Assets/Objects", "threeD": true } },
+                    { "command": "object.create", "input": { "name": "Walk Rider", "folder": "Assets/Objects", "recipes": ["ThirdPerson"] } },
+                    { "command": "object.addRecipe", "input": { "object": "Assets/Objects/Walk Prop.object.json", "recipe": "Spin3D" } },
+                    { "command": "room.addInstance", "input": { "room": "Assets/Rooms/Walk Room.room.json", "object": "Assets/Objects/Walk Hero.object.json", "y": 2, "yaw": 90 } }
+                ] }
+                """);
+            HeadlessHarness.Assert(batch.Ok && batch.Data!["results"]!.AsArray().Count == 6 && batch.Changed.Count >= 6,
+                "The batch did not run its six calls: " + batch.ToJson().ToJsonString());
+            var room = Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve("Assets/Rooms/Walk Room.room.json"));
+            HeadlessHarness.Assert(room.Dimension == Genesis.Runtime.Scene.RoomDimension.ThreeD && room.Environment.DynamicSky
+                && room.Environment.TimeScale == 0f && !room.Environment.AutomaticWeather && room.Settings.Depth == 200 && room.Nodes.Count == 1,
+                "room.create did not make a 3D room with a sunny day's sky: " + File.ReadAllText(context.Resolve("Assets/Rooms/Walk Room.room.json")));
+            string hero = context.Resolve("Assets/Objects/Walk Hero.object.json");
+            Dictionary<string, string> heroEvents = Genesis.Runtime.Scripting.ObjectEventStore.Load(hero);
+            string heroCreate = heroEvents.GetValueOrDefault("Create") ?? string.Empty;
+            HeadlessHarness.Assert(File.ReadAllText(hero).Contains("\"ThreeD\"", StringComparison.Ordinal) && heroEvents.ContainsKey("Step")
+                && heroCreate.Contains("// Recipe: Walk in first person", StringComparison.Ordinal)
+                && heroCreate.IndexOf("walkSpeed = 2;", StringComparison.Ordinal) > heroCreate.IndexOf("walkSpeed = 3.6;", StringComparison.Ordinal),
+                "The first-person recipe was not added with the Object's own code after it:\n" + heroCreate);
+            HeadlessHarness.Assert(!batch.Issues.Any(i => i.Severity == "error" && (i.Path ?? string.Empty).Contains("Walk", StringComparison.Ordinal)),
+                "The recipes' code failed the strict script check: " + string.Join("; ", batch.Issues.Select(i => i.Message)));
+            AutomationResult again = Call("object.addRecipe", """{ "object": "Assets/Objects/Walk Prop.object.json", "recipe": "Spin3D" }""");
+            HeadlessHarness.Assert(again.Ok && again.Message.Contains("already", StringComparison.Ordinal), "A recipe was added twice: " + again.Message);
+            HeadlessHarness.Assert(Call("object.addRecipe", """{ "object": "Assets/Objects/Walk Prop.object.json", "recipe": "Platformer" }""").Message.Contains("2D", StringComparison.Ordinal),
+                "A 2D recipe was added to a 3D Object.");
+            AutomationResult info = Call("object.info", """{ "object": "Assets/Objects/Walk Prop.object.json" }""");
+            HeadlessHarness.Assert(info.Data?["recipes"]?.AsArray().OfType<JsonObject>().Any(r => r["id"]?.GetValue<string>() == "ThirdPerson") == true,
+                "object.info did not list the 3D recipes: " + info.Data?.ToJsonString());
+
+            // A scene preset on an existing room, then a value fine-tuning it; a 2D room refuses one.
+            AutomationResult night = Call("room.setEnvironment", """{ "room": "Assets/Rooms/Walk Room.room.json", "scene": "Night", "values": { "atmosphericHaze": 0.2 } }""");
+            var dark = Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve("Assets/Rooms/Walk Room.room.json")).Environment;
+            HeadlessHarness.Assert(night.Ok && Math.Abs(dark.TimeOfDayHours - 23.5f) < 0.01f && Math.Abs(dark.AtmosphericHaze - 0.2f) < 0.001f,
+                "The Night scene and a value after it were not both set: " + night.Message);
+            Call("room.create", """{ "name": "Flat Room", "folder": "Assets/Rooms" }""");
+            HeadlessHarness.Assert(!Call("room.setEnvironment", """{ "room": "Assets/Rooms/Flat Room.room.json", "scene": "Night" }""").Ok
+                && Call("room.create", """{ "name": "Odd Room", "folder": "Assets/Rooms", "dimension": "3D", "scene": "Teatime" }""").Message.Contains("Presets:", StringComparison.Ordinal),
+                "A scene preset was put on a 2D room, or an unknown one was not explained.");
+
+            // A failing call stops the batch there; what came before it stays done.
+            AutomationResult stopped = Call(AutomationRegistry.BatchCommand, """
+                { "calls": [
+                    { "command": "resource.create", "input": { "kind": "Note", "folder": "Assets", "name": "Batch Note" } },
+                    { "command": "object.addRecipe", "input": { "object": "Assets/Objects/Nothing.object.json", "recipe": "Spin3D" } },
+                    { "command": "resource.create", "input": { "kind": "Note", "folder": "Assets", "name": "Never Made" } }
+                ] }
+                """);
+            HeadlessHarness.Assert(!stopped.Ok && stopped.Message.Contains("1 not run", StringComparison.Ordinal) && stopped.Data!["results"]!.AsArray().Count == 2
+                && Directory.EnumerateFiles(context.Resolve("Assets"), "Batch Note*", SearchOption.AllDirectories).Any() && !Directory.EnumerateFiles(context.Resolve("Assets"), "Never Made*", SearchOption.AllDirectories).Any(),
+                "A batch did not stop at its failing call: " + stopped.ToJson().ToJsonString());
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.CommandLineAndMcpServeTheSameCommands", () =>
         {
             var output = new StringWriter();
@@ -592,8 +652,9 @@ internal static class AutomationSuite
             JsonObject[] replies = [.. mcpOutput.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => (JsonObject)JsonNode.Parse(line)!)];
             HeadlessHarness.Assert(replies.Length == 3, "The MCP server did not answer the three requests (and not the notification): " + mcpOutput);
             HeadlessHarness.Assert(replies[0]["result"]?["serverInfo"]?["name"]?.GetValue<string>() == "genesis-studio", "initialize did not name the server.");
-            HeadlessHarness.Assert(replies[1]["result"]!["tools"]!.AsArray().OfType<JsonObject>().Any(t => t["name"]?.GetValue<string>() == "resource_create"),
-                "tools/list did not offer resource_create.");
+            HeadlessHarness.Assert(replies[1]["result"]!["tools"]!.AsArray().OfType<JsonObject>().Any(t => t["name"]?.GetValue<string>() == "resource_create")
+                && replies[1]["result"]!["tools"]!.AsArray().OfType<JsonObject>().Any(t => t["name"]?.GetValue<string>() == "batch"),
+                "tools/list did not offer resource_create and batch.");
             HeadlessHarness.Assert(replies[2]["result"]?["isError"]?.GetValue<bool>() == false, "tools/call resource_tree failed: " + replies[2].ToJsonString());
         });
     }

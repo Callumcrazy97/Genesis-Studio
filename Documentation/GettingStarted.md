@@ -24,16 +24,19 @@ A recipe adds ordinary code to an Object's events, marked with a comment so you 
 - **Projectile** — fly in a straight line and disappear on leaving the Room.
 - **Collectible** — float, and disappear when the Player touches it.
 - **Spin**, **Float up and down**, **Wrap around the screen**, **Disappear after 3 seconds**.
+- **Walk in first person** — in 3D: look with the mouse, walk with WASD, run with Shift, jump with Space.
+- **Third-person character** — in 3D: walk where the camera looks, with the camera following behind.
 
 Open them any time from an Object's *Options › Behaviour recipes…*.
 
 ## Making a 3D scene
 
 1. Create a **Terrain**. On the *Shape* step choose a landform card such as *Rolling hills*; then *Sculpt* and *Paint* it.
-2. Choose **Use in game** to make a 3D Room that contains the terrain.
+2. Choose **Use in game** to make a 3D Room that contains the terrain. It starts on a sunny day.
 3. In the Room, the *Sky* step has scene presets: *Sunny day*, *Golden hour*, *Night* and more. One click sets the sky, time and weather.
 4. Create a **Model**. In the Model editor, *Start* offers shapes and *Generate › Tree… / Rock…*. Choose **Use in game** to make an Object from it, then place it on the Room's *Place* step.
-5. Press **Run**. In the game, smooth and metal surfaces reflect what is around them and shaded sides are lit by the light around them, with nothing to set up. Change any of it from code (`Engine.Lighting.Bounce.Strength = 0.5;`) or as an Engine setting in the Room's Inspector.
+5. To walk round it, make an Object with no image or model, choose the **Walk in first person** recipe on its *Behaviour* step (the camera is its eyes), and place it on the terrain.
+6. Press **Run**. In the game, smooth and metal surfaces reflect what is around them and shaded sides are lit by the light around them, with nothing to set up. Change any of it from code (`Engine.Lighting.Bounce.Strength = 0.5;`) or as an Engine setting in the Room's Inspector.
 
 ## Where things are
 

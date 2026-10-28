@@ -6,6 +6,8 @@ Genesis Studio makes 2D and 3D games for Windows. These guides are installed wit
 | Guide | What it covers |
 |---|---|
 | [Getting started](GettingStarted.md) | Your first game in four steps, the recipes, a first 3D scene and where things are. Studio shows it from *Help › Getting started* (F1). |
+| [Cookbook](Cookbook.md) | A good-looking game quickly: the make-look-change loop, a 3D place (terrain, trees, grass, water, sky, sound), a player from a recipe, the PGSL wanted most, the look and the pitfalls. |
+| [Automation](Automation.md) | Driving Studio from the command line or an AI (Model Context Protocol): every command, batches of them, playing a game unattended for pictures and checks, and benchmarks. |
 | [Game features](GameFeatures.md) | Weather, a terrain's water, what a script may ask of a model, animation events, controllers, positioned sound, HUD shapes, particle bursts, save slots, and room changes behind a loading screen. |
 | [Large worlds](LargeWorlds.md) | Kilometre-scale terrain, scattered forests, automatic model detail, long views, loading, sharing a world between players, and what is not done yet. |
 | [Terrain creation](TerrainCreation.md) | Making, sculpting and painting a terrain, and its materials. |

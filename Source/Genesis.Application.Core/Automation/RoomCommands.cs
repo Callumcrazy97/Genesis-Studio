@@ -14,7 +14,62 @@ namespace Genesis.Application.Core.Automation;
 public static class RoomCommands
 {
     public static IEnumerable<IAutomationCommand> All() =>
-        [new RoomNodes(), new RoomAddInstance(), new RoomMoveInstance(), new RoomRemoveInstance(), new RoomSetEnvironment(), new RoomAddTerrain(), new RoomMakeStart()];
+        [new RoomCreate(), new RoomNodes(), new RoomAddInstance(), new RoomMoveInstance(), new RoomRemoveInstance(), new RoomSetEnvironment(), new RoomAddTerrain(), new RoomMakeStart()];
+
+    private static string ScenePresetList => string.Join(", ", RoomScenePresets.All.Select(preset => preset.Id));
+
+    private static RoomScenePreset ScenePreset(string id) =>
+        RoomScenePresets.Find(id) ?? throw new AutomationException($"'{id}' is not a scene preset. Presets: {ScenePresetList}.");
+
+    public sealed class CreateRoomInput
+    {
+        [Description("The room's name."), RequiredInput] public string Name { get; set; } = string.Empty;
+        [Description("Folder to make it in, project-relative (default Assets/Rooms).")] public string? Folder { get; set; }
+        [Description("2D (default) or 3D.")] public string? Dimension { get; set; }
+        [Description("A 3D room's mood, as the Room editor's Sky page cards set it: SunnyDay (default for 3D), GoldenHour, Overcast, Stormy, Snowy, Night, Alien or Indoor.")]
+        public string? Scene { get; set; }
+        [Description("Width, metres in 3D or pixels in 2D (default: Studio's).")] public int? Width { get; set; }
+        [Description("Height, metres in 3D or pixels in 2D (default: Studio's).")] public int? Height { get; set; }
+        [Description("Depth of a 3D room, metres (default: Studio's).")] public int? Depth { get; set; }
+        [Description("Make it the room the game starts in (default false).")] public bool? Start { get; set; }
+    }
+
+    public sealed class RoomCreate : AutomationCommand<CreateRoomInput>
+    {
+        public override string Name => "room.create";
+        public override string Description => "Makes a Room, 2D or 3D, as New › Room and the Room editor's 2D/3D switch do; a 3D room gets a scene preset " +
+            "(a sunny day unless another is named) so it opens on a sky, not a dark void. Optionally makes it the start room.";
+
+        protected override AutomationResult Execute(AutomationContext context, CreateRoomInput input)
+        {
+            bool threeD = (input.Dimension ?? "2D").Trim().ToUpperInvariant() switch
+            {
+                "2D" or "TWOD" => false,
+                "3D" or "THREED" => true,
+                _ => throw new AutomationException($"'{input.Dimension}' is not a dimension: 2D or 3D."),
+            };
+            if (!threeD && !string.IsNullOrWhiteSpace(input.Scene)) throw new AutomationException("A scene preset is for a 3D room.");
+            RoomScenePreset? scene = threeD ? ScenePreset(string.IsNullOrWhiteSpace(input.Scene) ? RoomScenePresets.DefaultOutdoor : input.Scene) : null;
+
+            string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Rooms"), Resources.ResourceKind.Room, input.Name);
+            RoomAsset room = RoomAssetLoader.Parse(full);
+            room.Dimension = threeD ? RoomDimension.ThreeD : RoomDimension.TwoD;
+            if (input.Width is int width) room.Settings.Width = width;
+            if (input.Height is int height) room.Settings.Height = height;
+            if (input.Depth is int depth) room.Settings.Depth = depth;
+            scene?.Apply(room.Environment);
+            RoomAssetLoader.Save(room, full);
+            if (input.Start == true)
+            {
+                context.Project.Manifest.StartRoom = context.Relative(full);
+                new ProjectService().Save(context.Project);
+            }
+            string what = threeD ? $"3D room ({scene!.Title.ToLowerInvariant()})" : "2D room";
+            return AutomationResult.Success($"Made the {what} {context.Relative(full)}" + (input.Start == true ? ", the start room." : "."),
+                new JsonObject { ["path"] = context.Relative(full), ["dimension"] = threeD ? "3D" : "2D", ["scene"] = scene?.Id },
+                context.Relative(full));
+        }
+    }
 
     public sealed class AddTerrainInput
     {
@@ -231,8 +286,10 @@ public static class RoomCommands
     public sealed class EnvironmentInput
     {
         [Description("The Room resource, project-relative."), RequiredInput] public string Room { get; set; } = string.Empty;
-        [Description("Environment fields to set, as named in the room file (timeOfDayHours, weather, dynamicSky, fogDensity, atmosphericHaze, visibilityKilometres, shadowDistance, ambientIntensity...)."), RequiredInput]
-        public JsonObject Values { get; set; } = new();
+        [Description("Environment fields to set, as named in the room file (timeOfDayHours, weather, dynamicSky, fogDensity, atmosphericHaze, visibilityKilometres, shadowDistance, ambientIntensity...).")]
+        public JsonObject? Values { get; set; }
+        [Description("A scene preset applied first, as the Sky page's cards do (SunnyDay, GoldenHour, Overcast, Stormy, Snowy, Night, Alien, Indoor); values then fine-tune it.")]
+        public string? Scene { get; set; }
     }
 
     public sealed class RoomSetEnvironment : AutomationCommand<EnvironmentInput>
@@ -243,9 +300,19 @@ public static class RoomCommands
         protected override AutomationResult Execute(AutomationContext context, EnvironmentInput input)
         {
             string full = Room(context, input.Room);
+            if (input.Values is null && string.IsNullOrWhiteSpace(input.Scene)) throw new AutomationException("Give values to set, a scene preset, or both.");
             JObject root = JObject.Parse(File.ReadAllText(full));
+            if (!string.IsNullOrWhiteSpace(input.Scene))
+            {
+                RoomScenePreset scene = ScenePreset(input.Scene);
+                RoomAsset current = RoomAssetLoader.Parse(full);
+                if (current.Dimension != RoomDimension.ThreeD) throw new AutomationException("A scene preset is for a 3D room.");
+                scene.Apply(current.Environment);
+                root["environment"] = JObject.FromObject(current.Environment);
+            }
             JObject environment = root["environment"] as JObject ?? new JObject();
-            environment.Merge(JObject.Parse(input.Values.ToJsonString()), new JsonMergeSettings { MergeArrayHandling = MergeArrayHandling.Replace });
+            if (input.Values is not null)
+                environment.Merge(JObject.Parse(input.Values.ToJsonString()), new JsonMergeSettings { MergeArrayHandling = MergeArrayHandling.Replace });
             root["environment"] = environment;
             // Through the loader, so a value of the wrong kind is refused rather than saved.
             string temporary = Path.Combine(Path.GetDirectoryName(full)!, "." + Guid.NewGuid().ToString("N") + ".room.json");

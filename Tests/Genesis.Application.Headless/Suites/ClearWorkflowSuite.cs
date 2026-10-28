@@ -3,6 +3,7 @@ using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Core.Images;
 using Genesis.Application.Core.UI;
+using Genesis.Application.Core.Objects;
 using Genesis.Application.Editors.Image.Controls;
 using Genesis.Application.Editors.Image.Imaging;
 using Genesis.Application.Editors.Suite;
@@ -178,6 +179,29 @@ internal static class ClearWorkflowSuite
                 "The first game is no longer four numbered steps matching Home.");
             HeadlessHarness.Assert(GuideViewerForm.PlainText("**Run** the *game* with `F5`") == "Run the game with F5",
                 "Inline marks are not removed from displayed text.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Clear.Guide.CookbookPgslCompilesAndNamesRealRecipes", () =>
+        {
+            // The cookbook is what a person or an AI copies from: every PGSL snippet in it must pass the
+            // strict check, and every recipe it names must be one the editor and automation offer.
+            string path = StudioShellForm.FindDocumentation(AppContext.BaseDirectory, "Cookbook.md")
+                ?? throw new InvalidOperationException("Documentation/Cookbook.md was not found from the test host.");
+            string text = File.ReadAllText(path);
+            var snippets = System.Text.RegularExpressions.Regex.Matches(text, "```pgsl\\r?\\n(.*?)```", System.Text.RegularExpressions.RegexOptions.Singleline)
+                .Select(match => match.Groups[1].Value).ToArray();
+            HeadlessHarness.Assert(snippets.Length >= 6, $"The cookbook has {snippets.Length} PGSL snippets; expected at least six.");
+            foreach (string snippet in snippets)
+            {
+                // Strict, as Run checks a game: a misspelt command is an error, not a silent no-op.
+                PgslValidationReport report = PgslScriptValidator.ValidateSource(snippet, "Step", strict: true);
+                HeadlessHarness.Assert(report.Errors.Count == 0, $"A cookbook snippet does not compile: {string.Join("; ", report.Errors)}\n{snippet}");
+            }
+            string[] ids = ObjectBehaviourRecipes.All.Select(recipe => recipe.Id).ToArray();
+            string[] named = System.Text.RegularExpressions.Regex.Matches(text, "^\\| `([A-Za-z0-9]+)`", System.Text.RegularExpressions.RegexOptions.Multiline)
+                .Select(match => match.Groups[1].Value).ToArray();
+            HeadlessHarness.Assert(named.Length >= 2 && named.All(ids.Contains),
+                $"The cookbook's recipe table names recipes there are not: {string.Join(", ", named.Except(ids))}.");
         });
     }
 

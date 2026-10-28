@@ -19,7 +19,7 @@ public static class ObjectCommands
 {
     public static IEnumerable<IAutomationCommand> All() =>
         [new ObjectCreate(), new ObjectInfo(), new ObjectSetComponent(), new ObjectRemoveComponent(),
-         new ObjectSetEvent(), new ObjectRemoveEvent(), new ScriptWrite()];
+         new ObjectSetEvent(), new ObjectAddRecipe(), new ObjectRemoveEvent(), new ScriptWrite()];
 
     private const string Extension = ".object.json";
 
@@ -122,8 +122,33 @@ public static class ObjectCommands
         [Description("Solid: other instances collide with it (default false).")] public bool? Solid { get; set; }
         [Description("Visible (default true).")] public bool? Visible { get; set; }
         [Description("Kept when the room changes (default false).")] public bool? Persistent { get; set; }
-        [Description("Event scripts to start with: event id (Create, Step, Draw, DrawGui, KeyPressed, Collision, Alarm0...) to PGSL code.")]
+        [Description("Event scripts to start with: event id (Create, Step, Draw, DrawGui, KeyPressed, Collision, Alarm0...) to PGSL code. With recipes, this code comes after theirs, so it can change their numbers.")]
         public Dictionary<string, string>? Events { get; set; }
+        [Description("Behaviour recipes to add, as the Object editor's Behaviour cards do (ordinary PGSL appended to the events): " +
+            "FirstPerson, ThirdPerson, Spin3D, Float3D for 3D; MoveArrows, Platformer, Patrol, Chase, Projectile, Wrap, Collectible, Spin, Float for 2D; Timed for both. " +
+            "object.info lists the ones that suit an Object.")]
+        public List<string>? Recipes { get; set; }
+        [Description("A 3D Object even without a model (a first-person player, a camera rig, a trigger). A model or a 3D-only recipe makes it 3D anyway.")]
+        public bool? ThreeD { get; set; }
+    }
+
+    /// <summary>The recipe with this id, or a mistake that lists the ids there are.</summary>
+    private static ObjectBehaviourRecipe Recipe(string id) =>
+        ObjectBehaviourRecipes.All.FirstOrDefault(recipe => recipe.Id.Equals(id?.Trim(), StringComparison.OrdinalIgnoreCase))
+        ?? throw new AutomationException($"'{id}' is not a behaviour recipe. Recipes: {string.Join(", ", ObjectBehaviourRecipes.All.Select(r => r.Id))}.");
+
+    /// <summary>Appends a recipe to events as the Object editor's card does; false when it is already there.</summary>
+    private static bool AddRecipe(Dictionary<string, string> events, ObjectBehaviourRecipe recipe)
+    {
+        bool added = false;
+        foreach ((string eventId, string block) in recipe.Events)
+        {
+            string existing = events.GetValueOrDefault(eventId) ?? string.Empty;
+            if (existing.Contains(recipe.Marker, StringComparison.Ordinal)) continue;
+            events[eventId] = ObjectBehaviourRecipes.Append(existing, block);
+            added = true;
+        }
+        return added;
     }
 
     public sealed class ObjectCreate : AutomationCommand<CreateInput>
@@ -135,19 +160,33 @@ public static class ObjectCommands
         {
             if (!string.IsNullOrWhiteSpace(input.Sprite) && !string.IsNullOrWhiteSpace(input.Model))
                 throw new AutomationException("An Object shows an image or a model, not both.");
-            var events = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach ((string id, string code) in input.Events ?? []) events[EventId(id)] = code;
             string sprite = string.IsNullOrWhiteSpace(input.Sprite) ? string.Empty : AssetName(context, input.Sprite, ResourceKind.Image);
             string model = string.IsNullOrWhiteSpace(input.Model) ? string.Empty : AssetName(context, input.Model, ResourceKind.Model);
+            ObjectBehaviourRecipe[] recipes = [.. (input.Recipes ?? []).Select(Recipe)];
+            bool threeD = model.Length > 0 || input.ThreeD == true || recipes.Any(recipe => recipe.ThreeD && !recipe.TwoD);
+            if (threeD && sprite.Length > 0) throw new AutomationException("A 3D Object shows a model, not an image.");
+            // Recipes first, then the caller's own code after them, so that code can change a recipe's numbers.
+            var events = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ObjectBehaviourRecipe recipe in recipes)
+            {
+                if (threeD ? !recipe.ThreeD : !recipe.TwoD)
+                    throw new AutomationException($"The recipe {recipe.Id} is for {(recipe.ThreeD ? "3D" : "2D")} Objects.");
+                AddRecipe(events, recipe);
+            }
+            foreach ((string given, string code) in input.Events ?? [])
+            {
+                string id = EventId(given);
+                events[id] = events.TryGetValue(id, out string? recipeCode) ? ObjectBehaviourRecipes.Append(recipeCode, code) : code;
+            }
 
             string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Objects"), ResourceKind.GameObject, input.Name);
             JObject document = JObject.Parse(File.ReadAllText(full));
             var composition = new ObjectCompositionModel(document);
-            if (model.Length > 0)
+            if (threeD)
             {
                 document["dimension"] = "ThreeD";
                 composition.Remove("SpriteComponent");
-                composition.SetAsset("ModelRendererComponent", model);
+                if (model.Length > 0) composition.SetAsset("ModelRendererComponent", model);
             }
             else if (sprite.Length > 0)
             {
@@ -178,6 +217,13 @@ public static class ObjectCommands
             string full = ObjectFile(context, input.Object);
             JsonObject data = Describe(context, full);
             data["components"]!.AsArray().Add(new JsonObject { ["available"] = new JsonArray([.. ObjectCompositionModel.Definitions.Where(d => d.Removable).Select(d => (JsonNode?)d.Type)]) });
+            bool threeD = string.Equals((string?)data["dimension"], "ThreeD", StringComparison.OrdinalIgnoreCase);
+            data["recipes"] = new JsonArray([.. ObjectBehaviourRecipes.For(threeD).Select(recipe => (JsonNode?)new JsonObject
+            {
+                ["id"] = recipe.Id,
+                ["title"] = recipe.Title,
+                ["description"] = recipe.Description,
+            })]);
             return AutomationResult.Success($"{data["name"]}: {data["components"]!.AsArray().Count - 1} components, {data["events"]!.AsArray().Count} events.", data);
         }
     }
@@ -275,6 +321,42 @@ public static class ObjectCommands
             events[id] = input.Code;
             Save(context, full, JObject.Parse(File.ReadAllText(full)), events);
             return AutomationResult.Success($"Wrote the {id} event.", new JsonObject { ["script"] = context.Relative(file) }, context.Relative(full), context.Relative(file));
+        }
+    }
+
+    public sealed class AddRecipeInput
+    {
+        [Description("The Object resource, project-relative."), RequiredInput] public string Object { get; set; } = string.Empty;
+        [Description("The recipe's id (object.info lists those that suit the Object: FirstPerson, ThirdPerson, Platformer...)."), RequiredInput]
+        public string Recipe { get; set; } = string.Empty;
+    }
+
+    public sealed class ObjectAddRecipe : AutomationCommand<AddRecipeInput>
+    {
+        public override string Name => "object.addRecipe";
+        public override string Description => "Adds a behaviour recipe to an Object, as the Object editor's Behaviour cards do: ordinary PGSL appended to its events " +
+            "(walking in first person, a third-person character, a platformer, a patrol...), never replacing code that is there, and not added twice.";
+
+        protected override AutomationResult Execute(AutomationContext context, AddRecipeInput input)
+        {
+            string full = ObjectFile(context, input.Object);
+            ObjectBehaviourRecipe recipe = Recipe(input.Recipe);
+            JObject document = JObject.Parse(File.ReadAllText(full));
+            bool threeD = string.Equals((string?)document["dimension"], "ThreeD", StringComparison.OrdinalIgnoreCase);
+            if (threeD ? !recipe.ThreeD : !recipe.TwoD)
+                throw new AutomationException($"The recipe {recipe.Id} is for {(recipe.ThreeD ? "3D" : "2D")} Objects, and this one is {(threeD ? "3D" : "2D")}.");
+            Dictionary<string, string> events = ObjectEventStore.Load(full);
+            if (!AddRecipe(events, recipe))
+                return AutomationResult.Success($"{recipe.Title} is already part of the Object.", new JsonObject { ["recipe"] = recipe.Id });
+            foreach (string id in recipe.Events.Keys)
+            {
+                string file = ObjectEventStore.PathFor(full, id);
+                if (File.Exists(file)) ResourceBackupService.BackupBeforeOverwrite(file);
+            }
+            Save(context, full, document, events);
+            return AutomationResult.Success($"Added {recipe.Title} to {string.Join(" and ", recipe.Events.Keys)}. It is ordinary code: change its numbers to tune it.",
+                new JsonObject { ["recipe"] = recipe.Id, ["events"] = new JsonArray([.. recipe.Events.Keys.Select(id => (JsonNode?)id)]) },
+                [context.Relative(full), .. recipe.Events.Keys.Select(id => context.Relative(ObjectEventStore.PathFor(full, id)))]);
         }
     }
 

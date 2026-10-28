@@ -50,6 +50,7 @@ A result is `{ "ok", "message", "data", "changed", "issues" }`.
 | Command | Does |
 |---|---|
 | `commands.list` | Every command, what it does and its input schema. |
+| `batch` | Several commands in order, in one go: `{ "calls": [{ "command": "...", "input": { ... } }, ...] }`. The project is checked once at the end instead of after each, and Studio starts once: the Nature Walk benchmark's 33 commands run in under a second, where 33 separate calls took minutes. Stops at the first failure (what came before stays done) unless `keepGoing`; gives each call's result. |
 | `project.info` | The project's name, folder and resource counts by kind. |
 | `project.check` | The project check and strict script check; lists errors and warnings. |
 | `resource.tree` | The resources and folders under a folder, with their kinds. |
@@ -78,13 +79,15 @@ A result is `{ "ok", "message", "data", "changed", "issues" }`.
 | `terrain.setGrass` | The grass grown around the camera (the Terrain editor's grass): on or off, radius, spacing, species, slope, scale. Only the fields given change. |
 | `terrain.addScatterLayer` / `terrain.updateScatterLayer` / `terrain.removeScatterLayer` | Many copies of a Model over a terrain by rules: density, spacing, slope, height, painted layer, clumps, scale, draw distance, shadows, collision. Removing needs confirm. |
 | `terrain.addWater` / `terrain.updateWater` / `terrain.removeWater` | A terrain's water, as the Terrain editor's Add water makes it: `Water` (a lake or pond, an ellipse `sizeX` by `sizeZ` at `surfaceHeight`), `River` (along `riverPoints` [x, y, z, width, depth], y its surface there, so it can fall), or `Ocean` (the sea to the horizon). Also its waves, flow, colours, wading (`physicsMode` Shallow) or swimming, and a mesh Shader to draw it with (kept in the terrain's `componentShaders`). `terrain.nature` lists them. Removing needs confirm. |
+| `room.create` | Makes a Room, `"dimension"` 2D (default) or 3D. A 3D room opens on a scene preset, a sunny day unless `"scene"` names another of the Room editor's Sky cards (`SunnyDay`, `GoldenHour`, `Overcast`, `Stormy`, `Snowy`, `Night`, `Alien`, `Indoor`), so it has a sky rather than a dark void. Optional size and `"start": true` to make it the room the game starts in. |
 | `room.nodes` | A room's instances with their objects, positions, rotations and scales. |
 | `room.addInstance` / `room.moveInstance` / `room.removeInstance` | Places, moves or removes instances of Objects, as the Room editor does. Removing needs confirm. |
 | `room.addTerrain` | Puts a Terrain in a 3D room, as dragging it in from the palette does; its grass and scatter layers come with it. |
 | `room.makeStart` | Makes a room the one the game starts in. |
-| `room.setEnvironment` | Sets environment fields as named in the room file (time of day, weather, sky, fog, shadow distance...); the room must still load, so a value of the wrong kind is refused. |
-| `object.create` | Makes an Object as the Object editor does: an Image (2D) or a Model (3D), solid, visible, persistent, and its first PGSL events. |
-| `object.info` | What an Object shows, its components with their settings, its events, and the components it could have. |
+| `room.setEnvironment` | Sets environment fields as named in the room file (time of day, weather, sky, fog, shadow distance...); the room must still load, so a value of the wrong kind is refused. `"scene"` applies a Sky card first; the values then fine-tune it. |
+| `object.create` | Makes an Object as the Object editor does: an Image (2D) or a Model (3D), solid, visible, persistent, its first PGSL events, and `"recipes"`: the Object editor's Behaviour cards (`FirstPerson`, `ThirdPerson`, `Spin3D`, `Float3D`, `Platformer`, `MoveArrows`...) as ordinary PGSL, with the caller's own event code after theirs so it can change their numbers. A 3D-only recipe or `"threeD": true` makes a 3D Object without a model. |
+| `object.addRecipe` | Adds one Behaviour recipe to an Object's events, never replacing its code and not twice. |
+| `object.info` | What an Object shows, its components with their settings, its events, the components it could have, and the recipes that suit it. |
 | `object.setComponent` / `object.removeComponent` | Adds or changes a component (physics, light, audio, particles, material, shader, animation, camera, navigation...); only the settings given change, and asset paths become resource names. Removing needs confirm. |
 | `object.setEvent` / `object.removeEvent` | Writes or removes one of an Object's PGSL events (Create, Step, Draw, DrawGui, KeyPressed, Collision, Alarm0...), kept where the runtime finds them; the script check's findings come back with their lines. Removing needs confirm. |
 | `game.benchmark` | Measures the game running for a set time after a warm-up (optionally with scripted input, as game.run takes it): median, 95th and 99th percentile and worst frame times, allocation a frame, collector pauses, peak memory, draw calls, triangles and the costliest scripts. Budgets given (95th, 99th percentile, KB a frame) fail the run when exceeded. Uncapped by default (GENESIS_UNCAPPED: vsync and frame caps off) so the times show real headroom; `uncapped: false` keeps the game's pacing. Uses the Player's own --benchmark-output. 19 Oct, uncapped, DX11: Golden Stag's village 1.91 ms median (p99 2.47), its apothecary 2.06 ms, Cathedral Test 2.36 ms. |
@@ -113,6 +116,16 @@ with `-Track` after promotion, so each engine change has its number; `--no-track
 `GENESIS_SKIP_BENCH_TRACK=1` skips it. `game.benchmark` results also carry `frameParts`: each part of
 the frame (subsystem updates and draws, physics, scripts' events) on average and at its longest.
 First run, 23 Oct (DX11): median 1.08 ms, p95 1.2 ms, 73 KB a frame.
+## The Nature Walk benchmark
+
+`powershell -ExecutionPolicy Bypass -File BuildTools\Benchmarks\NatureWalk\NatureWalk.ps1 [-Fresh] [-Play] [-Benchmark]`
+builds a whole small game with these commands in one `batch` (a walk round a lake: sculpted and
+painted terrain, scattered trees, rocks and flowers, grass, water, a sky, synthesised wind, birds and
+footsteps, dust motes and a first-person walker), then plays it for pictures and measures it. It is the
+Genesis half of a comparison with a quick three.js game (`reference-threejs.html` beside it); what
+it measured is in `Design/FinishedProduct.md`. The game checks itself with `TestCheck` a second in.
+The [Cookbook](Cookbook.md) explains each step.
+
 ## What comes next
 
 These are the first stage and the second (terrain shape, sculpting and nature, room instances and

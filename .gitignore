@@ -41,6 +41,8 @@ Workspace/
 **/LuigisMansion/
 **/TwoDShowcase/
 **/NatureWalk/
+# ...but the Nature Walk benchmark (its scripts and reference) is source.
+!BuildTools/Benchmarks/NatureWalk/
 
 # Specific template media (sprites and audio/music)
 *spr_Luigi*
