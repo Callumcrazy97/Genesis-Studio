@@ -640,6 +640,39 @@ internal static class AutomationSuite
                 "A batch did not stop at its failing call: " + stopped.ToJson().ToJsonString());
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.A2DLevelsTilesArePaintedFromATileSet", () =>
+        {
+            // A 64 by 32 tile set of 16-pixel tiles is 4 columns by 2 rows; tiles 0 and 5 are solid.
+            AutomationResult set = Call("image.create", """{ "name": "Level Tiles", "folder": "Assets/Sprites", "width": 64, "height": 32, "usage": "Tileset", "tileWidth": 16, "tileHeight": 16, "solidTiles": [5, 0] }""");
+            HeadlessHarness.Assert(set.Ok, "image.create did not make a tile set: " + set.Message);
+            HeadlessHarness.Assert(!Call("image.create", """{ "name": "Not Tiles", "folder": "Assets/Sprites", "tileWidth": 8 }""").Ok, "A tile size was accepted for a sprite.");
+            string room = PathOf(Call("room.create", """{ "name": "Tile Level", "folder": "Assets/Rooms" }"""));
+            AutomationResult floor = Call("room.paintTiles", $$"""
+                { "room": "{{room}}", "tileset": "Assets/Sprites/Level Tiles.image.json", "solid": true, "tile": 5,
+                  "rects": [ { "x": 0, "y": 10, "width": 20, "height": 2 } ], "cells": [ [3, 7], [4, 7, 1] ] }
+                """);
+            var asset = Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve(room));
+            var layer = asset.Nodes.Single(n => n.Kind == Genesis.Runtime.Scene.RoomNodeKind.TileLayer).TileLayer!;
+            HeadlessHarness.Assert(floor.Ok && layer.Cells.Count == 42 && layer.CollisionEnabled && layer.CellWidth == 16
+                && layer.Cells.Single(c => c.X == 3 && c.Y == 7) is { TileX: 1, TileY: 1 }
+                && layer.Cells.Single(c => c.X == 4 && c.Y == 7) is { TileX: 1, TileY: 0 },
+                "The floor and cells were not painted with the right tiles: " + floor.ToJson().ToJsonString());
+            AutomationResult erased = Call("room.paintTiles", $$"""{ "room": "{{room}}", "tileset": "Assets/Sprites/Level Tiles.image.json", "erase": true, "rects": [ { "x": 0, "y": 10, "width": 5 } ] }""");
+            HeadlessHarness.Assert(erased.Ok && Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve(room)).Nodes.Single(n => n.Kind == Genesis.Runtime.Scene.RoomNodeKind.TileLayer).TileLayer!.Cells.Count == 37,
+                "Erasing five cells did not leave 37: " + erased.Message);
+            string threeD = PathOf(Call("room.create", """{ "name": "Not Flat", "folder": "Assets/Rooms", "dimension": "3D" }"""));
+            HeadlessHarness.Assert(Call("room.paintTiles", $$"""{ "room": "{{threeD}}", "tileset": "Assets/Sprites/Level Tiles.image.json", "cells": [[0, 0]] }""").Message.Contains("2D room", StringComparison.Ordinal),
+                "Tiles were painted in a 3D room.");
+
+            // An autotiled set picks each tile from its neighbours: a row of three gets its two ends and a middle.
+            Call("image.create", """{ "name": "Path Tiles", "folder": "Assets/Sprites", "width": 64, "height": 64, "usage": "Tileset", "tileWidth": 16, "tileHeight": 16, "autotile": true }""");
+            Call("room.paintTiles", $$"""{ "room": "{{room}}", "tileset": "Assets/Sprites/Path Tiles.image.json", "rects": [ { "x": 0, "y": 0, "width": 3 } ] }""");
+            var path = Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve(room)).Nodes.Single(n => n.Name == "Path Tiles Tiles").TileLayer!;
+            (int, int) Tile(int x) => (path.Cells.Single(c => c.X == x && c.Y == 0).TileX, path.Cells.Single(c => c.X == x && c.Y == 0).TileY);
+            HeadlessHarness.Assert(Tile(0) == Genesis.Runtime.Scene.TileAutotile.TileFor(2, 0, 0) && Tile(1) == Genesis.Runtime.Scene.TileAutotile.TileFor(10, 0, 0)
+                && Tile(2) == Genesis.Runtime.Scene.TileAutotile.TileFor(8, 0, 0), $"The autotiled row did not pick its ends and middle: {Tile(0)} {Tile(1)} {Tile(2)}.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.CommandLineAndMcpServeTheSameCommands", () =>
         {
             var output = new StringWriter();

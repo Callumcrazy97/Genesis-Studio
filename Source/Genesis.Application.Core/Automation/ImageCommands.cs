@@ -90,6 +90,14 @@ public static class ImageCommands
         [Description("Milliseconds each frame shows (default 100).")] public int? FrameMilliseconds { get; set; }
         [Description("The colour every frame starts as (#RRGGBBAA or a name; default Transparent).")] public string? Background { get; set; }
         [Description("What it is for: Sprite (default), Background, Tileset, Texture.")] public ImageUsage? Usage { get; set; }
+        [Description("A tile set's tile width, pixels (default 16).")] public int? TileWidth { get; set; }
+        [Description("A tile set's tile height, pixels (default 16).")] public int? TileHeight { get; set; }
+        [Description("A tile set's solid tiles, by number: left to right, top to bottom from 0. room.paintTiles with \"solid\": true makes them walls and floors for TileMoveX/TileMoveY.")]
+        public List<int>? SolidTiles { get; set; }
+        [Description("A tile set that picks each painted tile from its neighbours: the 16 tiles for every mix of neighbours (above 1, right 2, below 4, left 8) in a 4 by 4 block from autotileColumn, autotileRow.")]
+        public bool? Autotile { get; set; }
+        [Description("The autotile block's first column (default 0).")] public int? AutotileColumn { get; set; }
+        [Description("The autotile block's first row (default 0).")] public int? AutotileRow { get; set; }
     }
 
     public sealed class ImageCreate : AutomationCommand<CreateInput>
@@ -107,6 +115,19 @@ public static class ImageCommands
             string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Sprites"), ResourceKind.Image, input.Name);
             ImageDocument document = ImageDocument.CreateDefault(width, height);
             document.Usage.Allowed = input.Usage ?? ImageUsage.Sprite;
+            bool tileSettings = input.TileWidth is not null || input.TileHeight is not null || input.SolidTiles is not null || input.Autotile is not null;
+            if (tileSettings && !document.Usage.Supports(ImageUsage.Tileset)) throw new AutomationException("Tile sizes, solid tiles and autotiling are for a Tileset image (\"usage\": \"Tileset\").");
+            if (tileSettings)
+            {
+                ImageTilesetSettings tiles = document.Usage.Tileset;
+                tiles.TileWidth = input.TileWidth ?? tiles.TileWidth;
+                tiles.TileHeight = input.TileHeight ?? tiles.TileHeight;
+                if (tiles.TileWidth is < 1 or > MaximumSize || tiles.TileHeight is < 1 or > MaximumSize) throw new AutomationException("A tile is at least a pixel each way.");
+                tiles.Collision = [.. (input.SolidTiles ?? []).Where(index => index >= 0).Distinct().Order()];
+                tiles.Autotile = input.Autotile ?? false;
+                tiles.AutotileColumn = Math.Max(0, input.AutotileColumn ?? 0);
+                tiles.AutotileRow = Math.Max(0, input.AutotileRow ?? 0);
+            }
             string data = DataFolder(full);
             Directory.CreateDirectory(Path.Combine(data, "frames"));
             var layer = new ImageLayer { Name = "Layer 1" };

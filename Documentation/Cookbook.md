@@ -42,6 +42,15 @@ second or more. A new project already has a room called Start, so give yours ano
 | Dust in the light, fire, rain | `particle.create` from a preset (`DustMotes`, `Fire`, `Smoke`, `Snow`, `Rain`, `Magic`...), on an Object with `object.setComponent` `ParticleComponent`. |
 | Wind and birdsong | `audio.synth` (`Wind` preset; bird chirps as sine layers gliding up), then the room's `windAudio` and `wildlifeAudio`: the engine plays them. |
 
+## A 2D level
+
+| Want | Do |
+|---|---|
+| A 2D room | `room.create` (2D is the default); its width and height are in pixels and are the window. |
+| Tiles to build with | `image.create` with `"usage": "Tileset"`, `tileWidth`/`tileHeight`, and `solidTiles` (tile numbers, left to right and top to bottom from 0) for the ones that are floor and wall; draw them with `image.draw`. `"autotile": true` with the 16 tiles for each mix of neighbours in a 4 by 4 block lets a path or a wall pick its own ends and corners. |
+| Floors, walls, platforms | `room.paintTiles` with `"solid": true` and `rects` (`{ "x", "y", "width", "height", "tile" }` in cells) or `cells`. The Platformer and Move with arrow keys recipes stop at solid tiles. |
+| A player | `object.create` with a `sprite` and `"recipes": ["Platformer"]`, placed above the floor. |
+
 ## A player
 
 `object.create` with `recipes` gives an Object the Object editor's Behaviour cards, as ordinary
