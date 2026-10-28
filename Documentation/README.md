@@ -16,7 +16,9 @@ measurements and the changes are in [Design/FinishedProduct.md](Design/FinishedP
 - **[Cookbook.md](Cookbook.md):** the loop (make, look, change), a 3D place, a player, the PGSL
   wanted most, the look and the pitfalls; its snippets are compiled by the tests. It and
   Automation.md now ship with Studio.
-- **Benchmark:** `BuildTools\Benchmarks\NatureWalk\NatureWalk.ps1` builds, plays and measures it.
+- **Also:** `room.paintTiles` and tile sets from `image.create` (a 2D level's floors and walls through automation); `room.create` gives a 3D room a real window size, not its size in metres; `game.run` reports how long the game took to start; a benchmark with scripted input no longer hangs.
+- **Benchmark:** `BuildTools\Benchmarks\NatureWalk\NatureWalk.ps1` builds, plays and measures it. On the published build: built in 1.4 s, the game starts in 1.7 s, its checks pass, median frame 1.12 ms (890 fps, Direct3D 11, 1600 by 900).
+- **Verified:** `Build.bat --tiers` passed (editor 297, engine 330, PGSL 159, DX11 smoke) and was published at 04:50, and again at 06:58 with the benchmark fix.
 
 ## Release readiness, 25 October 2026
 
