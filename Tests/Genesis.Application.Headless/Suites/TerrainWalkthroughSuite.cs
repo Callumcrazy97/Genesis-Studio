@@ -428,6 +428,14 @@ internal static class TerrainWalkthroughSuite
             boulderPath = dialog.AddStarterLayer(TerrainScatterDialog.Starter.Boulder);
             made = dialog.Layers.ToList();
 
+            // Cancel takes back what New model made: the Terrain editor discards a cancelled dialog's Models.
+            using TerrainScatterDialog cancelled = editor.CreateScatterDialog();
+            string discarded = cancelled.AddStarterLayer(TerrainScatterDialog.Starter.Pine);
+            HeadlessHarness.Assert(File.Exists(discarded) && cancelled.MadeModels.Count == 1, "New model did not record the Model it made.");
+            cancelled.DiscardMadeModels();
+            HeadlessHarness.Assert(!File.Exists(discarded) && cancelled.MadeModels.Count == 0 && File.Exists(pinePath),
+                "A cancelled Forests and scatter left its new Model behind, or took one it did not make.");
+
             foreach (string path in new[] { pinePath, oakPath, boulderPath })
             {
                 GModelAsset model = StudioModelResourceLoader.LoadReadOnly(path);

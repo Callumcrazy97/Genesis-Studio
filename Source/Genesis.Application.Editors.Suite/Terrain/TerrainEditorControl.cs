@@ -1092,6 +1092,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
     {
         using TerrainScatterDialog dialog = CreateScatterDialog();
         if (dialog.ShowDialog(this) == DialogResult.OK) SetScatterLayers(dialog.Layers);
+        else dialog.DiscardMadeModels();
     }
 
     /// <summary>The terrain's scatter layers: rules that cover ground with copies of a Model.</summary>

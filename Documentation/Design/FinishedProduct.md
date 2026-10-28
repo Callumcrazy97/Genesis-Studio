@@ -65,13 +65,19 @@ The Genesis version was first built call by call, as an AI session would, with n
 
 ## Scorecard
 
-| Measure | three.js | Genesis before | Genesis now |
-|---|---|---|---|
-| Building the walk | ~15 min of writing | ~30 separate calls, minutes, several traps | one batch, 1.6 s |
-| Player | ~25 lines | 45 lines by hand | one recipe |
-| Looks | the yardstick | as good (grass, trees, haze, shadows) | as good, with flowers, a clear path and lighter shade ([side-by-side-after.jpg](../../BuildTools/Benchmarks/NatureWalk/side-by-side-after.jpg)) |
-| Change and look again | ~2 s | 66 s (cold, after another build replaced the files) | 1.4 s to rebuild the whole scene; the game then starts in 1.7 s (`startSeconds`), so a 12.5 s walk with three pictures took 17 s in all |
-| Frame time | 60 fps (vsync) | not measured | uncapped, Direct3D 11, 1600 by 900: median 1.12 ms (890 fps), 99th percentile 1.61 ms, worst 3.86 ms, 3.3 KB allocated a frame, 28 draw calls, 602,000 triangles, 572 MB peak |
+The first two rows below, as written overnight, compared unlike things (three.js *writing* time
+against a Genesis script already tuned, and the session's own judgement of the look); the blind
+trial in "Measured again, honestly" replaces them. The three.js figures are estimates of the time
+a quick three.js game takes to write (Cal's "30 minutes"; about 15 for this one), not timed.
+
+| Measure | three.js | Genesis before | Genesis now | Met? |
+|---|---|---|---|---|
+| Building the walk | ~15 min of writing (estimate) | ~30 separate calls, minutes, several traps | *superseded:* one batch, 1.6 s, for a script already written; an AI from the guides took ~29 working minutes | **No** (29 against ~15) |
+| Player | ~25 lines | 45 lines by hand | one recipe | Yes |
+| Looks | the yardstick | as judged overnight, as good | *superseded:* close but not as good, side by side ([side-by-side-after.jpg](../../BuildTools/Benchmarks/NatureWalk/side-by-side-after.jpg)): grass one bright green, pale water, a flat sky, no sun glow | **No** |
+| Change and look again | ~2 s | 66 s (cold, after another build replaced the files) | 1.4 s to rebuild the whole scene; the game then starts in 1.7 s (`startSeconds`), so a 12.5 s walk with three pictures took 17 s in all | Yes for automation; a game window takes seconds, a refresh 2 |
+| Frame time | 60 fps (vsync) | not measured | uncapped, Direct3D 11, 1600 by 900. Standing: median 1.12 ms (890 fps), 99th percentile 1.61 ms, worst 3.86 ms, 3.3 KB allocated a frame, 28 draw calls, 602,000 triangles, 572 MB peak. Walking (W held, clock-time replay, 14:48 build; the camera went 35 m in the 10 s measured): median 1.18 ms (847 fps), 99th percentile 2.12 ms, worst 5.55 ms, 3.8 KB a frame, 76 draw calls, 1.2 million triangles, 646 MB peak | Yes |
+| A person in Studio | (needs code) | about 115 clicks, 60 to 75 minutes estimated | the day's fixes; estimated 35 to 45 minutes, not timed | Unmeasured |
 
 ## Checked on the published build (28 October, 05:24)
 
@@ -117,8 +123,12 @@ a script tuned all night. Two measurements replace that row:
 
 | Measure | three.js | Genesis now |
 |---|---|---|
-| An AI, from the guides, to a good picture | about 15 minutes (writing) | about 29 minutes of working time, before the guide fixes above |
-| A person in Studio | (needs code) | estimated 35 to 45 minutes the first time after the fixes; not yet timed |
+| An AI, from the guides, to a good picture | about 15 minutes (writing; an estimate, not timed) | about 29 minutes of working time, before the guide fixes above (timed from the trial's log) |
+| A person in Studio | (needs code) | estimated 35 to 45 minutes the first time after the fixes, by the reviewer who traced the UI in the code; not yet timed with a person |
+
+Next to measure (a later day): a person timing the walk in Studio; a blind trial on a *different* small scene (the Nature
+Walk batch now ships, so repeating that trial would measure copying), with the three.js version
+written on the same clock so the yardstick is measured too.
 
 ## Why a game used to take days
 

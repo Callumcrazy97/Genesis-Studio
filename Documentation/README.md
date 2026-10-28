@@ -6,9 +6,20 @@ The owner asked why a quick three.js game looks better than a game that takes da
 The same small game (a walk round a lake) was built both ways and compared; the bar, the
 measurements and the changes are in [Design/FinishedProduct.md](Design/FinishedProduct.md).
 
-- **The look was never the limit:** built with Genesis's own terrain, scatter, grass, water and
-  sky, the walk looked as good as the three.js one on the first run.
-- **What made games slow is fixed:** `batch` runs a scene's commands in one go (the whole walk in
+- **Where it stands (afternoon):** the bar is **not met yet**. An AI given only the shipped guides
+  (a blind trial) took about 29 minutes of working time to a good picture, against about 15 for
+  the three.js version, and its picture was close but not as good (one bright green grass, pale
+  water, a flat sky). A person in Studio is estimated at 60 to 75 minutes the first time before
+  the day's fixes; nobody has timed one yet. Walking, the walk runs at a median 1.18 ms a frame
+  (847 fps; Direct3D 11, 1600 by 900), measured on the clock-time replay.
+- **Fixed during the day:** the guide traps the blind trial hit (the Cookbook's worked example
+  [NatureWalk.batch.json](NatureWalk.batch.json) now ships and is test-built; key names; Studio
+  from PowerShell); in Studio, a terrain's 3D room starts the game when the first room is empty,
+  Terrain › Decorate makes pine, oak and boulder models and their layers, meadow flowers and grass,
+  water and paths, and the Audio editor makes sounds (Wind, Birdsong, footsteps); scripted input
+  plays by the clock, so a benchmark walks while it measures; Sky cards no longer turn shadows and
+  tone mapping back on; the first-person stick looks the right way.
+- **Overnight:** `batch` runs a scene's commands in one go (the whole walk in
   1.6 s, 33 commands); `room.create` makes 3D rooms that open on a sky (the Room editor's Sky cards
   are one shared list); Object recipes **Walk in first person**, **Third-person character** and a
   3D **Spin**, in the Object editor and through automation; the Room editor's 3D switch and the Terrain editor's Use in game room
@@ -18,7 +29,7 @@ measurements and the changes are in [Design/FinishedProduct.md](Design/FinishedP
   Automation.md now ship with Studio.
 - **Also:** `room.paintTiles` and tile sets from `image.create` (a 2D level's floors and walls through automation); `room.create` gives a 3D room a real window size, not its size in metres; `game.run` reports how long the game took to start; a benchmark with scripted input no longer hangs.
 - **Benchmark:** `BuildTools\Benchmarks\NatureWalk\NatureWalk.ps1` builds, plays and measures it. On the published build: built in 1.4 s, the game starts in 1.7 s, its checks pass, median frame 1.12 ms (890 fps, Direct3D 11, 1600 by 900).
-- **Verified:** `Build.bat --tiers` passed (editor 297, engine 330, PGSL 159, DX11 smoke) and was published at 04:50, and again at 06:58 with the benchmark fix.
+- **Verified:** `Build.bat --tiers` passed (editor 297, engine 330, PGSL 159, DX11 smoke) and was published at 04:50, and again at 06:58 with the benchmark fix. The afternoon's changes passed their focused tests and `Build.bat --tiers` (editor, engine, PGSL 161, DX11 smoke; published 14:45).
 
 ## Release readiness, 25 October 2026
 

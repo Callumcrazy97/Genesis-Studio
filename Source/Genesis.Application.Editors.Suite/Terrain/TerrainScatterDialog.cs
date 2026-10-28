@@ -43,6 +43,26 @@ public sealed class TerrainScatterDialog : DpiAwareForm
     // and a narrower field would change such a layer's pattern the first time anything was edited.
     private readonly NumericUpDown _seed = TerrainPathDialog.Number(int.MinValue, int.MaxValue, 1);
     private bool _syncing;
+    private readonly List<string> _madeModels = [];
+
+    /// <summary>The Model resources New model made while the dialog was open.</summary>
+    public IReadOnlyList<string> MadeModels => _madeModels;
+
+    /// <summary>
+    /// After Cancel: moves the Models New model made to the project's trash, so a dialog that
+    /// changed nothing leaves nothing behind. A Model that cannot be moved is left in place.
+    /// </summary>
+    public void DiscardMadeModels()
+    {
+        if (_projectRoot is null || _madeModels.Count == 0) return;
+        ResourceService resources = ProjectAssetIndex.OpenResourceService(_projectRoot);
+        foreach (string path in _madeModels)
+        {
+            try { if (File.Exists(path)) resources.MoveToTrash(path); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException) { }
+        }
+        _madeModels.Clear();
+    }
 
     /// <param name="layers">The terrain's current layers; they are copied, so Cancel changes nothing.</param>
     /// <param name="models">Names of the project's Model resources, offered in the model list.</param>
@@ -173,6 +193,7 @@ public sealed class TerrainScatterDialog : DpiAwareForm
         if (_projectRoot is null) throw new InvalidOperationException("Open the terrain in a project to make a Model for it.");
         (string name, GModelAsset geometry, TerrainScatterLayer layer) = StarterDefaults(starter, _grassMask);
         string path = GeneratedModels.CreateResource(ProjectAssetIndex.OpenResourceService(_projectRoot), name, geometry);
+        _madeModels.Add(path);
         string model = ResourceNames.Name(_projectRoot, path, Genesis.Shared.Assets.ResourceType.Model);
         if (!_model.Items.Contains(model)) _model.Items.Add(model);
         layer.Model = model;
