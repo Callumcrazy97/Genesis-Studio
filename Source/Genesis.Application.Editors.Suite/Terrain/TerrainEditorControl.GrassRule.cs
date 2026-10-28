@@ -38,6 +38,7 @@ public sealed partial class TerrainEditorControl
             _grassRuleDraft, GrassRuleNote, inline: true);
         inspector.Dock = DockStyle.Top;
         page.Controls.Add(inspector);
+        LabelGrassLayerDensities();
         page.Controls.Add(MakeContextAction(
             "Apply Grass Rule",
             "Save the grass-around-the-camera rule above with this terrain",
@@ -56,12 +57,7 @@ public sealed partial class TerrainEditorControl
             _nature.GrassRule = rule.Clone();
             ResetGrassField();
             // Undo and redo show the restored rule in the fields, as the scatter settings do.
-            if (rebind && _grassRuleInspector?.Parent is not null)
-            {
-                _grassRuleDraft = _nature.GrassRule.Clone();
-                ReplaceSettingsForm(ref _grassRuleInspector, _grassRuleDraft, GrassRuleNote);
-            }
-
+            if (rebind) RebindGrassRuleForm();
             _viewport.Invalidate(true);
         }
 
@@ -73,6 +69,38 @@ public sealed partial class TerrainEditorControl
     }
 
     private const string GrassRuleNote = "The same rule grows the grass in this viewport, the room preview and the running game.";
+
+    /// <summary>Shows the saved rule in the grass fields, once they are built.</summary>
+    private void RebindGrassRuleForm()
+    {
+        if (_grassRuleInspector?.Parent is null) return;
+        _grassRuleDraft = _nature.GrassRule.Clone();
+        ReplaceSettingsForm(ref _grassRuleInspector, _grassRuleDraft, GrassRuleNote);
+        LabelGrassLayerDensities();
+    }
+
+    /// <summary>
+    /// Names each density field after its painted layer ("Layer 1 (Grass) density"), so it is clear
+    /// which ground it grows on. Layers this terrain does not have keep just their number.
+    /// </summary>
+    private void LabelGrassLayerDensities()
+    {
+        if (_grassRuleInspector is null) return;
+        const string prefix = "InspectorDrawer_Layer", suffix = "Density";
+        Control.ControlCollection rows = _grassRuleInspector.Controls;
+        // The fields are a caption followed by its field (see InspectorBuilder's inline form).
+        for (int index = 1; index < rows.Count; index++)
+        {
+            string name = rows[index].Name;
+            if (rows[index - 1] is not Label caption || name.Length <= prefix.Length + suffix.Length
+                || !name.StartsWith(prefix, StringComparison.Ordinal) || !name.EndsWith(suffix, StringComparison.Ordinal)
+                || !int.TryParse(name.AsSpan(prefix.Length, name.Length - prefix.Length - suffix.Length), out int number)
+                || number < 1)
+                continue;
+            string layer = number <= _settings.Layers.Count ? _settings.Layers[number - 1].Name?.Trim() ?? "" : "";
+            caption.Text = layer.Length > 0 ? $"Layer {number} ({layer}) density" : $"Layer {number} density";
+        }
+    }
 
     private void ResetGrassField()
     {

@@ -1095,6 +1095,13 @@ namespace Genesis.Runtime.Project
         private static void ApplyRoomPresentation(SilkGameWindow window, Genesis.Shared.Interfaces.IRenderController renderer, RoomAsset room)
             => ProjectRoomPresentation.Apply(window, renderer, room);
 
+        /// <summary>
+        /// Set to 1 by a caller that reads the game's exit code and log rather than watching it
+        /// (Studio's game.run and game.benchmark): a failure is reported there, never in a dialog,
+        /// which would hold the finished game's process open until someone closed it.
+        /// </summary>
+        public const string NoDialogsEnvironmentVariable = "GENESIS_NO_DIALOGS";
+
         /// <summary>Plays this input recording from the first frame of play, then closes the game: <c>--replay name-or-file</c>.</summary>
         public const string ReplayArgument = "--replay";
 
@@ -1117,11 +1124,17 @@ namespace Genesis.Runtime.Project
         /// name is a file in the project's debug Replays folder; a path is used as it is.
         /// </summary>
         /// <remarks>
-        /// A benchmark ends by its own clock, not when its input does: a replay plays one recorded frame
-        /// a rendered frame, so uncapped it runs out in a fraction of the time it was written for. Closing
-        /// the game then (on 28 October, within two seconds, while the first room was still behind its
-        /// cover) left the benchmark unfinished and the game hung, so a benchmark plays its input and
-        /// carries on.
+        /// The first frame of play is the first frame the host steps once the start-up screen and the
+        /// first room's cover are done (it does not replay frames behind a cover), so a recording made
+        /// from the start lines up with its replay, and an automation run's scripted input, played by
+        /// the clock, counts its seconds from the same frame as the run's pictures.
+        /// <para>
+        /// A benchmark ends by its own clock, not when its input does. Its input used to be played a
+        /// recorded frame a rendered frame and so ran out early uncapped; closing the game then left
+        /// the benchmark unfinished, the Player returned an error, and with no one to read it the
+        /// error dialog kept the process open until the run's time limit (28 October). Automation
+        /// runs now set <see cref="NoDialogsEnvironmentVariable"/>.
+        /// </para>
         /// </remarks>
         private static void StartInputReplayFromLaunch(string[] args, string projectPath, ProjectLogger logger, bool quitWhenItEnds = true)
         {
@@ -1143,7 +1156,8 @@ namespace Genesis.Runtime.Project
                 if (!Genesis.Runtime.Input.InputReplay.StartReplay(path))
                     throw new ArgumentException("--replay: " + Genesis.Runtime.Input.InputReplay.LastError);
                 _quitWhenReplayEnds = quitWhenItEnds;
-                logger.Line($"replaying input from {path} ({Genesis.Runtime.Input.InputReplay.FrameCount} frames)"
+                logger.Line($"replaying input from {path} ({Genesis.Runtime.Input.InputReplay.FrameCount} frames, "
+                    + (Genesis.Runtime.Input.InputReplay.Playback == Genesis.Runtime.Input.InputPlayback.ByClock ? "by the clock" : "frame by frame") + ")"
                     + (quitWhenItEnds ? string.Empty : "; the game carries on when it ends"));
             }
             else

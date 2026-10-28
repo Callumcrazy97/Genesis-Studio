@@ -51,6 +51,25 @@ namespace Genesis.Runtime.Input
         Replaying,
     }
 
+    /// <summary>How a replay's recorded frames are matched to the game's frames.</summary>
+    public enum InputPlayback
+    {
+        /// <summary>
+        /// One recorded frame a frame, with the recorded time step and window size: a recording of
+        /// the real devices played back exactly, the same at any frame rate. What a recording is.
+        /// </summary>
+        FrameByFrame,
+
+        /// <summary>
+        /// By the clock: each frame takes what was held at that moment of the recording and keeps
+        /// the game's own time step, so input written in seconds (an automation run's steps) lasts
+        /// those seconds of play however fast the game runs. A press or release comes once, in the
+        /// frame its moment falls in, and mouse-look is shared out by time, so the whole turn is
+        /// the recorded turn.
+        /// </summary>
+        ByClock,
+    }
+
     /// <summary>
     /// Records the input a game reads, frame by frame, and plays it back in place of the real
     /// devices, so a later run sees the same keys, mouse, controller, time step and random numbers
@@ -63,27 +82,46 @@ namespace Genesis.Runtime.Input
     /// cost is that one check. A frame that starts a recording or a replay is not part of it; the
     /// first recorded or replayed frame is the next one. Pressing Escape during a replay stops it
     /// and hands control back to the real devices; that press is not passed to the game.
+    /// <para>
+    /// A file says how it is played (<see cref="InputPlayback"/>): a recording frame by frame, the
+    /// scripted input an automation run writes by the clock. Version 2 of the format adds that word
+    /// after the seed; a version 1 file has none and is a recording.
+    /// </para>
     /// </remarks>
     public static class InputReplay
     {
-        public const int FormatVersion = 1;
+        public const int FormatVersion = 2;
         public const string FileExtension = ".ginput";
         public const string ReplayEnvironmentVariable = "GENESIS_INPUT_REPLAY";
         public const string RecordEnvironmentVariable = "GENESIS_INPUT_RECORD";
         private static readonly byte[] Magic = "GENINPUT"u8.ToArray();
         private const int FlushEveryFrames = 120;
+        private const int PlayByClockFlag = 1;
 
         private static BinaryWriter _writer;
         private static InputFrame[] _frames = Array.Empty<InputFrame>();
         private static bool _starting;
         private static bool _endAfterThisFrame;
 
+        // A replay played by the clock: its length, the seconds of it played so far, when the next
+        // recorded frame begins, and for mouse-look the first recorded frame whose time has not all
+        // passed, when it began, the look of the frames before it and the look handed out so far.
+        private static double _clockLength, _clockPlayed, _nextFrameBegins, _lookFrameBegins;
+        private static int _lookFrame;
+        private static double _lookPassedX, _lookPassedY, _lookGivenX, _lookGivenY;
+
         /// <summary>True while recording or replaying. The only thing the host checks each frame otherwise.</summary>
         public static bool IsActive { get; private set; }
 
         public static InputReplayMode Mode { get; private set; }
 
-        /// <summary>Frames recorded or replayed so far: 1 in the first frame of a recording or replay.</summary>
+        /// <summary>How the replay being (or last) played is played.</summary>
+        public static InputPlayback Playback { get; private set; }
+
+        /// <summary>
+        /// Frames recorded or replayed so far: 1 in the first frame of a recording or replay. Played
+        /// by the clock, the recorded frames whose moment has come.
+        /// </summary>
         public static int Frame { get; private set; }
 
         /// <summary>Frames in the replay being played; 0 when none is.</summary>
@@ -141,9 +179,7 @@ namespace Genesis.Runtime.Input
                 if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
                 var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 16);
                 _writer = new BinaryWriter(stream);
-                _writer.Write(Magic);
-                _writer.Write(FormatVersion);
-                _writer.Write(chosenSeed);
+                WriteHeader(_writer, chosenSeed, InputPlayback.FrameByFrame);
             }
             catch (Exception error)
             {
@@ -169,18 +205,23 @@ namespace Genesis.Runtime.Input
             return frames;
         }
 
-        /// <summary>Starts playing <paramref name="path"/> in place of the real devices. Stops a recording or replay already running.</summary>
-        public static bool StartReplay(string path)
+        /// <summary>
+        /// Starts playing <paramref name="path"/> in place of the real devices, as the file says it
+        /// is played unless <paramref name="playback"/> says otherwise. Stops a recording or replay
+        /// already running.
+        /// </summary>
+        public static bool StartReplay(string path, InputPlayback? playback = null)
         {
             StopAll();
             LastError = string.Empty;
-            if (!TryRead(path, out int seed, out InputFrame[] frames, out string error))
+            if (!TryRead(path, out int seed, out InputFrame[] frames, out InputPlayback written, out string error))
             {
                 LastError = error;
                 return false;
             }
 
             _frames = frames;
+            Playback = playback ?? written;
             Begin(InputReplayMode.Replaying, path, seed);
             return true;
         }
@@ -202,17 +243,24 @@ namespace Genesis.Runtime.Input
 
         /// <summary>
         /// Writes frames made elsewhere (an automation run's scripted input) as a recording the
-        /// Player's <c>--replay</c> plays, in the same format a recording is saved in.
+        /// Player's <c>--replay</c> plays, in the same format a recording is saved in, saying how
+        /// it is to be played.
         /// </summary>
-        public static void Write(string path, int seed, IReadOnlyList<InputFrame> frames)
+        public static void Write(string path, int seed, IReadOnlyList<InputFrame> frames, InputPlayback playback = InputPlayback.FrameByFrame)
         {
             string folder = Path.GetDirectoryName(Path.GetFullPath(path));
             if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
             using var writer = new BinaryWriter(new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 16));
+            WriteHeader(writer, seed, playback);
+            for (int i = 0; i < frames.Count; i++) Write(writer, frames[i]);
+        }
+
+        private static void WriteHeader(BinaryWriter writer, int seed, InputPlayback playback)
+        {
             writer.Write(Magic);
             writer.Write(FormatVersion);
             writer.Write(seed);
-            for (int i = 0; i < frames.Count; i++) Write(writer, frames[i]);
+            writer.Write(playback == InputPlayback.ByClock ? PlayByClockFlag : 0);
         }
 
         /// <summary>Stops everything and forgets the last run (a new game).</summary>
@@ -224,6 +272,7 @@ namespace Genesis.Runtime.Input
             _frames = Array.Empty<InputFrame>();
             Frame = 0;
             Finished = false;
+            Playback = InputPlayback.FrameByFrame;
             FilePath = string.Empty;
             LastError = string.Empty;
             Genesis.Runtime.Scripting.PgslCommands.SeedRandom(null);
@@ -235,9 +284,10 @@ namespace Genesis.Runtime.Input
         /// Called by the host at the start of each simulation frame while <see cref="IsActive"/> (or
         /// while a stopped replay still has to let go of what it held). Records this frame's input,
         /// or replaces it with the recorded frame and sets <paramref name="delta"/> and the window
-        /// size to the recorded ones. <paramref name="started"/> is true in the first frame of a
-        /// recording or replay, when the host should restart its fixed-step clock so both runs
-        /// step the same.
+        /// size to the recorded ones; a replay played by the clock keeps <paramref name="delta"/>
+        /// and takes the input of the recording's time it covers instead. <paramref name="started"/>
+        /// is true in the first frame of a recording or replay, when the host should restart its
+        /// fixed-step clock so both runs step the same.
         /// </summary>
         public static void BeginFrame(InputState input, ref float delta, ref int windowWidth, ref int windowHeight, out bool started)
         {
@@ -289,6 +339,12 @@ namespace Genesis.Runtime.Input
 
             started = _starting;
             _starting = false;
+            if (Playback == InputPlayback.ByClock)
+            {
+                PlayByClock(input, delta, ref windowWidth, ref windowHeight);
+                return;
+            }
+
             ref readonly InputFrame recorded = ref _frames[Frame];
             input.ApplyFrame(in recorded);
             delta = recorded.Delta;
@@ -305,6 +361,95 @@ namespace Genesis.Runtime.Input
             }
         }
 
+        /// <summary>
+        /// One frame of a replay played by the clock. The frame covers the next <paramref name="delta"/>
+        /// seconds of the recording: every recorded frame whose moment falls in them happens in it,
+        /// their presses and releases once each and their wheel, typing and controller shortcuts
+        /// added up, and what the last of them holds is held. A recorded frame that lasts several of
+        /// the game's frames presses in the first of them and holds through the rest.
+        /// </summary>
+        private static void PlayByClock(InputState input, float delta, ref int windowWidth, ref int windowHeight)
+        {
+            double to = _clockPlayed + Seconds(delta);
+            _clockPlayed = to;
+            // The frame that reaches the recording's end takes whatever is left of it.
+            bool last = to >= _clockLength;
+
+            UInt128 keysPressed = UInt128.Zero, keysReleased = UInt128.Zero;
+            int mousePressed = 0, mouseReleased = 0, padPressed = 0, padReleased = 0, padEdges = 0;
+            float wheel = 0f;
+            string typed = null;
+            // The first frame begins the recording's first frame, however short its own step.
+            while (Frame < _frames.Length && (Frame == 0 || last || _nextFrameBegins < to))
+            {
+                ref readonly InputFrame begun = ref _frames[Frame];
+                keysPressed |= begun.KeysPressed;
+                keysReleased |= begun.KeysReleased;
+                mousePressed |= begun.MousePressed;
+                mouseReleased |= begun.MouseReleased;
+                padPressed |= begun.PadPressed;
+                padReleased |= begun.PadReleased;
+                padEdges |= begun.PadEdges;
+                wheel += begun.Wheel;
+                if (!string.IsNullOrEmpty(begun.Typed)) typed = typed == null ? begun.Typed : typed + begun.Typed;
+                _nextFrameBegins += Seconds(begun.Delta);
+                Frame++;
+            }
+
+            InputFrame frame = _frames[Frame - 1];
+            frame.KeysPressed = keysPressed;
+            frame.KeysReleased = keysReleased;
+            frame.MousePressed = (byte)mousePressed;
+            frame.MouseReleased = (byte)mouseReleased;
+            frame.PadPressed = (ushort)padPressed;
+            frame.PadReleased = (ushort)padReleased;
+            frame.PadEdges = (ushort)padEdges;
+            frame.Wheel = wheel;
+            frame.Typed = typed;
+
+            // Mouse-look is a rate across each recorded frame's time: this frame turns by the look
+            // of the part of the recording it covers, so the frames' turns add up to the recorded turn.
+            while (_lookFrame < _frames.Length)
+            {
+                ref readonly InputFrame passing = ref _frames[_lookFrame];
+                double length = Seconds(passing.Delta);
+                if (!last && _lookFrameBegins + length > to) break;
+                _lookPassedX += passing.LookX;
+                _lookPassedY += passing.LookY;
+                _lookFrameBegins += length;
+                _lookFrame++;
+            }
+            double lookX = _lookPassedX, lookY = _lookPassedY;
+            if (_lookFrame < _frames.Length)
+            {
+                ref readonly InputFrame spanning = ref _frames[_lookFrame];
+                double length = Seconds(spanning.Delta);
+                double share = length > 0 ? Math.Clamp((to - _lookFrameBegins) / length, 0, 1) : 0;
+                lookX += spanning.LookX * share;
+                lookY += spanning.LookY * share;
+            }
+            frame.LookX = (float)(lookX - _lookGivenX);
+            frame.LookY = (float)(lookY - _lookGivenY);
+            // Counted as handed out, so a rounding in one frame is made up in the next.
+            _lookGivenX += frame.LookX;
+            _lookGivenY += frame.LookY;
+
+            input.ApplyFrame(in frame);
+            if (frame.WindowWidth > 0 && frame.WindowHeight > 0)
+            {
+                windowWidth = frame.WindowWidth;
+                windowHeight = frame.WindowHeight;
+            }
+            if (last)
+            {
+                Finished = true;
+                _endAfterThisFrame = true;
+            }
+        }
+
+        /// <summary>A time step as seconds the clock can add: one that is negative or not a number counts as none.</summary>
+        private static double Seconds(float delta) => float.IsFinite(delta) && delta > 0f ? delta : 0.0;
+
         private static void Begin(InputReplayMode mode, string path, int seed)
         {
             Mode = mode;
@@ -313,6 +458,12 @@ namespace Genesis.Runtime.Input
             Seed = seed;
             Frame = 0;
             Finished = false;
+            _clockLength = 0;
+            if (mode == InputReplayMode.Replaying)
+                foreach (InputFrame frame in _frames) _clockLength += Seconds(frame.Delta);
+            _clockPlayed = _nextFrameBegins = _lookFrameBegins = 0;
+            _lookFrame = 0;
+            _lookPassedX = _lookPassedY = _lookGivenX = _lookGivenY = 0;
             _starting = true;
             _endAfterThisFrame = mode == InputReplayMode.Replaying && _frames.Length == 0;
             if (_endAfterThisFrame) Finished = true;
@@ -410,10 +561,15 @@ namespace Genesis.Runtime.Input
         }
 
         /// <summary>Reads a recording. A recording cut short (the game closed mid-frame) keeps its whole frames.</summary>
-        public static bool TryRead(string path, out int seed, out InputFrame[] frames, out string error)
+        public static bool TryRead(string path, out int seed, out InputFrame[] frames, out string error) =>
+            TryRead(path, out seed, out frames, out _, out error);
+
+        /// <summary>Reads a recording and how it is to be played (a version 1 file is played frame by frame).</summary>
+        public static bool TryRead(string path, out int seed, out InputFrame[] frames, out InputPlayback playback, out string error)
         {
             seed = 0;
             frames = Array.Empty<InputFrame>();
+            playback = InputPlayback.FrameByFrame;
             error = string.Empty;
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             {
@@ -433,13 +589,14 @@ namespace Genesis.Runtime.Input
                 }
 
                 int version = reader.ReadInt32();
-                if (version != FormatVersion)
+                if (version is < 1 or > FormatVersion)
                 {
-                    error = $"{path} is input recording version {version}; this Player reads version {FormatVersion}.";
+                    error = $"{path} is input recording version {version}; this Player reads versions 1 to {FormatVersion}.";
                     return false;
                 }
 
                 seed = reader.ReadInt32();
+                if (version >= 2 && (reader.ReadInt32() & PlayByClockFlag) != 0) playback = InputPlayback.ByClock;
                 var read = new List<InputFrame>();
                 while (stream.Position < stream.Length)
                 {

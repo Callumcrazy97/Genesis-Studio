@@ -12,7 +12,9 @@ namespace Genesis.Application.Core.Automation;
 /// The run, test and profile loop: play the game unattended with scripted input, take pictures at
 /// set moments, optionally profile it, and read back what happened (the Player's log, its errors,
 /// the pictures and the profile report). The input is written as an engine input recording and
-/// played with the Player's own replay, so the game sees it exactly as it would a person's.
+/// played with the Player's own replay, so the game sees it exactly as it would a person's. It is
+/// played by the clock from the first frame of play (the first room on screen, the moment the
+/// pictures' seconds count from too), so a step lasts its seconds at any frame rate.
 /// </summary>
 public static class GameRunCommands
 {
@@ -22,7 +24,7 @@ public static class GameRunCommands
 
     public sealed class InputStep
     {
-        [Description("How long the step lasts, seconds (default one frame).")] public float? Seconds { get; set; }
+        [Description("How long the step lasts, in seconds of play (default 1/60 s).")] public float? Seconds { get; set; }
         [Description("Keys held down through the step: W, A, S, D, Space, LeftShift, Up, Enter, E...")] public List<string>? Hold { get; set; }
         [Description("Keys tapped at the step's start (down for its first frame).")] public List<string>? Press { get; set; }
         [Description("Mouse-look through the step, [x, y] in pixels a second (turning the camera).")] public float[]? Look { get; set; }
@@ -81,6 +83,13 @@ public static class GameRunCommands
         return [.. frames];
     }
 
+    /// <summary>
+    /// Writes scripted input for the Player's replay, marked to be played by the clock: a game
+    /// running at 900 frames a second holds W for the same seconds as one running at 60.
+    /// </summary>
+    public static void WriteInput(string path, int seed, InputFrame[] frames) =>
+        InputReplay.Write(path, seed, frames, InputPlayback.ByClock);
+
     private static UInt128 Keys(List<string>? names)
     {
         UInt128 bits = UInt128.Zero;
@@ -136,9 +145,10 @@ public static class GameRunCommands
 
             string folder = Path.Combine(context.Project.InternalPath, "Automation", "Runs", DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
             string recording = Path.Combine(folder, "input" + InputReplay.FileExtension);
-            InputReplay.Write(recording, input.Seed ?? 1, frames);
+            WriteInput(recording, input.Seed ?? 1, frames);
             var environment = new Dictionary<string, string>
             {
+                [ProjectPlayerApp.NoDialogsEnvironmentVariable] = "1",
                 [InputReplay.ReplayEnvironmentVariable] = recording,
                 [TimedShots.EnvironmentVariable] = string.Join(",", shots.Select(s => s.ToString(CultureInfo.InvariantCulture))),
                 [ProjectPlayerApp.ProfileEnvironmentVariable] = input.Profile == true ? "1" : "0",
@@ -245,7 +255,7 @@ public static class GameRunCommands
         [Description("The room to measure, by name (default the game's start room).")] public string? Room { get; set; }
         [Description("Seconds measured after the warm-up (default 20).")] public float? Seconds { get; set; }
         [Description("Seconds of play before measuring starts, not counted (default 5).")] public float? WarmupSeconds { get; set; }
-        [Description("Scripted input played meanwhile, as game.run takes it (a walk or a camera turn); without it the game is left standing. It is played a recorded frame a rendered frame, so uncapped it passes faster than written; the game carries on when it ends.")]
+        [Description("Scripted input played meanwhile, as game.run takes it (a walk or a camera turn); without it the game is left standing. Its seconds are seconds of play, uncapped or not, from the first room on screen; the game stands still after it.")]
         public List<InputStep>? Steps { get; set; }
         [Description("Vsync and frame caps off, so frame times show the real headroom (default true); false keeps the game's own pacing.")] public bool? Uncapped { get; set; }
         [Description("Fail the run if the 95th-percentile frame takes longer than this, milliseconds.")] public double? P95BudgetMilliseconds { get; set; }
@@ -279,6 +289,7 @@ public static class GameRunCommands
             Directory.CreateDirectory(folder);
             var environment = new Dictionary<string, string>
             {
+                [ProjectPlayerApp.NoDialogsEnvironmentVariable] = "1",
                 [TimedShots.EnvironmentVariable] = string.Empty,
                 [ProjectPlayerApp.ProfileEnvironmentVariable] = "0",
                 [InputReplay.ReplayEnvironmentVariable] = string.Empty,
@@ -286,13 +297,13 @@ public static class GameRunCommands
             };
             if (input.Steps is { Count: > 0 } given)
             {
-                // A replay closes the game when it ends: steps shorter than the run are padded with
-                // standing still, so the benchmark is not cut short.
+                // Steps shorter than the run are padded with standing still, so the replay keeps the
+                // keyboard, mouse and controller of whoever is at the machine out of the measurement.
                 List<InputStep> steps = [.. given];
                 float length = Frames(steps).Length / FramesPerSecond, needed = (float)(seconds + warmup + 10);
                 if (length < needed) steps.Add(new InputStep { Seconds = needed - length });
                 string recording = Path.Combine(folder, "input" + InputReplay.FileExtension);
-                InputReplay.Write(recording, 1, Frames(steps));
+                WriteInput(recording, 1, Frames(steps));
                 environment[InputReplay.ReplayEnvironmentVariable] = recording;
             }
             string arguments = string.Create(CultureInfo.InvariantCulture,

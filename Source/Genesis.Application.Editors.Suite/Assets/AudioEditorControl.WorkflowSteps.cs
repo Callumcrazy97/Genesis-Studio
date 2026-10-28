@@ -13,7 +13,7 @@ public sealed partial class AudioEditorControl
     {
         _audioWorkflow = EditorWorkflow.AttachBelow(toolbar, "AudioWorkflow",
         [
-            new("Sound", "Sound", "Choose or import the WAV this sound plays.",
+            new("Sound", "Sound", "Choose or import a WAV, or make the sound here.",
                 () => { ShowAudioQuickSetup(); if (_sourceCombo.CanFocus) _sourceCombo.Focus(); _audioWorkflow?.SetCurrent("Sound"); }),
             new("Tune", "Tune", "Set the volume and repeat; trim and fade the part you want to hear.",
                 () => { ShowAudioQuickSetup(); if (_volumeSlider.CanFocus) _volumeSlider.Focus(); _audioWorkflow?.SetCurrent("Tune"); }),

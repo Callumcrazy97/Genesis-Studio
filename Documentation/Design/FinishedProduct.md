@@ -85,7 +85,10 @@ its time limit. A replay plays a recorded frame per rendered frame, so uncapped 
 its 24 s of input ran out in under two seconds, and a replay's end closes the game, which hung
 while the first room was still behind its cover. A benchmark now carries on when its input ends and
 finishes on its own clock. (The standard benchmark scenes never pass input, so this had not shown.)
-On the 06:58 build, walking with W held: median 1.06 ms (945 fps), 99th percentile 1.88 ms, worst 4.98 ms.
+The 06:58 build's "walking with W held" run (median 1.06 ms) was **not** a walk: the replay also
+plays the recorded 1/60 s time step, so its 15 s of input were played out in about a second, inside
+the warm-up, and the measured frames stood still (found by the Task Checker, 28 October). Scripted
+input is being changed to play by clock time; the walking figure will be measured again on that build.
 
 ## Why a game used to take days
 

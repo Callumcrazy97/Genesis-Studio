@@ -13,8 +13,6 @@ public sealed partial class RoomEditorControl
     private bool _showRoomGuide;
     private bool _layingOutRoomWorkflow;
 
-    /// <summary>The shell updates its retained project manifest before persisting the starting Room.</summary>
-
     private void BuildRoomWorkflowHost(Control authoring)
     {
         _roomWorkspaceHost = new Panel { Dock = DockStyle.Fill, Name = "RoomWorkspace" };
@@ -108,20 +106,71 @@ public sealed partial class RoomEditorControl
             EditorChrome.StyleField(button); button.Click += (_, _) => action(); _roomGameGuide.Controls.Add(button);
         }
         void Open(RoomNavSection section) { ShowRoomAuthoring(); _navigation.SetSection(section); }
+        bool threeD = ViewMode3D;
         Text("Build and play this Room", true);
-        Text("1. Place Objects and paint the floor", true);
-        Text("Objects are saved game entities: choose one in Objects, then click in the Room. Change its behaviour in the Object editor with Builder or Code. Instance variables here override only the selected instance. Image animation and rigging, Physics bodies, Pathing, Audio, Shaders and UI resources are used by the Object's events; saving those resources updates their consumers.");
-        Button("RoomGuideObjects", "Return to Objects", () => Open(RoomNavSection.Objects));
-        Text("In Tilesets, choose a saved Image tile set, choose a tile, then drag to paint. Right-drag erases. Add creates a separate tile layer. Image tile collision flags and the layer's Collision setting determine which tiles are solid. Sprite positions use the Image's saved origin in both this editor and gameplay: a bottom origin places feet on the floor. Change the origin in Image rather than compensating with a different Room position.");
-        Button("RoomGuideTiles", "Return to Tilesets", () => Open(RoomNavSection.Tilesets));
-        Text("2. Set the camera and physics", true);
-        Text("Views controls what the game camera sees and which Object it follows. Source is the visible area of the Room; output is its rectangle on the game window. Settings controls Room size and gravity. In 2D, gravity is shown in pixels per second squared with positive values downward; it affects Objects with Physics2D bodies. Scripted movement can use its own gravity.");
-        Button("RoomGuideViews", "Open camera Views", () => Open(RoomNavSection.Views));
-        Button("RoomGuideSettings", "Open Room Settings", () => Open(RoomNavSection.Settings));
-        Text("3. Save, Play and export", true);
-        Text("Play in this toolbar saves and tests this Room in Genesis Player. Pause and Stop appear while it is running. Studio Run starts the project's first Room: drag Rooms in the Assets tree to put them in order. Select the renderer from the bottom-right Studio status bar before testing another backend.");
-        Text("For a complete jumping platformer, create a Mushroom Meadow project and edit its Player, enemies and levels. Use the project's Export command to package the game, then test the exported game and each renderer you intend to support.");
+        if (threeD)
+        {
+            Text("1. Place the ground and Objects", true);
+            Text("Ground is a Terrain: choose one in Ground, then click in the Room to place it. Skip it for an indoor Room. Objects are saved game entities: choose one in Objects, then click in the Room. To walk around, make an Object, choose Behaviour › Walk in first person in the Object editor, and place it on the ground. Instance variables here override only the selected instance. Physics bodies, Pathing, Audio, Shaders and UI resources are used by the Object's events; saving those resources updates their consumers.");
+            Button("RoomGuideObjects", "Return to Objects", () => Open(RoomNavSection.Objects));
+            Button("RoomGuideTiles", "Return to Ground", () => Open(RoomNavSection.Tilesets));
+            Text("2. Set the sky and camera", true);
+            Text("Sky sets the time of day and weather. Views controls what the game camera sees and which Object it follows; a first-person Object uses the camera as its eyes. Settings controls the Room size and physics.");
+            Button("RoomGuideSky", "Open Sky", () => Open(RoomNavSection.Backgrounds));
+            Button("RoomGuideViews", "Open camera Views", () => Open(RoomNavSection.Views));
+            Button("RoomGuideSettings", "Open Room Settings", () => Open(RoomNavSection.Settings));
+        }
+        else
+        {
+            Text("1. Place Objects and paint the floor", true);
+            Text("Objects are saved game entities: choose one in Objects, then click in the Room. Change its behaviour in the Object editor with Builder or Code. Instance variables here override only the selected instance. Image animation and rigging, Physics bodies, Pathing, Audio, Shaders and UI resources are used by the Object's events; saving those resources updates their consumers.");
+            Button("RoomGuideObjects", "Return to Objects", () => Open(RoomNavSection.Objects));
+            Text("In Tilesets, choose a saved Image tile set, choose a tile, then drag to paint. Right-drag erases. Add creates a separate tile layer. Image tile collision flags and the layer's Collision setting determine which tiles are solid. Sprite positions use the Image's saved origin in both this editor and gameplay: a bottom origin places feet on the floor. Change the origin in Image rather than compensating with a different Room position.");
+            Button("RoomGuideTiles", "Return to Tilesets", () => Open(RoomNavSection.Tilesets));
+            Text("2. Set the camera and physics", true);
+            Text("Views controls what the game camera sees and which Object it follows. Source is the visible area of the Room; output is its rectangle on the game window. Settings controls Room size and gravity. In 2D, gravity is shown in pixels per second squared with positive values downward; it affects Objects with Physics2D bodies. Scripted movement can use its own gravity.");
+            Button("RoomGuideViews", "Open camera Views", () => Open(RoomNavSection.Views));
+            Button("RoomGuideSettings", "Open Room Settings", () => Open(RoomNavSection.Settings));
+        }
+        Text("3. Make it the first Room, then Play and export", true);
+        Text("Studio Run starts the project's first Room, not the one you have open. A new project's first Room is an empty one called Start, so press the button below to make this Room the first. Dragging Rooms in the Assets tree changes the order too.");
+        Label started = new() { Name = "RoomGuideFirstRoomStatus", ForeColor = EditorChrome.Muted };
+        Button("RoomGuideMakeFirst", "Save and make this the first Room", () =>
+        {
+            started.Text = MakeThisRoomFirst();
+            RefreshRoomWorkflowHint();
+        });
+        _roomGameGuide.Controls.Add(started);
+        Text("Play in this toolbar saves and tests this Room in Genesis Player, wherever it is in the order. Pause and Stop appear while it is running. Select the renderer from the bottom-right Studio status bar before testing another backend.");
+        Text(threeD
+            ? "Use the project's Export command to package the game, then test the exported game and each renderer you intend to support."
+            : "For a complete jumping platformer, create a Mushroom Meadow project and edit its Player, enemies and levels. Use the project's Export command to package the game, then test the exported game and each renderer you intend to support.");
         Button("RoomGuideReturn", "Return to Room editing", ShowRoomAuthoring);
         _showRoomGuide = true; RefreshRoomWorkflowHint();
+    }
+
+    /// <summary>
+    /// Saves this Room and puts it first in the project's room order, which is where the game starts
+    /// (the same change as dragging it above the first Room in the Assets tree). Returns what to tell
+    /// the person.
+    /// </summary>
+    private string MakeThisRoomFirst()
+    {
+        try
+        {
+            Save();
+            if (IsDirty) return "Save the Room first: it could not be saved, so the Room order was not changed.";
+            ResourceService resources = ProjectAssetIndex.OpenResourceService(ProjectRoot);
+            string name = ResourceNames.Name(ProjectRoot, ResourcePath);
+            string? first = Genesis.Application.Core.Projects.ProjectRoomOrder.First(resources.Project);
+            if (first is null || string.Equals(first, name, StringComparison.OrdinalIgnoreCase))
+                return name + " is the first Room, so Run plays it.";
+            Genesis.Application.Core.Projects.ProjectRoomOrder.Move(resources.Project, ResourcePath, first);
+            return name + " is now the first Room, so Run plays it.";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {
+            return "The Room order was not changed: " + exception.Message;
+        }
     }
 }

@@ -51,9 +51,10 @@ internal static class Program
         bool supervised = int.TryParse(Environment.GetEnvironmentVariable("GENESIS_EDITOR_PID"), out int editorPid)
             && long.TryParse(Environment.GetEnvironmentVariable("GENESIS_EDITOR_STARTED"), out _);
         long.TryParse(Environment.GetEnvironmentVariable("GENESIS_EDITOR_STARTED"), out long editorStarted);
-        // An unattended run (tests, measurements) reports in its log and exit code; a dialog would
-        // stop it and appear on the desktop of whoever is using the PC.
+        // An unattended run (tests, measurements, Studio's game.run and game.benchmark) reports in its
+        // log and exit code; a dialog would stop it and appear on the desktop of whoever is using the PC.
         bool quiet = supervised || Environment.GetEnvironmentVariable("GENESIS_UNATTENDED_WINDOW") == "1"
+            || Environment.GetEnvironmentVariable(ProjectPlayerApp.NoDialogsEnvironmentVariable) == "1"
             || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GENESIS_AUTOSHOT"));
         using var parentWatch = new System.Threading.Timer(_ =>
         {

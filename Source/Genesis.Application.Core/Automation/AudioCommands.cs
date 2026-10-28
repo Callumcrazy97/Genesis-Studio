@@ -44,34 +44,23 @@ public static class AudioCommands
 
         protected override AutomationResult Execute(AutomationContext context, SynthInput input)
         {
-            var layers = new List<SynthLayer>();
-            if (!string.IsNullOrWhiteSpace(input.Preset))
-            {
-                if (!SoundSynth.Presets.TryGetValue(input.Preset.Trim(), out var preset))
-                    throw new AutomationException($"'{input.Preset}' is not a preset. Presets: {string.Join(", ", SoundSynth.Presets.Keys)}.");
-                layers.AddRange(preset());
-            }
-            layers.AddRange(input.Layers ?? []);
             try
             {
-                foreach (MelodyInput melody in input.Melodies ?? [])
+                // The Audio editor's "Make a sound" renders through the same SynthSounds, so a recipe
+                // is the same sound from either.
+                SynthSound sound = SynthSounds.Render(new SynthRecipe
                 {
-                    double beat = melody.BeatSeconds ?? 0.25;
-                    if (!(beat > 0)) throw new AutomationException("A melody's beat must be above 0 seconds.");
-                    layers.AddRange(SoundSynth.Melody(melody.Notes, beat, melody.Start ?? 0, melody.Voice ?? new SynthLayer()));
-                }
-                if (layers.Count == 0) throw new AutomationException("Give a preset, layers or melodies to make a sound from.");
-                if (layers.Count > 512) throw new AutomationException("At most 512 layers and notes.");
-
-                float[] samples = SoundSynth.Render(layers, input.EchoDelay ?? 0, input.EchoFeedback ?? 0, input.Seed ?? 1);
-                string stem = string.Concat(input.Name.Trim().Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+                    Preset = input.Preset,
+                    Layers = input.Layers ?? [],
+                    Melodies = (input.Melodies ?? []).Select(melody => new SynthMelody(melody.Notes, melody.BeatSeconds ?? 0.25, melody.Start ?? 0, melody.Voice)).ToList(),
+                    EchoDelay = input.EchoDelay ?? 0,
+                    EchoFeedback = input.EchoFeedback ?? 0,
+                    Seed = input.Seed ?? 1,
+                });
+                string stem = SynthSounds.FileStem(input.Name);
                 if (stem.Length == 0) throw new AutomationException("The sound needs a name.");
-                string scratch = Path.Combine(Path.GetTempPath(), "genesis-synth-" + Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(scratch);
-                try
+                return SynthSounds.WithWavFile(sound.Samples, stem, wav =>
                 {
-                    string wav = Path.Combine(scratch, stem + ".wav");
-                    SoundSynth.WriteWav(wav, samples);
                     string resource = context.Resources.ImportFiles(context.Resolve(input.Folder ?? "Assets/Audio"), [wav]).Single();
                     if (input.Loop is not null || input.Volume is not null)
                     {
@@ -80,21 +69,17 @@ public static class AudioCommands
                         if (input.Volume is double volume) document["volume"] = Math.Clamp(volume, 0, 1);
                         File.WriteAllText(resource, document.ToString(Newtonsoft.Json.Formatting.Indented));
                     }
-                    double seconds = samples.Length / (double)SoundSynth.SampleRate;
-                    return AutomationResult.Success($"Made {Path.GetFileName(resource)}: {seconds:0.##} s from {layers.Count} layer(s).",
+                    double seconds = sound.Seconds;
+                    return AutomationResult.Success($"Made {Path.GetFileName(resource)}: {seconds:0.##} s from {sound.LayerCount} layer(s).",
                         new JsonObject
                         {
                             ["path"] = context.Relative(resource),
                             ["name"] = ResourceNames.Name(context.Root, resource),
                             ["seconds"] = Math.Round(seconds, 3),
                             ["sampleRate"] = SoundSynth.SampleRate,
-                            ["layers"] = layers.Count,
+                            ["layers"] = sound.LayerCount,
                         }, context.Relative(resource));
-                }
-                finally
-                {
-                    try { Directory.Delete(scratch, recursive: true); } catch (IOException) { }
-                }
+                });
             }
             catch (Exception exception) when (exception is FormatException or ArgumentException)
             {

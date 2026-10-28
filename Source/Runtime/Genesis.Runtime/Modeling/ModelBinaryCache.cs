@@ -58,7 +58,17 @@ namespace Genesis.Runtime.Modeling
         /// <summary>Sealed caches accepted by comparing the model file's content, its date having changed.</summary>
         public static int SealedHits => _sealedHits;
 
+        /// <summary>
+        /// <see cref="Hits"/> made by loads on the calling thread only. Read-ahead workers and other
+        /// loaders count in <see cref="Hits"/> too, so a check of one load counts on its own thread.
+        /// </summary>
+        public static int HitsOnThisThread => _threadHits;
+
+        /// <summary><see cref="SealedHits"/> made by loads on the calling thread only.</summary>
+        public static int SealedHitsOnThisThread => _threadSealedHits;
+
         private static int _hits, _writes, _sealedHits;
+        [ThreadStatic] private static int _threadHits, _threadSealedHits;
 
         private static readonly JsonSerializerSettings Settings = CreateSettings();
 
@@ -230,8 +240,41 @@ namespace Genesis.Runtime.Modeling
             finally { _arrays = null; }
             if (asset == null) return false;
             System.Threading.Interlocked.Increment(ref _hits);
-            if (viaContent) System.Threading.Interlocked.Increment(ref _sealedHits);
+            _threadHits++;
+            if (viaContent)
+            {
+                System.Threading.Interlocked.Increment(ref _sealedHits);
+                _threadSealedHits++;
+            }
             return true;
+        }
+
+        /// <summary>
+        /// Whether the cache for a model file was made from the file as it is now (its size and
+        /// date), reading only the cache's header. A cache is written on a worker after a slow load,
+        /// so this says when that write for this file has finished.
+        /// </summary>
+        public static bool IsCurrent(string modelPath)
+        {
+            try
+            {
+                string cachePath = PathFor(modelPath);
+                var source = new FileInfo(modelPath);
+                if (cachePath == null || !source.Exists || !File.Exists(cachePath)) return false;
+                Span<byte> header = stackalloc byte[HeaderBytes];
+                using var cache = new FileStream(cachePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                if (cache.Length <= HeaderBytes) return false;
+                cache.ReadExactly(header);
+                return BinaryPrimitives.ReadUInt32LittleEndian(header) == Magic
+                    && BinaryPrimitives.ReadInt32LittleEndian(header[4..]) == FormatVersion
+                    && BinaryPrimitives.ReadInt64LittleEndian(header[8..]) == source.Length
+                    && BinaryPrimitives.ReadInt64LittleEndian(header[16..]) == source.LastWriteTimeUtc.Ticks
+                    && BinaryPrimitives.ReadInt64LittleEndian(header[24..]) == cache.Length - HeaderBytes;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                return false;
+            }
         }
 
         /// <summary>

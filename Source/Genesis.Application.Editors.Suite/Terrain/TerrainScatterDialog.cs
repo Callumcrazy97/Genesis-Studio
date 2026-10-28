@@ -1,6 +1,8 @@
 using System.Drawing;
 using System.Windows.Forms;
+using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Suite.UiKit;
+using Genesis.Runtime.Modeling;
 using Genesis.World.Terrain;
 
 namespace Genesis.Application.Editors.Suite.Terrain;
@@ -11,6 +13,11 @@ namespace Genesis.Application.Editors.Suite.Terrain;
 /// </summary>
 public sealed class TerrainScatterDialog : DpiAwareForm
 {
+    /// <summary>The generated models New model makes a layer of in one click.</summary>
+    public enum Starter { Pine, Oak, Boulder }
+
+    private readonly string? _projectRoot;
+    private readonly int _grassMask;
     private readonly List<TerrainScatterLayer> _layers;
     private readonly ListBox _list = new() { Name = "TerrainScatterLayerList", Dock = DockStyle.Fill };
     private readonly TextBox _name = new() { Name = "TerrainScatterLayerName" };
@@ -40,8 +47,14 @@ public sealed class TerrainScatterDialog : DpiAwareForm
     /// <param name="layers">The terrain's current layers; they are copied, so Cancel changes nothing.</param>
     /// <param name="models">Names of the project's Model resources, offered in the model list.</param>
     /// <param name="paintLayers">Names of the terrain's painted layers, first to fourth.</param>
-    public TerrainScatterDialog(IEnumerable<TerrainScatterLayer> layers, IEnumerable<string> models, IReadOnlyList<string> paintLayers)
+    /// <param name="projectRoot">The project new Models are made in; without one, New model is hidden.</param>
+    public TerrainScatterDialog(IEnumerable<TerrainScatterLayer> layers, IEnumerable<string> models, IReadOnlyList<string> paintLayers,
+        string? projectRoot = null)
     {
+        _projectRoot = string.IsNullOrWhiteSpace(projectRoot) ? null : projectRoot;
+        // New trees stand only on the painted grass: the layer called Grass, else the first.
+        int grass = paintLayers?.Take(4).ToList().FindIndex(name => name?.Contains("grass", StringComparison.OrdinalIgnoreCase) == true) ?? -1;
+        _grassMask = 1 << Math.Max(0, grass);
         _layers = TerrainNatureSerializer.Clone((layers ?? Array.Empty<TerrainScatterLayer>()).ToList());
         // A hand-edited file may hold values no field can show; bring them into range first.
         foreach (TerrainScatterLayer layer in _layers) layer.Normalize();
@@ -61,6 +74,25 @@ public sealed class TerrainScatterDialog : DpiAwareForm
         Button add = new() { Name = "TerrainScatterAddLayer", Text = "+ Add", AutoSize = true };
         Button remove = new() { Name = "TerrainScatterRemoveLayer", Text = "Remove", AutoSize = true };
         listButtons.Controls.Add(add); listButtons.Controls.Add(remove); left.Controls.Add(_list); left.Controls.Add(listButtons);
+        // New model: a generated pine, oak or boulder and a layer of it, ready to walk among.
+        FlowLayoutPanel newModels = new() { Name = "TerrainScatterNewModels", Dock = DockStyle.Bottom, AutoSize = true, Visible = _projectRoot is not null };
+        Label newCaption = new() { Text = "New model and layer", AutoSize = true, ForeColor = EditorChrome.Muted, Margin = new Padding(3, 8, 3, 2) };
+        newModels.Controls.Add(newCaption);
+        newModels.SetFlowBreak(newCaption, true);
+        List<Button> starters = [];
+        foreach (Starter starter in Enum.GetValues<Starter>())
+        {
+            Button button = new()
+            {
+                Name = "TerrainScatterNew" + starter, Text = starter.ToString(), AutoSize = true,
+                AccessibleDescription = $"Generate a {starter.ToString().ToLowerInvariant()} Model and scatter it over the terrain",
+            };
+            button.Click += (_, _) => AddStarterFromButton(starter);
+            newModels.Controls.Add(button);
+            starters.Add(button);
+        }
+
+        left.Controls.Add(newModels);
         split.Panel1.Controls.Add(left);
         TabControl tabs = new() { Name = "TerrainScatterSettingsTabs", Dock = DockStyle.Fill };
         EditorChrome.StyleTabs(tabs);
@@ -82,7 +114,7 @@ public sealed class TerrainScatterDialog : DpiAwareForm
         split.Panel2.Controls.Add(tabs);
         Controls.Add(split);
         TerrainDialogLayout.Actions(this);
-        foreach (Button button in new[] { add, remove })
+        foreach (Button button in new[] { add, remove }.Concat(starters))
         {
             EditorChrome.StyleField(button);
             button.MinimumSize = new Size(0, button.Font.Height + 18);
@@ -130,6 +162,65 @@ public sealed class TerrainScatterDialog : DpiAwareForm
         };
         _layers.Add(layer); RefreshList(); _list.SelectedIndex = _layers.Count - 1;
     }
+
+    /// <summary>
+    /// New model › Pine, Oak or Boulder: makes a Model resource with the generators the Model
+    /// editor's Generate uses, and a layer that scatters it as the Nature Walk does (trees on the
+    /// grass with solid trunks, boulders anywhere). Returns the new Model resource's path.
+    /// </summary>
+    public string AddStarterLayer(Starter starter)
+    {
+        if (_projectRoot is null) throw new InvalidOperationException("Open the terrain in a project to make a Model for it.");
+        (string name, GModelAsset geometry, TerrainScatterLayer layer) = StarterDefaults(starter, _grassMask);
+        string path = GeneratedModels.CreateResource(ProjectAssetIndex.OpenResourceService(_projectRoot), name, geometry);
+        string model = ResourceNames.Name(_projectRoot, path, Genesis.Shared.Assets.ResourceType.Model);
+        if (!_model.Items.Contains(model)) _model.Items.Add(model);
+        layer.Model = model;
+        layer.Seed = 1 + _layers.Count * 7919;
+        layer.Normalize();
+        _layers.Add(layer); RefreshList(); _list.SelectedIndex = _layers.Count - 1;
+        return path;
+    }
+
+    private void AddStarterFromButton(Starter starter)
+    {
+        try { AddStarterLayer(starter); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            MessageBox.Show(this, exception.Message, "New model", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    // Sizes and rules from the Nature Walk benchmark (BuildTools/Benchmarks/NatureWalk), with the
+    // generated trees scaled to its size. A solid half-width just inside each trunk or rock keeps a
+    // walker out of it; trees need nearly pure grass, so a painted path stays clear.
+    private static (string Name, GModelAsset Geometry, TerrainScatterLayer Layer) StarterDefaults(Starter starter, int grass) => starter switch
+    {
+        Starter.Pine => ("Pine",
+            GeneratedModels.Tree(new ProceduralTreeOptions { Preset = ProceduralTreePreset.StylisedConifer, HeightScale = 0.6f, CanopyScale = 0.6f }),
+            new TerrainScatterLayer
+            {
+                Name = "Pines", DensityPerHectare = 60, MinimumSpacing = 4, MaximumSlopeDegrees = 32, ClumpSize = 40, ClumpStrength = 0.7f,
+                MinimumScale = 0.8f, MaximumScale = 1.5f, PaintLayerMask = grass, MinimumPaintWeight = 0.92f,
+                CollisionRadius = 0.3f, CollisionHeight = 3f,
+            }),
+        Starter.Oak => ("Oak",
+            GeneratedModels.Tree(new ProceduralTreeOptions { Preset = ProceduralTreePreset.WideOldOak, HeightScale = 0.55f, CanopyScale = 0.6f }),
+            new TerrainScatterLayer
+            {
+                Name = "Oaks", DensityPerHectare = 25, MinimumSpacing = 6, MaximumSlopeDegrees = 28, ClumpSize = 30, ClumpStrength = 0.5f,
+                MinimumScale = 0.75f, MaximumScale = 1.35f, PaintLayerMask = grass, MinimumPaintWeight = 0.92f,
+                CollisionRadius = 0.45f, CollisionHeight = 3f,
+            }),
+        _ => ("Boulder",
+            GeneratedModels.Rock(new ProceduralRockOptions { Preset = ProceduralRockPreset.RoundedBoulder, Width = 1.6f, Height = 1f, Depth = 1.3f }),
+            new TerrainScatterLayer
+            {
+                Name = "Boulders", DensityPerHectare = 12, MinimumSpacing = 5, MaximumSlopeDegrees = 40,
+                MinimumScale = 0.4f, MaximumScale = 2.2f, Sink = 0.3f, AlignToGround = true,
+                CollisionRadius = 0.55f, CollisionHeight = 0.9f,
+            }),
+    };
 
     private void RemoveLayer()
     {

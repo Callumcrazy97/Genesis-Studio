@@ -8,6 +8,7 @@ using Genesis.Runtime.Scene;
 using Genesis.Shared.Commands;
 using Genesis.Shared.Interfaces;
 using Genesis.Application.Editors.Suite.UiKit;
+using Newtonsoft.Json;
 
 namespace Genesis.Application.Editors.Suite.Rooms;
 
@@ -825,62 +826,21 @@ public sealed partial class RoomEditorControl
         _viewport?.Host?.Invalidate();
     }
 
+    /// <summary>
+    /// A copy made through the room file's own form, so every value is kept, including ones added
+    /// to the environment later (a field-by-field copy dropped shadows and tone mapping, and every
+    /// edit of the environment turned them back on).
+    /// </summary>
     private static RoomEnvironment CloneEnvironment(RoomEnvironment source)
     {
-        source ??= new RoomEnvironment();
-        return new RoomEnvironment
-        {
-            BackgroundColor = source.BackgroundColor is null ? [0.07f, 0.09f, 0.14f, 1f] : (float[])source.BackgroundColor.Clone(),
-            Gravity = source.Gravity is null ? [0f, -9.81f, 0f] : (float[])source.Gravity.Clone(),
-            AmbientIntensity = source.AmbientIntensity,
-            FogDensity = source.FogDensity,
-            DynamicSky = source.DynamicSky,
-            Weather = source.Weather,
-            TimeOfDayHours = source.TimeOfDayHours,
-            TimeScale = source.TimeScale,
-            AutomaticWeather = source.AutomaticWeather,
-            ClimateSeed = source.ClimateSeed,
-            DayOfYear = source.DayOfYear,
-            LatitudeDegrees = source.LatitudeDegrees,
-            AtmospherePreset = source.AtmospherePreset,
-            VolumetricClouds = source.VolumetricClouds,
-            CloudQuality = source.CloudQuality,
-            CloudBaseHeight = source.CloudBaseHeight,
-            CloudThickness = source.CloudThickness,
-            CloudCoverageScale = source.CloudCoverageScale,
-            AtmosphericHaze = source.AtmosphericHaze,
-            VisibilityKilometres = source.VisibilityKilometres,
-            WeatherFogScale = source.WeatherFogScale,
-            SunDiscScale = source.SunDiscScale,
-            ShadowDistance = source.ShadowDistance,
-            SimulationDistance = source.SimulationDistance,
-            SceneryDistance = source.SceneryDistance,
-            SceneryCollisionDistance = source.SceneryCollisionDistance,
-            TerrainDistance = source.TerrainDistance,
-            WindAudio = source.WindAudio,
-            RainAudio = source.RainAudio,
-            WaterAudio = source.WaterAudio,
-            FireAudio = source.FireAudio,
-            WildlifeAudio = source.WildlifeAudio,
-            NightAudio = source.NightAudio,
-            WeatherEffects = source.WeatherEffects,
-            ThunderAudio = source.ThunderAudio,
-            SoundscapeLevels = (source.SoundscapeLevels ?? new()).Clone(),
-            // Editing any environment value used to drop these, as they were not copied.
-            EnvironmentReflection = source.EnvironmentReflection,
-            PostEffects = source.PostEffects is null ? new() : new List<string>(source.PostEffects),
-            SkyLight = source.SkyLight,
-            SkyLightStrength = source.SkyLightStrength,
-            SkyLightTint = source.SkyLightTint is null ? [1f, 1f, 1f] : (float[])source.SkyLightTint.Clone(),
-            SkyLightSaturation = source.SkyLightSaturation,
-            AutoExposure = source.AutoExposure,
-            AutoExposureKey = source.AutoExposureKey,
-            AutoExposureDarkenSeconds = source.AutoExposureDarkenSeconds,
-            AutoExposureBrightenSeconds = source.AutoExposureBrightenSeconds,
-            AutoExposureMinEv = source.AutoExposureMinEv,
-            AutoExposureMaxEv = source.AutoExposureMaxEv,
-            AutoExposureCenterWeight = source.AutoExposureCenterWeight,
-        };
+        RoomEnvironment copy = JsonConvert.DeserializeObject<RoomEnvironment>(JsonConvert.SerializeObject(source ?? new RoomEnvironment()))
+            ?? new RoomEnvironment();
+        copy.BackgroundColor ??= [0.07f, 0.09f, 0.14f, 1f];
+        copy.Gravity ??= [0f, -9.81f, 0f];
+        copy.SkyLightTint ??= [1f, 1f, 1f];
+        copy.PostEffects ??= new();
+        copy.SoundscapeLevels = (copy.SoundscapeLevels ?? new()).Clone();
+        return copy;
     }
 
     private void EditAdaptiveSoundscape()

@@ -96,6 +96,16 @@ public sealed partial class TerrainEditorControl
     private FlowLayoutPanel BuildFoliagePage()
     {
         var page = MakeContextPage();
+        // The Decorate step's main tools, each a click or two, before the place-one-at-a-time assets.
+        page.Controls.Add(MakeContextCaption("Decorate"));
+        page.Controls.Add(DecorateAction("TerrainDecorateForests", "Forests and scatter…",
+            "Cover the ground with pines, oaks and boulders by rule: New model › Pine, Oak or Boulder", OpenScatterDialog));
+        page.Controls.Add(DecorateAction("TerrainDecorateMeadow", "Meadow flowers and grass",
+            "Wildflowers and meadow grass on the painted grass, and grass grown around the camera", ApplyMeadowFlowersAndGrass));
+        page.Controls.Add(DecorateAction("TerrainDecorateWater", "Water: fill a basin",
+            "Then click inside a valley or crater to fill it with a lake", ArmFillBasin));
+        page.Controls.Add(DecorateAction("TerrainDecoratePaths", "Paths",
+            "Then drag on the terrain to paint a path", ArmPaintPath));
         page.Controls.Add(MakeContextCaption("Foliage assets"));
         page.Controls.Add(MakeContextAction("+ New foliage…", "Create a custom plant", () => OnEntityCreateRequested(this, TerrainEntityType.Foliage)));
         page.Controls.Add(MakeContextAction("+ New tree…", "Create a custom tree", () => OnEntityCreateRequested(this, TerrainEntityType.Tree)));
@@ -108,6 +118,73 @@ public sealed partial class TerrainEditorControl
         return page;
     }
 
+    private static Button DecorateAction(string name, string text, string description, Action action)
+    {
+        Button button = MakeContextAction(text, description, action);
+        button.Name = name;
+        return button;
+    }
+
+    /// <summary>The armed water tool (Decorate › Water arms Fill Basin).</summary>
+    public WaterAuthoringTool ActiveWaterTool => _waterTool;
+
+    /// <summary>
+    /// The Forests and scatter dialog on this terrain's layers, offering the project's Models and
+    /// making new ones (New model › Pine, Oak or Boulder).
+    /// </summary>
+    public TerrainScatterDialog CreateScatterDialog()
+    {
+        IEnumerable<string> models = string.IsNullOrWhiteSpace(ProjectRoot)
+            ? Array.Empty<string>()
+            : Genesis.Shared.Assets.ResourceCatalog.For(ProjectRoot).Entries
+                .Where(entry => entry.Type == Genesis.Shared.Assets.ResourceType.Model).Select(entry => entry.Name);
+        return new TerrainScatterDialog(_nature.ScatterLayers, models, _settings.Layers.Select(layer => layer.Name).ToArray(), ProjectRoot);
+    }
+
+    /// <summary>
+    /// Decorate › Meadow flowers and grass: the Meadow ecological scatter (meadow grass, wildflowers
+    /// and tall grass on the painted grass) and grass grown around the camera with the Nature Walk's
+    /// look. Two undo steps: the scatter, then the grass.
+    /// </summary>
+    public void ApplyMeadowFlowersAndGrass()
+    {
+        FoliageScatterSettings meadow = Clone(_nature.FoliageSettings);
+        meadow.Preset = FoliagePreset.Meadow;
+        ScatterFoliage(meadow);
+        RefreshComponentsPanel();
+        RefreshTerrainSettingsBindings();
+
+        TerrainGrassRuleSettings grass = _nature.GrassRule.Clone();
+        grass.Enabled = true;
+        grass.Species = FoliageSpecies.MeadowGrass;
+        grass.Radius = 90f;
+        grass.Spacing = 0.3f;
+        grass.MinimumScale = 0.5f;
+        grass.MaximumScale = 0.85f;
+        ApplyGrassRule(grass);
+        RebindGrassRuleForm();
+        _statusLabel.Text = "Meadow flowers and grass added · grass grows around the camera";
+    }
+
+    /// <summary>Decorate › Water: Fill Basin armed, so the next click in a valley or crater makes a lake.</summary>
+    private void ArmFillBasin()
+    {
+        SetMode(TerrainEditorMode.Water);
+        _waterTool = WaterAuthoringTool.Basin;
+        _pendingWaterKind = TerrainWaterKind.Water;
+        if (_waterKindCombo.Items.Count > 0) _waterKindCombo.SelectedItem = nameof(TerrainWaterKind.Water);
+        SyncToolbar();
+        UpdateStatus();
+        _statusLabel.Text = "Click inside a valley or crater to fill it with a lake";
+    }
+
+    /// <summary>Decorate › Paths: Paint Path armed, as the Paths page's own button does.</summary>
+    private void ArmPaintPath()
+    {
+        _pathTool = PathAuthoringTool.PaintPath;
+        SetMode(TerrainEditorMode.Paths);
+    }
+
     private FlowLayoutPanel? _foliageScatterPage;
     private bool _foliageBrushArmed;
 
@@ -117,6 +194,8 @@ public sealed partial class TerrainEditorControl
         _foliageScatterPage ??= BuildFoliageScatterPage();
         FlowLayoutPanel page = _foliageScatterPage;
         page.Name = "TerrainScatterSettings";
+        // Painted layers may have been renamed since the page was built.
+        LabelGrassLayerDensities();
         DpiAwareForm dialog = new TerrainScatterSettingsDialog(page)
         {
             Text = "Ecological scatter", ClientSize = new Size(640, 760), MinimumSize = new Size(540, 560),

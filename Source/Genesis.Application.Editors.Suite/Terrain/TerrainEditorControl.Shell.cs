@@ -108,27 +108,45 @@ public sealed partial class TerrainEditorControl
         }
         _terrainGameGuide.Controls.Add(MakeContextCaption("Build and play this terrain"));
         Text("1. Create a landscape, Sculpt its heights and Paint its layers. Add paths, water, foliage and other objects as needed. Save writes the heightfield and its owned resources together.");
-        Text("2. Add the saved terrain to a 3D Room. The button below creates a Room containing this terrain at its saved origin and opens Room editing. It does not add a player controller; use the Gate Climbing template for a playable 3D starting project.");
+        Text("2. Make the 3D Room. The button below saves this terrain, creates a 3D Room that contains it at its saved origin and opens the Room. A new project starts with an empty Room called Start. While the first Room is still empty, the new Room becomes the first one, so Run plays it.");
         TextBox name = new() { Name = "TerrainRoomName", Text = ResourceNames.Name(ProjectRoot, ResourcePath) + " Room" };
         EditorChrome.StyleField(name); _terrainGameGuide.Controls.Add(name);
         Label result = MakeContextSummary();
+        result.Name = "TerrainCreateRoomResult";
         Button create = MakeContextAction("Save and create 3D Room", "Create and open a Room using this saved terrain", () =>
         {
-            try { result.Text = "Created " + ResourceNames.Name(ProjectRoot, CreateTerrainRoom(name.Text)) + ". Add a player Object and configure Views, then Play."; }
+            try
+            {
+                string room = ResourceNames.Name(ProjectRoot, CreateTerrainRoom(name.Text, out bool startsTheGame));
+                result.Text = startsTheGame
+                    ? "Created " + room + ". It is the first Room now, so Run plays it. Next, make an Object that walks (steps 3 to 5)."
+                    : "Created " + room + ". The first Room already has things in it, so this one is last and Run still plays the first. To play this one, open it, choose Use in game and press Save and make this the first Room. Or drag it above the first Room in Assets.";
+            }
             catch (Exception exception) when (exception is ArgumentException or IOException or InvalidOperationException) { result.Text = exception.Message; }
             ApplyInterfaceLayout();
         });
         create.Name = "TerrainCreateRoom";
         _terrainGameGuide.Controls.Add(create); _terrainGameGuide.Controls.Add(result);
-        Text("3. In Room, choose Terrain and click to place another instance. Select an instance to edit its placement; open the terrain to edit its landscape. Save those edits to refresh open consumers. Room Play tests that Room; Studio Run starts the project's starting Room.");
-        Text("For moving characters, assign a saved Model and animation in Object, then use its events for movement and gameplay. Use Pathing for routes, Physics for collision and Audio or Particle resources for effects. Export and test the resulting Player on the renderers you intend to support.");
+        Text("3. Make something to play as. In Object, create an Object. On its Behaviour step choose Walk in first person (or Third-person character), then Save. The first-person Object needs no image or model: the camera is its eyes.");
+        Text("4. Place it. In the new Room, choose Objects, pick that Object and click on the terrain. To put more of this terrain in a Room, use its Ground step and click. Select an instance to edit its placement; open the terrain to edit its landscape, and save to refresh open Rooms.");
+        Text("5. Press Run. It plays the project's first Room, the one marked game starts here in Assets. Play in the Room editor tests the Room you have open instead.");
+        Text("For a character with a look, pick a saved Model on the Object's Look step. Use Pathing for routes, Physics for collision and Audio or Particle resources for effects. Export and test the resulting Player on the renderers you intend to support.");
         _terrainGameGuide.Controls.Add(MakeContextAction("Return to terrain editing", "Close these instructions", ShowTerrainAuthoring));
         _showTerrainGuide = true;
         SyncTerrainWorkflowStep();
         ApplyInterfaceLayout();
     }
 
-    public string CreateTerrainRoom(string name)
+    public string CreateTerrainRoom(string name) => CreateTerrainRoom(name, out _);
+
+    /// <summary>
+    /// Saves the terrain and makes a 3D Room around it. The game starts in the project's first Room,
+    /// and a new project's first Room is an empty 2D "Start": left there, Run would play nothing. So
+    /// while the first Room is empty the new Room takes its place. <paramref name="startsTheGame"/> is
+    /// true when the new Room is the first one afterwards; false means the first Room has content,
+    /// the new Room is last, and the person chooses when to put it first.
+    /// </summary>
+    public string CreateTerrainRoom(string name, out bool startsTheGame)
     {
         string validName = ResourceNames.ValidateName(name);
         Save();
@@ -144,9 +162,39 @@ public sealed partial class TerrainEditorControl
         RoomAssetLoader.Save(room, path);
         ProjectAssetWriteRegistry.MarkLocalWrite(path);
         ResourceNames.Invalidate(ProjectRoot);
+        startsTheGame = PutRoomFirstWhileTheFirstIsEmpty(resources, path);
         RequestOpenLinkedResource(path);
         return path;
     }
+
+    /// <summary>
+    /// Puts <paramref name="roomPath"/> first in the room order when the Room the game would start in
+    /// has nothing in it. Returns whether the Room is first afterwards. A first Room that cannot be
+    /// read, or an order that cannot be saved, leaves the order as it was.
+    /// </summary>
+    private bool PutRoomFirstWhileTheFirstIsEmpty(ResourceService resources, string roomPath)
+    {
+        string? first = Genesis.Application.Core.Projects.ProjectRoomOrder.First(resources.Project);
+        if (first is null || string.Equals(first, ResourceNames.Name(ProjectRoot, roomPath), StringComparison.OrdinalIgnoreCase)) return true;
+        try
+        {
+            RoomAsset current = RoomAssetLoader.Parse(ResourceNames.Resolve(ProjectRoot, first, ResourceType.Room));
+            if (!IsEmptyRoom(current)) return false;
+            Genesis.Application.Core.Projects.ProjectRoomOrder.Move(resources.Project, roomPath, first);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or Newtonsoft.Json.JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// True when a player would see and touch nothing in the Room: it has no instances, terrain or
+    /// backgrounds, and no painted tiles. A tile layer that was added but not painted is still empty.
+    /// </summary>
+    private static bool IsEmptyRoom(RoomAsset room) =>
+        room.Nodes.All(node => node.Kind == RoomNodeKind.TileLayer && (node.TileLayer?.Cells?.Count ?? 0) == 0);
 
     private void BuildTerrainShellPanels(Panel right)
     {

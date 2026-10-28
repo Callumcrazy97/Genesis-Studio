@@ -345,6 +345,204 @@ internal static class TerrainWalkthroughSuite
                     call.Shader.IsValid && (call.Flags & MeshDrawFlags.Water) == 0),
                 "F5 still drew the pond through the engine water pass instead of the assigned shader.");
         });
+
+        // The Decorate step dresses a terrain like the Nature Walk in a few clicks.
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Terrain.Decorate.ButtonsOpenTheirTools", () => DecorateButtons(project, resources));
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Terrain.Decorate.NewPineOakAndBoulderMakeModelsAndSolidLayersThatReopen",
+            () => DecorateNewModels(project, resources));
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Terrain.Decorate.MeadowSetsThePresetAndGrassAroundTheCamera", () => DecorateMeadow(project, resources));
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Terrain.Decorate.ModelEditorGenerateStillAddsTreesAndRocks", () => DecorateModelEditorGenerate(project, resources));
+    }
+
+    private static void DecorateButtons(ProjectSession project, ResourceService resources)
+    {
+        string terrainPath = resources.CreateResource(Path.Combine(resources.AssetsRoot, "Terrain"), ResourceKind.Terrain, "Decorate Buttons");
+        using Form host = GateSuite.NewHost(1360, 860);
+        TerrainEditorControl editor = new(terrainPath, project.RootPath) { Dock = DockStyle.Fill };
+        host.Controls.Add(editor);
+        GateSuite.ShowHost(host);
+        GateSuite.Pump(8, 25);
+
+        Genesis.Application.Core.UI.WorkflowBar workflow = HeadlessHarness.Require(editor.TerrainWorkflow, "Terrain workflow bar");
+        HeadlessHarness.Assert(workflow.Steps.Single(step => step.Id == "Decorate").Instruction.Contains("meadow flowers", StringComparison.Ordinal),
+            "The Decorate step does not say where forests, flowers, water and paths are.");
+        HeadlessHarness.Assert(workflow.Activate("Decorate") && editor.ActiveMode == TerrainEditorControl.TerrainEditorMode.Foliage,
+            "The Decorate step did not open the Decorate page.");
+        GateSuite.Pump(3, 20);
+        Button Decorate(string name) => editor.Controls.Find(name, true).OfType<Button>().SingleOrDefault()
+            ?? throw new InvalidOperationException($"The Decorate page has no {name} button.");
+        Button forests = Decorate("TerrainDecorateForests"), meadow = Decorate("TerrainDecorateMeadow");
+        Button water = Decorate("TerrainDecorateWater"), paths = Decorate("TerrainDecoratePaths");
+        HeadlessHarness.Assert(forests.Text == "Forests and scatter…" && meadow.Text == "Meadow flowers and grass"
+            && water.Text == "Water: fill a basin" && paths.Text == "Paths",
+            $"The Decorate buttons read '{forests.Text}', '{meadow.Text}', '{water.Text}', '{paths.Text}'.");
+        HeadlessHarness.Assert(new[] { forests, meadow, water, paths }.All(button => button.Visible && button.Enabled),
+            "The Decorate buttons are not shown on the Decorate page.");
+
+        meadow.PerformClick();
+        HeadlessHarness.Assert(editor.Nature.FoliageSettings.Preset == FoliagePreset.Meadow && editor.GrassRule.Enabled,
+            "Meadow flowers and grass did not set the Meadow scatter and switch grass around the camera on.");
+
+        water.PerformClick();
+        HeadlessHarness.Assert(editor.ActiveMode == TerrainEditorControl.TerrainEditorMode.Water
+            && editor.ActiveWaterTool == TerrainEditorControl.WaterAuthoringTool.Basin,
+            $"Water did not arm Fill Basin (mode {editor.ActiveMode}, tool {editor.ActiveWaterTool}).");
+        HeadlessHarness.Assert(workflow.CurrentStepId == "Decorate", $"Water moved the guide to {workflow.CurrentStepId}.");
+
+        workflow.Activate("Decorate");
+        GateSuite.Pump(2, 20);
+        paths.PerformClick();
+        HeadlessHarness.Assert(editor.ActiveMode == TerrainEditorControl.TerrainEditorMode.Paths
+            && editor.ActivePathTool == TerrainEditorControl.PathAuthoringTool.PaintPath,
+            $"Paths did not open Paint Path (mode {editor.ActiveMode}).");
+
+        // Forests opens this dialog modally (as Options › Forests and scatter does), with New model.
+        using TerrainScatterDialog dialog = editor.CreateScatterDialog();
+        HeadlessHarness.Assert(Enum.GetValues<TerrainScatterDialog.Starter>().All(starter =>
+                dialog.Controls.Find("TerrainScatterNew" + starter, true).OfType<Button>().Any(button => button.Text == starter.ToString())),
+            "Forests and scatter does not offer New model › Pine, Oak and Boulder.");
+    }
+
+    private static void DecorateNewModels(ProjectSession project, ResourceService resources)
+    {
+        string terrainPath = resources.CreateResource(Path.Combine(resources.AssetsRoot, "Terrain"), ResourceKind.Terrain, "Decorate Forest");
+        string pinePath, oakPath, boulderPath;
+        List<TerrainScatterLayer> made;
+        using (TerrainEditorControl editor = new(terrainPath, project.RootPath))
+        {
+            editor.ApplyGeneration(new TerrainGenParams
+            {
+                Preset = TerrainPreset.Flatlands, ResolutionX = 129, ResolutionZ = 129, CellSize = 1f,
+                MinHeight = -8f, MaxHeight = 16f, Seed = 2404,
+            });
+            editor.SelectPaintLayer(0);
+            editor.FillPaintSelection();
+
+            using TerrainScatterDialog dialog = editor.CreateScatterDialog();
+            GateSuite.ShowHost(dialog);
+            GateSuite.Pump(2, 20);
+            HeadlessHarness.Assert(dialog.Controls.Find("TerrainScatterNewModels", true).SingleOrDefault() is { Visible: true },
+                "New model is hidden in a terrain that belongs to a project.");
+            pinePath = dialog.AddStarterLayer(TerrainScatterDialog.Starter.Pine);
+            oakPath = dialog.AddStarterLayer(TerrainScatterDialog.Starter.Oak);
+            boulderPath = dialog.AddStarterLayer(TerrainScatterDialog.Starter.Boulder);
+            made = dialog.Layers.ToList();
+
+            foreach (string path in new[] { pinePath, oakPath, boulderPath })
+            {
+                GModelAsset model = StudioModelResourceLoader.LoadReadOnly(path);
+                // A rounded boulder is a low-poly shape (85 vertices); a tree has thousands.
+                HeadlessHarness.Assert(File.Exists(StudioModelResourceLoader.CanonicalPath(path)) && model.HasRenderableMeshes
+                    && model.Meshes.Sum(mesh => mesh.Vertices?.Length ?? 0) > (path == boulderPath ? 40 : 1000),
+                    $"New model did not make a Model with geometry at {path}.");
+            }
+
+            HeadlessHarness.Assert(made.Count == 3 && made.Select(layer => layer.Name).SequenceEqual(["Pines", "Oaks", "Boulders"]),
+                $"New model made the layers {string.Join(", ", made.Select(layer => layer.Name))}.");
+            TerrainScatterLayer pines = made[0], oaks = made[1], boulders = made[2];
+            HeadlessHarness.Assert(string.Equals(StudioModelResourceLoader.Resolve(project.RootPath, pines.Model), Path.GetFullPath(pinePath), StringComparison.OrdinalIgnoreCase),
+                $"The pine layer's model '{pines.Model}' is not the new Pine Model.");
+            HeadlessHarness.Assert(pines.CollisionRadius > 0.2f && pines.CollisionHeight > 1f && oaks.CollisionRadius > 0.2f && boulders.CollisionRadius > 0.2f,
+                "A new tree or boulder layer can be walked through (no solid width).");
+            HeadlessHarness.Assert(pines.PaintLayerMask == 1 && oaks.PaintLayerMask == 1 && boulders.PaintLayerMask == 15
+                && pines.DensityPerHectare > 0f && pines.MinimumSpacing >= 2f && pines.MaximumSlopeDegrees is > 0f and < 90f,
+                $"The new layers' rules are not the Nature Walk's (paint {pines.PaintLayerMask}/{oaks.PaintLayerMask}/{boulders.PaintLayerMask}).");
+            (int cellsX, int cellsZ) = TerrainScatterPlacement.CellCount(editor.Terrain);
+            int placed = 0;
+            for (int z = 0; z < cellsZ; z++)
+                for (int x = 0; x < cellsX; x++)
+                    placed += TerrainScatterPlacement.Generate(editor.Terrain, pines, x, z).Length;
+            HeadlessHarness.Assert(placed > 5, $"The pine layer placed {placed} trees on a grassy field.");
+
+            editor.SetScatterLayers(made);
+            editor.Save();
+        }
+
+        TerrainScatterLayer savedPines = TerrainNatureSerializer.LoadOrDefault(terrainPath).ScatterLayers.First(layer => layer.Name == "Pines");
+        HeadlessHarness.Assert(savedPines.CollisionRadius == made[0].CollisionRadius && savedPines.Model == made[0].Model,
+            "Saving the terrain lost the pine layer's model or solid width.");
+        using (TerrainEditorControl reopened = new(terrainPath, project.RootPath))
+        {
+            HeadlessHarness.Assert(reopened.ScatterLayers.Count == 3 && reopened.ScatterLayers[0].CollisionRadius == made[0].CollisionRadius,
+                "Reopening the terrain lost the new forest layers.");
+        }
+
+        // The Model editor opens the generated pine as an ordinary Model.
+        using ModelEditorControl pineEditor = new(pinePath, project.RootPath);
+        HeadlessHarness.Assert(pineEditor.PreviewAsset.HasRenderableMeshes, "The Model editor opened the new Pine with no geometry.");
+    }
+
+    private static void DecorateMeadow(ProjectSession project, ResourceService resources)
+    {
+        string terrainPath = resources.CreateResource(Path.Combine(resources.AssetsRoot, "Terrain"), ResourceKind.Terrain, "Decorate Meadow");
+        using (TerrainEditorControl editor = new(terrainPath, project.RootPath))
+        {
+            editor.ApplyGeneration(new TerrainGenParams
+            {
+                Preset = TerrainPreset.Flatlands, ResolutionX = 97, ResolutionZ = 97, CellSize = 1f,
+                MinHeight = -8f, MaxHeight = 16f, Seed = 2405,
+            });
+            editor.SelectPaintLayer(0);
+            editor.FillPaintSelection();
+            HeadlessHarness.Assert(!editor.GrassRule.Enabled, "A new terrain starts with grass around the camera on.");
+
+            // The grass rule's densities are named after the painted layers.
+            using (Form scatter = editor.CreateScatterSettingsDialog())
+            {
+                Control density = scatter.Controls.Find("InspectorDrawer_Layer1Density", true).Single();
+                Control.ControlCollection rows = density.Parent!.Controls;
+                string caption = rows[rows.IndexOf(density) - 1].Text;
+                HeadlessHarness.Assert(caption == "Layer 1 (Grass) density", $"The first grass density reads '{caption}'.");
+            }
+
+            editor.ApplyMeadowFlowersAndGrass();
+            HeadlessHarness.Assert(editor.Nature.FoliageSettings.Preset == FoliagePreset.Meadow, "Meadow did not choose the Meadow scatter.");
+            HeadlessHarness.Assert(editor.Foliage.Instances.Count > 200 && editor.Foliage.Instances.Any(instance => instance.Species == FoliageSpecies.Wildflower),
+                $"Meadow grew {editor.Foliage.Instances.Count} plants and no wildflowers.");
+            HeadlessHarness.Assert(editor.GrassRule is { Enabled: true, Species: FoliageSpecies.MeadowGrass } && editor.GrassRule.Density(0) > 0f,
+                "Meadow did not switch grass around the camera on over the grass layer.");
+            using (Form scatter = editor.CreateScatterSettingsDialog())
+            {
+                HeadlessHarness.Assert(scatter.Controls.Find("InspectorDrawer_Enabled", true).OfType<CheckBox>().FirstOrDefault() is { Checked: true },
+                    "The grass fields still show grass around the camera off after Meadow.");
+            }
+
+            editor.Undo();
+            HeadlessHarness.Assert(!editor.GrassRule.Enabled && editor.Nature.FoliageSettings.Preset == FoliagePreset.Meadow,
+                "The first undo after Meadow should switch the grass off and keep the flowers.");
+            editor.Undo();
+            HeadlessHarness.Assert(editor.Nature.FoliageSettings.Preset != FoliagePreset.Meadow, "The second undo did not take the Meadow scatter back.");
+            editor.Redo();
+            editor.Redo();
+            editor.Save();
+        }
+
+        using TerrainEditorControl reopened = new(terrainPath, project.RootPath);
+        HeadlessHarness.Assert(reopened.GrassRule.Enabled && reopened.Nature.FoliageSettings.Preset == FoliagePreset.Meadow,
+            "Reopening the terrain lost the meadow or its grass around the camera.");
+    }
+
+    private static void DecorateModelEditorGenerate(ProjectSession project, ResourceService resources)
+    {
+        string modelPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Model), ResourceKind.Model, "Decorate Generated");
+        var tree = new ProceduralTreeOptions { Preset = ProceduralTreePreset.StylisedConifer, Quality = ProceduralModelQuality.Draft, Seed = 8103 };
+        int treeVertices = GeneratedModels.Tree(tree).Meshes.Single().Vertices.Length;
+        using (ModelEditorControl model = new(modelPath, project.RootPath))
+        {
+            int before = model.PreviewAsset.Meshes.Count;
+            model.AddGeneratedTree(tree);
+            model.AddGeneratedRock(new ProceduralRockOptions { Quality = ProceduralModelQuality.Draft });
+            HeadlessHarness.Assert(model.PreviewAsset.Meshes.Count == before + 2 && model.PreviewAsset.Meshes[before].Vertices.Length == treeVertices,
+                $"Generate › Tree and Rock added {model.PreviewAsset.Meshes.Count - before} part(s).");
+            model.Undo();
+            HeadlessHarness.Assert(model.PreviewAsset.Meshes.Count == before + 1, "Undo did not take the generated rock back.");
+            model.Redo();
+            model.Save();
+            HeadlessHarness.Assert(File.Exists(model.CanonicalModelPath) && !model.IsDirty, "The generated model was not saved.");
+        }
+
+        GModelAsset saved = StudioModelResourceLoader.LoadReadOnly(modelPath);
+        HeadlessHarness.Assert(saved.Meshes.Sum(mesh => mesh.Vertices?.Length ?? 0) >= treeVertices, "The saved model lost the generated tree.");
     }
 
     private static string CreateTreeEntity(

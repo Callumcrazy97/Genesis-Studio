@@ -24,8 +24,9 @@ A quick game is good because it is looked at many times. Keep each round short:
 "Genesis Application.exe" --automation "<project>" call game.run "{\"steps\":[{\"seconds\":4},{\"seconds\":3,\"hold\":[\"W\"]}],\"shots\":[3.5,7]}"
 ```
 
-`game.run` starts the game about 0.6 s after the input begins: begin `steps` with a pause of a
-second or more. A new project already has a room called Start, so give yours another name.
+`game.run` starts the input with the first frame of play, once the first room is on screen, and
+plays it by the clock: `steps` and `shots` both count seconds of play from that frame, at any frame
+rate. A new project already has a room called Start, so give yours another name.
 
 ## A 3D place
 
@@ -40,7 +41,7 @@ second or more. A new project already has a room called Start, so give yours ano
 | Trees and rocks | `model.create` from primitives (Cylinder trunk, Cone or Sphere crowns), then `terrain.addScatterLayer` with density, spacing, height, slope, clumps, `collisionRadius` for trunks. |
 | A lake, a river, the sea | `terrain.addWater` (`Lake` with `sizeX`, `sizeZ`, `surfaceHeight`; `River` along points; `Ocean`). |
 | Dust in the light, fire, rain | `particle.create` from a preset (`DustMotes`, `Fire`, `Smoke`, `Snow`, `Rain`, `Magic`...), on an Object with `object.setComponent` `ParticleComponent`. |
-| Wind and birdsong | `audio.synth` (`Wind` preset; bird chirps as sine layers gliding up), then the room's `windAudio` and `wildlifeAudio`: the engine plays them. |
+| Wind, birdsong, footsteps | `audio.synth` with a preset (`Wind`, `Birdsong`, `Footstep Grass`, `Footstep Path`), or the Audio editor's Make a sound; then the room's `windAudio` and `wildlifeAudio`: the engine plays them. |
 
 ## A 2D level
 

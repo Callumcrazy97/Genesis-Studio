@@ -1419,7 +1419,14 @@ internal static class SuiteEditorSuite
             HeadlessHarness.Assert(File.Exists(terrain + ".gterrain"), "Wizard terrain did not write its binary sidecar.");
             string? openedRoom = null;
             editor.OpenLinkedResourceRequested += (_, path) => openedRoom = path;
+            string? firstBefore = ProjectRoomOrder.First(new ProjectService().OpenProject(project.RootPath));
             string gameplayRoom = editor.CreateTerrainRoom("Wizard terrain gameplay");
+            // Use in game makes the terrain's Room the first one when the first Room is empty, as this
+            // shared project's is: put the old first Room back for the cases after this one.
+            ProjectSession onDisk = new ProjectService().OpenProject(project.RootPath);
+            string? firstAfter = ProjectRoomOrder.First(onDisk);
+            if (firstBefore is not null && firstAfter is not null && !string.Equals(firstBefore, firstAfter, StringComparison.OrdinalIgnoreCase))
+                ProjectRoomOrder.Move(onDisk, firstBefore, firstAfter);
             RoomAsset savedRoom = RoomAssetLoader.Parse(gameplayRoom);
             RoomNode savedTerrain = savedRoom.Nodes.Single(node => node.Kind == RoomNodeKind.Terrain);
             HeadlessHarness.Assert(openedRoom == gameplayRoom && savedRoom.Dimension == RoomDimension.ThreeD

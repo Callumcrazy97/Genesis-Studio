@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Genesis.Application.Core.Automation;
 using Genesis.Runtime;
 using Genesis.Runtime.Input;
 using Genesis.Runtime.Project;
@@ -14,7 +15,8 @@ namespace Genesis.Application.Headless.Suites;
 /// Input recording and replay: a script records a run driven by simulated devices with uneven
 /// time steps, a second run replays it while the devices do something else, and the script must
 /// see the same input, time steps, window size and random numbers on every frame and end in the
-/// same place. Then the file format, Escape and the hand-back to the real devices.
+/// same place. Then the file format, Escape and the hand-back to the real devices, and an
+/// automation run's scripted input, which is played by the clock at whatever frame rate.
 /// </summary>
 internal static class InputReplaySuite
 {
@@ -177,6 +179,127 @@ internal static class InputReplaySuite
                 InputReplay.Reset();
             }
         });
+
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.InputReplay.ScriptedInputPlaysByTheClockKeepingPressesAndLook", () =>
+        {
+            // game.run's walk: stand, walk, jump while walking and turning, stand. Played uncapped,
+            // slowly and unevenly it must last its seconds of play, keep the game's own time steps,
+            // press and let go of each key once and turn exactly the written turn.
+            var steps = new List<GameRunCommands.InputStep>
+            {
+                new() { Seconds = 0.5f },
+                new() { Seconds = 1f, Hold = ["W"] },
+                new() { Seconds = 0.5f, Hold = ["W"], Press = ["Space"], Look = [90f, -30f] },
+                new() { Seconds = 0.25f },
+            };
+            InputFrame[] written = GameRunCommands.Frames(steps);
+            string path = Path.Combine(ctx.Workspace, "InputReplayClock", "walk.ginput");
+            GameRunCommands.WriteInput(path, 3, written);
+            HeadlessHarness.Assert(InputReplay.TryRead(path, out _, out InputFrame[] read, out InputPlayback playback, out string error)
+                && playback == InputPlayback.ByClock && read.Length == written.Length,
+                "game.run's input was not saved to be played by the clock: " + error);
+            double seconds = written.Sum(frame => (double)frame.Delta), heldW = 1.5;
+            double lookX = written.Sum(frame => (double)frame.LookX), lookY = written.Sum(frame => (double)frame.LookY);
+            HeadlessHarness.Assert(Math.Abs(lookX - 45) < 1e-3 && Math.Abs(lookY + 15) < 1e-3, $"The written turn was {lookX}, {lookY}; expected 45, -15.");
+
+            var rates = new (string Name, Func<int, float> Step)[]
+            {
+                ("uncapped (900 frames a second)", _ => 1f / 900f),
+                ("at the written rate (60 a second)", _ => 1f / 60f),
+                ("slowly (10 a second)", _ => 0.1f),
+                ("unevenly", frame => (frame % 4) switch { 0 => 0.004f, 1 => 0.05f, 2 => 1f / 60f, _ => 0.2f }),
+            };
+            var lines = new List<string>();
+            foreach ((string name, Func<int, float> step) in rates)
+            {
+                ClockRun run = PlayByClock(path, step);
+                lines.Add($"{name}: {run.Rendered} frames, finished at {run.PlayedWhenFinished:0.####} s, W held {run.HeldW:0.####} s, "
+                    + $"W {run.WPressed}/{run.WReleased}, Space {run.SpacePressed}/{run.SpaceReleased}, look {run.LookX:0.####}, {run.LookY:0.####}");
+                HeadlessHarness.Assert(run.DeltaKept && run.Started == 1,
+                    $"Played {name}, the replay changed the game's time step, or did not restart the fixed-step clock once.");
+                HeadlessHarness.Assert(run.PlayedWhenFinished >= seconds - 1e-4 && run.PlayedWhenFinished < seconds + run.Longest + 1e-4,
+                    $"Played {name}, the {seconds:0.##} s of input finished after {run.PlayedWhenFinished:0.####} s of play.");
+                HeadlessHarness.Assert(run.WPressed == 1 && run.WReleased == 1 && run.SpacePressed == 1 && run.SpaceReleased == 1,
+                    $"Played {name}, a press or release did not come exactly once: {lines[^1]}");
+                HeadlessHarness.Assert(Math.Abs(run.HeldW - heldW) <= run.Longest + 1e-4,
+                    $"Played {name}, W was held for {run.HeldW:0.####} s of play; it was written for {heldW} s.");
+                HeadlessHarness.Assert(Math.Abs(run.LookX - lookX) < 1e-3 && Math.Abs(run.LookY - lookY) < 1e-3,
+                    $"Played {name}, the camera turned {run.LookX}, {run.LookY}; the input turns {lookX}, {lookY}.");
+                HeadlessHarness.Assert(run.EndedToEnd && !run.HeldAfterEnd,
+                    $"Played {name}, the replay did not hand back to the devices, letting go of W, the frame after its end.");
+            }
+            // At the rate it was written for it is played a recorded frame a frame, as a recording is.
+            HeadlessHarness.Assert(PlayByClock(path, _ => 1f / 60f).Rendered == written.Length,
+                "Played at its own rate, scripted input did not take one recorded frame a frame.");
+            File.WriteAllLines(Path.Combine(ctx.Captures, "input-replay-clock.txt"), lines);
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.InputReplay.RecordingsStayFrameByFrameAndVersionOneFilesStillPlay", () =>
+        {
+            string folder = Path.Combine(ctx.Workspace, "InputReplayVersions");
+            Directory.CreateDirectory(folder);
+            string path = Path.Combine(folder, "recorded.ginput");
+            float[] recordedSteps = [0.033f, 0.0125f, 1f / 60f, 0.05f, 0.002f, 1f / 30f];
+            try
+            {
+                InputReplay.Reset();
+                var input = new InputState();
+                HeadlessHarness.Assert(InputReplay.StartRecording(path, seed: 11), "Recording could not start: " + InputReplay.LastError);
+                for (int i = 0; i < recordedSteps.Length; i++)
+                {
+                    if (i == 2) input.OnKeyDown(Key.W);
+                    float delta = recordedSteps[i];
+                    int width = 640, height = 480;
+                    InputReplay.BeginFrame(input, ref delta, ref width, ref height, out _);
+                    input.NextFrame();
+                }
+                HeadlessHarness.Assert(InputReplay.StopRecording() == recordedSteps.Length, "Every frame should have been recorded.");
+                HeadlessHarness.Assert(InputReplay.TryRead(path, out int seed, out InputFrame[] frames, out InputPlayback playback, out string error)
+                    && seed == 11 && frames.Length == recordedSteps.Length && playback == InputPlayback.FrameByFrame,
+                    "A recording should be saved to be played frame by frame: " + error);
+
+                // Played uncapped, a recording is still the recording: a frame each, with its time step.
+                PlayFrameByFrame(input, path, recordedSteps, "A recording");
+
+                // A version 1 file (no word saying how it is played, 16 bytes of header) is a recording.
+                byte[] saved = File.ReadAllBytes(path);
+                HeadlessHarness.Assert(BitConverter.ToInt32(saved, 8) == InputReplay.FormatVersion && InputReplay.FormatVersion == 2,
+                    "Recordings should be saved as version 2 of the format.");
+                string old = Path.Combine(folder, "version1.ginput");
+                using (var writer = new BinaryWriter(File.Create(old)))
+                {
+                    writer.Write(saved, 0, 8);
+                    writer.Write(1);
+                    writer.Write(11);
+                    writer.Write(saved, 20, saved.Length - 20);
+                }
+                HeadlessHarness.Assert(InputReplay.TryRead(old, out int oldSeed, out InputFrame[] oldFrames, out InputPlayback oldPlayback, out string oldError)
+                    && oldSeed == 11 && oldFrames.Length == recordedSteps.Length && oldPlayback == InputPlayback.FrameByFrame,
+                    "A version 1 recording was not read as a recording: " + oldError);
+                PlayFrameByFrame(input, old, recordedSteps, "A version 1 recording");
+
+                // A version this Player does not know is refused, saying which.
+                byte[] future = (byte[])saved.Clone();
+                BitConverter.GetBytes(InputReplay.FormatVersion + 1).CopyTo(future, 8);
+                string futurePath = Path.Combine(folder, "future.ginput");
+                File.WriteAllBytes(futurePath, future);
+                HeadlessHarness.Assert(!InputReplay.StartReplay(futurePath) && InputReplay.LastError.Contains("version 3", StringComparison.Ordinal),
+                    "A recording from a later format was played, or refused without saying why: " + InputReplay.LastError);
+
+                // Asked to, a recording is played by the clock: the game's time step is kept.
+                HeadlessHarness.Assert(InputReplay.StartReplay(path, InputPlayback.ByClock) && InputReplay.Playback == InputPlayback.ByClock,
+                    "A recording could not be played by the clock when asked: " + InputReplay.LastError);
+                float kept = 1f / 900f;
+                int keptWidth = 640, keptHeight = 480;
+                InputReplay.BeginFrame(input, ref kept, ref keptWidth, ref keptHeight, out _);
+                HeadlessHarness.Assert(kept == 1f / 900f && InputReplay.Frame == 1,
+                    "A recording played by the clock replaced the game's time step.");
+            }
+            finally
+            {
+                InputReplay.Reset();
+            }
+        });
     }
 
     private static void Step(InputState input)
@@ -185,6 +308,81 @@ internal static class InputReplaySuite
         int width = 640, height = 480;
         if (InputReplay.IsActive) InputReplay.BeginFrame(input, ref delta, ref width, ref height, out _);
         input.NextFrame();
+    }
+
+    /// <summary>Plays a recording uncapped and checks it is played a frame a frame with its own time steps: W from its third frame.</summary>
+    private static void PlayFrameByFrame(InputState input, string path, float[] recordedSteps, string what)
+    {
+        HeadlessHarness.Assert(InputReplay.StartReplay(path) && InputReplay.Playback == InputPlayback.FrameByFrame,
+            $"{what} could not be replayed frame by frame: {InputReplay.LastError}");
+        for (int i = 0; i < recordedSteps.Length; i++)
+        {
+            float delta = 1f / 900f;
+            int width = 1920, height = 1080;
+            InputReplay.BeginFrame(input, ref delta, ref width, ref height, out _);
+            HeadlessHarness.Assert(delta == recordedSteps[i] && InputReplay.Frame == i + 1 && width == 640 && height == 480
+                && input.IsDown(Key.W) == (i >= 2) && input.WasPressed(Key.W) == (i == 2),
+                $"{what}, replayed, differed from what was recorded in frame {i + 1}: time step {delta}, frame {InputReplay.Frame}, window {width}x{height}.");
+            input.NextFrame();
+        }
+        InputReplay.StopReplay();
+        Step(input);
+    }
+
+    private sealed class ClockRun
+    {
+        public int Rendered, Started, WPressed, WReleased, SpacePressed, SpaceReleased;
+        public double PlayedWhenFinished = -1, HeldW, Longest, LookX, LookY;
+        public bool DeltaKept = true, EndedToEnd, HeldAfterEnd;
+    }
+
+    /// <summary>
+    /// Plays a replay by the clock with the given time steps, as the host does (the replay takes the
+    /// frame's input, the game reads it, the frame's presses end), until it hands back to the devices.
+    /// </summary>
+    private static ClockRun PlayByClock(string path, Func<int, float> step)
+    {
+        var run = new ClockRun();
+        bool? ranToEnd = null;
+        void OnEnded(bool toEnd) => ranToEnd = toEnd;
+        InputReplay.ReplayEnded += OnEnded;
+        try
+        {
+            InputReplay.Reset();
+            HeadlessHarness.Assert(InputReplay.StartReplay(path) && InputReplay.Playback == InputPlayback.ByClock,
+                "Scripted input did not start playing by the clock: " + InputReplay.LastError);
+            var input = new InputState();
+            double played = 0;
+            for (int i = 0; i < 100_000 && InputReplay.IsActive; i++)
+            {
+                float delta = step(i), given = delta;
+                int width = 640, height = 480;
+                InputReplay.BeginFrame(input, ref delta, ref width, ref height, out bool started);
+                if (InputReplay.Mode != InputReplayMode.Replaying) break;
+                run.Rendered++;
+                if (started) run.Started++;
+                played += given;
+                run.Longest = Math.Max(run.Longest, given);
+                run.DeltaKept &= delta == given;
+                if (input.WasPressed(Key.W)) run.WPressed++;
+                if (input.WasReleased(Key.W)) run.WReleased++;
+                if (input.WasPressed(Key.Space)) run.SpacePressed++;
+                if (input.WasReleased(Key.Space)) run.SpaceReleased++;
+                if (input.IsDown(Key.W)) run.HeldW += given;
+                run.LookX += input.LookDelta.X;
+                run.LookY += input.LookDelta.Y;
+                if (InputReplay.Finished && run.PlayedWhenFinished < 0) run.PlayedWhenFinished = played;
+                input.NextFrame();
+            }
+            run.EndedToEnd = ranToEnd == true && !InputReplay.IsActive;
+            run.HeldAfterEnd = input.IsDown(Key.W);
+        }
+        finally
+        {
+            InputReplay.ReplayEnded -= OnEnded;
+            InputReplay.Reset();
+        }
+        return run;
     }
 
     private sealed class PlayEnd

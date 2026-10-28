@@ -1,5 +1,7 @@
 using System.Windows.Forms;
+using Genesis.Application.Core.Diagnostics;
 using Genesis.Application.Core.Projects;
+using Genesis.Application.Core.Settings;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Core.Images;
 using Genesis.Application.Core.UI;
@@ -12,6 +14,7 @@ using Genesis.Application.Editors.Suite.Objects;
 using Genesis.Application.Editors.Suite.Rooms;
 using Genesis.Application.Editors.Suite.Scripts;
 using Genesis.Application.Editors.Suite.Terrain;
+using Genesis.Application.Studio;
 using Genesis.Application.Studio.Forms;
 using Genesis.Runtime.Scripting;
 
@@ -179,6 +182,25 @@ internal static class ClearWorkflowSuite
                 "The first game is no longer four numbered steps matching Home.");
             HeadlessHarness.Assert(GuideViewerForm.PlainText("**Run** the *game* with `F5`") == "Run the game with F5",
                 "Inline marks are not removed from displayed text.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Clear.Guide.TheThreeDSceneStepsEndInTheFirstRoom", () =>
+        {
+            // Following "Making a 3D scene" must end in the 3D Room, not the empty Start Room a new project
+            // begins with: the guide says the new Room takes its place, and Run plays the first Room.
+            string path = StudioShellForm.FindDocumentation(AppContext.BaseDirectory, GuideViewerForm.GettingStartedFile)
+                ?? throw new InvalidOperationException("Documentation/GettingStarted.md was not found from the test host.");
+            GuideBlock[] steps = Section(GuideViewerForm.Parse(File.ReadAllText(path)), "Making a 3D scene")
+                .Where(block => block.Kind == GuideBlockKind.Numbered).ToArray();
+            GuideBlock useInGame = steps.Single(block => block.Number == 2);
+            HeadlessHarness.Assert(useInGame.Text.Contains("Start", StringComparison.Ordinal) && useInGame.Text.Contains("first Room", StringComparison.Ordinal),
+                "Step 2 of the 3D scene does not say what happens to the empty Start Room and the first Room.");
+            HeadlessHarness.Assert(steps.Single(block => block.Number == 6).Text.Contains("first Room", StringComparison.Ordinal),
+                "The Run step of the 3D scene does not tell a beginner that Run plays the first Room.");
+            string[] titles = ObjectBehaviourRecipes.All.Select(recipe => recipe.Title).ToArray();
+            string[] walking = BoldRuns(steps.Single(block => block.Number == 5).Text).ToArray();
+            HeadlessHarness.Assert(walking.Length > 0 && walking.All(name => titles.Contains(name)),
+                "The walking step names a recipe the Object editor does not offer: " + string.Join(", ", walking.Except(titles)));
         });
 
         HeadlessHarness.RunCase(context.Report, "Clear.Guide.CookbookPgslCompilesAndNamesRealRecipes", () =>
@@ -355,19 +377,144 @@ internal static class ClearWorkflowSuite
             GateSuite.ShowHost(host);
             GateSuite.Pump(8, 20);
             HeadlessHarness.Assert(!editor.ViewMode3D && !editor.Room.Environment.DynamicSky, "A new room was not a 2D room without a sky.");
+            // A painted look's choices outlive the sky: the environment is copied whole.
+            editor.Room.Environment.Shadows = false;
+            editor.Room.Environment.ToneMapping = false;
             editor.SwitchDimensionFromToolbar(threeD: true);
             GateSuite.Pump(4, 10);
             HeadlessHarness.Assert(editor.ViewMode3D && editor.Room.Environment.DynamicSky && editor.Room.Environment.TimeScale == 0f
                 && editor.Room.Environment.AtmospherePreset == "ClearDay",
                 "Switching a room with no sky to 3D did not give it a sunny day.");
+            HeadlessHarness.Assert(!editor.Room.Environment.Shadows && !editor.Room.Environment.ToneMapping,
+                "Giving the room a sky turned its shadows or tone mapping back on.");
             editor.Undo();
             GateSuite.Pump(4, 10);
             HeadlessHarness.Assert(!editor.ViewMode3D && !editor.Room.Environment.DynamicSky, "One undo did not take back both the switch and the sky.");
+            editor.Redo();
+            GateSuite.Pump(4, 10);
+            HeadlessHarness.Assert(editor.ViewMode3D && editor.Room.Environment.DynamicSky && !editor.Room.Environment.Shadows,
+                "Redo did not bring back the 3D room and its sky as they were.");
+            editor.Undo();
             editor.ApplyScenePreset("Indoor");
             editor.SwitchDimensionFromToolbar(threeD: true);
             editor.SwitchDimensionFromToolbar(threeD: false);
             editor.SwitchDimensionFromToolbar(threeD: true);
             HeadlessHarness.Assert(editor.ViewMode3D && editor.Room.Environment.DynamicSky, "Switching back to 3D lost the sky it was given.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Editor.Workflow.TerrainRoomStartsTheGameWhenTheFirstRoomIsEmpty", () =>
+        {
+            // A new project's only Room is an empty 2D "Start", and Run plays the first Room. Use in game on
+            // a Terrain has to put its 3D Room first, or Run plays the empty Start and shows nothing.
+            ProjectSession project = NewProject(fixture, "Terrain Starts The Game");
+            HeadlessHarness.Assert(ProjectRoomOrder.First(project) == "Start", "A new project does not begin with its empty Start Room first.");
+            (string created, string guideText) = UseTerrainInGame(project, "Starter Ground", "Starter World");
+
+            ProjectSession reopened = new ProjectService().OpenProject(project.RootPath);
+            HeadlessHarness.Assert(ProjectRoomOrder.Rooms(reopened).SequenceEqual(["Starter World", "Start"]) && reopened.Manifest.StartRoom == "Starter World",
+                "The terrain's Room did not take the empty first Room's place (or the empty Room was lost): " + string.Join(", ", ProjectRoomOrder.Rooms(reopened)));
+            HeadlessHarness.Assert(Genesis.Runtime.Project.ProjectRunLauncher.RoomToStart(project.RootPath, null) == "Starter World",
+                "A run without a Room (automation's game.run) does not start in the terrain's Room.");
+            HeadlessHarness.Assert(created.Contains("first Room", StringComparison.Ordinal) && created.Contains("Run plays it", StringComparison.Ordinal),
+                "The result does not say the new Room now starts the game: " + created);
+
+            // The steps after the button name a real recipe and no longer point at a hidden template.
+            string[] recipes = ObjectBehaviourRecipes.All.Select(recipe => recipe.Title).ToArray();
+            HeadlessHarness.Assert(guideText.Contains("Walk in first person", StringComparison.Ordinal) && recipes.Contains("Walk in first person")
+                && !guideText.Contains("Gate Climbing", StringComparison.Ordinal) && !guideText.Contains("player controller", StringComparison.Ordinal),
+                "The Terrain guide does not lead to Behaviour > Walk in first person, or still mentions the Gate Climbing template.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Editor.Workflow.TerrainRoomKeepsTheFirstRoomWhenItHasContent", () =>
+        {
+            // A first Room with an Object in it is somebody's game: the terrain's Room goes last, and the
+            // result says how to make it the first.
+            ProjectSession project = NewProject(fixture, "Terrain Keeps The Start");
+            ResourceService resources = new(project);
+            resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.GameObject), ResourceKind.GameObject, "Start Keeper");
+            string startPath = Path.Combine(project.AssetsPath, "Rooms", "Start.room.json");
+            Genesis.Runtime.Scene.RoomAsset start = Genesis.Runtime.Scene.RoomAssetLoader.Parse(startPath);
+            start.Nodes.Add(new Genesis.Runtime.Scene.RoomNode
+            {
+                Name = "Keeper", Kind = Genesis.Runtime.Scene.RoomNodeKind.GameObject, LayerId = start.Layers[0].Id,
+                GameObject = new Genesis.Runtime.Scene.RoomGameObjectData { Prefab = "Start Keeper" },
+            });
+            Genesis.Runtime.Scene.RoomAssetLoader.Save(start, startPath);
+
+            (string created, _) = UseTerrainInGame(project, "Hill Ground", "Hill World");
+
+            ProjectSession reopened = new ProjectService().OpenProject(project.RootPath);
+            HeadlessHarness.Assert(ProjectRoomOrder.Rooms(reopened).SequenceEqual(["Start", "Hill World"]) && reopened.Manifest.StartRoom == "Start",
+                "A first Room with an Object in it was displaced by the terrain's Room: " + string.Join(", ", ProjectRoomOrder.Rooms(reopened)));
+            HeadlessHarness.Assert(created.Contains("make this the first Room", StringComparison.Ordinal) && created.Contains("last", StringComparison.Ordinal),
+                "The result does not say how to make the new Room the first one: " + created);
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Studio.Shell.TakesTheRoomOrderAnEditorSaved", () =>
+        {
+            // Editors save a new Room order through their own copy of the project. The open window must
+            // take it, or Run plays the old first Room and the window's next save writes the old order back.
+            ProjectSession project = NewProject(fixture, "Shell Takes The Order");
+            var services = new StudioServices(new SettingsService(Path.Combine(project.RootPath, "shell.settings.json")),
+                new ProjectService(), new ProjectValidator(), new StudioLog(Path.Combine(context.Logs, "shell-room-order.log")));
+            services.Settings.Current.Runtime.VSyncInPreview = false;
+            using var shell = new StudioShellForm(services, project, persistLayout: false);
+            GateSuite.ShowHost(shell);
+            string world = new ResourceService(project).CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.Room), ResourceKind.Room, "Order World");
+            ProjectSession editorCopy = new ProjectService().OpenProject(project.RootPath);
+            ProjectRoomOrder.Move(editorCopy, world, ProjectRoomOrder.First(editorCopy));
+            GateSuite.Pump(4, 10);
+            HeadlessHarness.Assert(shell.Project.Manifest.StartRoom == "Order World" && ProjectRoomOrder.First(shell.Project) == "Order World",
+                "The window kept its old first Room after an editor saved a new order: " + shell.Project.Manifest.StartRoom);
+            new ProjectService().Save(shell.Project);
+            HeadlessHarness.Assert(new ProjectService().OpenProject(project.RootPath).Manifest.StartRoom == "Order World",
+                "The window's next save wrote the old Room order back.");
+        });
+
+        HeadlessHarness.RunCase(context.Report, "Editor.Workflow.TheRoomGuideMakesThisRoomTheFirstOne", () =>
+        {
+            // The guide's third step says "make this the first Room"; its button does it, in 2D and 3D alike.
+            ProjectSession project = NewProject(fixture, "Room Guide Makes First");
+            string path = new ResourceService(project).CreateResource(fixture.Folder(project, "Rooms"), ResourceKind.Room, "Second Room");
+            using Form host = GateSuite.NewHost(1440, 900);
+            using RoomEditorControl editor = new(path, project.RootPath);
+            host.Controls.Add(editor);
+            GateSuite.ShowHost(host);
+            GateSuite.Pump(8, 20);
+            FlowLayoutPanel OpenGuide()
+            {
+                HeadlessHarness.Assert(editor.RoomWorkflow?.Activate("UseInGame") == true, "The Room has no Use in game step.");
+                GateSuite.Pump(2, 10);
+                return Descendants(editor).OfType<FlowLayoutPanel>().Single(panel => panel.Name == "RoomUseInGame");
+            }
+            string GuideText(Control guide) => string.Join("\n", guide.Controls.OfType<Label>().Select(label => label.Text));
+            string FirstRoomOnDisk() => ProjectRoomOrder.First(new ProjectService().OpenProject(project.RootPath)) ?? "";
+
+            FlowLayoutPanel twoDGuide = OpenGuide();
+            HeadlessHarness.Assert(!editor.ViewMode3D && GuideText(twoDGuide).Contains("Tilesets", StringComparison.Ordinal)
+                && !GuideText(twoDGuide).Contains("Walk in first person", StringComparison.Ordinal),
+                "The 2D Room guide lost its tile steps or talks about first-person walking.");
+            HeadlessHarness.Assert(FirstRoomOnDisk() == "Start", "The project did not begin with Start as its first Room.");
+            twoDGuide.Controls.OfType<Button>().Single(button => button.Name == "RoomGuideMakeFirst").PerformClick();
+            GateSuite.Pump(2, 10);
+            HeadlessHarness.Assert(FirstRoomOnDisk() == "Second Room"
+                && new ProjectService().OpenProject(project.RootPath).Manifest.StartRoom == "Second Room",
+                "The guide's button did not put this Room first in the saved project.");
+            HeadlessHarness.Assert(twoDGuide.Controls.OfType<Label>().Single(label => label.Name == "RoomGuideFirstRoomStatus")
+                .Text.Contains("now the first Room", StringComparison.Ordinal), "The guide did not say the Room is now the first.");
+
+            editor.ViewMode3D = true;
+            GateSuite.Pump(4, 10);
+            FlowLayoutPanel threeDGuide = OpenGuide();
+            string threeD = GuideText(threeDGuide);
+            HeadlessHarness.Assert(threeD.Contains("Terrain", StringComparison.Ordinal) && threeD.Contains("Walk in first person", StringComparison.Ordinal)
+                && !threeD.Contains("Tilesets", StringComparison.Ordinal) && !threeD.Contains("platformer", StringComparison.Ordinal),
+                "The 3D Room guide still speaks of tiles and platformers instead of Terrain and a first-person Object.");
+            threeDGuide.Controls.OfType<Button>().Single(button => button.Name == "RoomGuideMakeFirst").PerformClick();
+            GateSuite.Pump(2, 10);
+            HeadlessHarness.Assert(FirstRoomOnDisk() == "Second Room" && threeDGuide.Controls.OfType<Label>()
+                    .Single(label => label.Name == "RoomGuideFirstRoomStatus").Text.Contains("is the first Room", StringComparison.Ordinal),
+                "Pressing the button on the Room that is already first changed the order or did not say so.");
         });
 
         HeadlessHarness.RunCase(context.Report, "Editor.Workflow.ParticleAttachesToAnExistingObject", () =>
@@ -542,6 +689,40 @@ internal static class ClearWorkflowSuite
                 }
             }
         }
+    }
+
+    /// <summary>A blank project of its own, so the Room order a case checks is not changed by the cases around it.</summary>
+    private static ProjectSession NewProject(GateSuite.GateFixture fixture, string name)
+    {
+        Directory.CreateDirectory(fixture.Root);
+        return new ProjectService().CreateProject(fixture.Root, name, "Blank");
+    }
+
+    /// <summary>
+    /// Opens a new Terrain with a landform, presses Use in game, names the Room and presses Save and
+    /// create 3D Room, as a person would. Returns the line the guide shows afterwards and the guide's
+    /// whole text.
+    /// </summary>
+    private static (string Result, string GuideText) UseTerrainInGame(ProjectSession project, string terrainName, string roomName)
+    {
+        string terrainPath = new ResourceService(project).CreateResource(
+            ResourceFolderPolicy.RootFor(project, ResourceKind.Terrain), ResourceKind.Terrain, terrainName);
+        using Form host = GateSuite.NewHost(1280, 820);
+        using TerrainEditorControl terrain = new(terrainPath, project.RootPath);
+        host.Controls.Add(terrain);
+        GateSuite.ShowHost(host);
+        GateSuite.Pump(8, 20);
+        HeadlessHarness.Assert(terrain.LandformGallery?.Choose("RollingHills") == true, "The Rolling hills landform could not be chosen.");
+        Descendants(terrain).OfType<ToolStrip>().SelectMany(strip => strip.Items.OfType<ToolStripButton>())
+            .First(item => item.Text == "Use in game").PerformClick();
+        GateSuite.Pump(4, 10);
+        FlowLayoutPanel guide = Descendants(terrain).OfType<FlowLayoutPanel>().Single(panel => panel.Name == "TerrainUseInGame");
+        Descendants(guide).OfType<TextBox>().Single(box => box.Name == "TerrainRoomName").Text = roomName;
+        Descendants(guide).OfType<Button>().Single(button => button.Name == "TerrainCreateRoom").PerformClick();
+        GateSuite.Pump(4, 10);
+        HeadlessHarness.Assert(!terrain.IsDirty, "Use in game did not save the terrain.");
+        Label[] labels = guide.Controls.OfType<Label>().ToArray();
+        return (labels.Single(label => label.Name == "TerrainCreateRoomResult").Text, string.Join("\n", labels.Select(label => label.Text)));
     }
 
     private static IEnumerable<Control> Descendants(Control root)

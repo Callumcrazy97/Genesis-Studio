@@ -38,7 +38,7 @@ public sealed partial class RoomEditorControl
                     () => OpenRoomSection(RoomNavSection.Backgrounds)),
                 new("Camera", "Camera", "Choose what the player sees: turn on a view and pick what it follows.",
                     () => OpenRoomSection(RoomNavSection.Views)),
-                new("UseInGame", "Use in game", "Save, make this the starting Room, then press Run to play it.",
+                new("UseInGame", "Use in game", "Save, make this the first Room, then press Run to play it.",
                     ShowRoomGameGuide),
             ]
             :
@@ -51,7 +51,7 @@ public sealed partial class RoomEditorControl
                     () => OpenRoomSection(RoomNavSection.Backgrounds)),
                 new("Camera", "Camera", "Choose what the player sees: turn on a view and pick what it follows.",
                     () => OpenRoomSection(RoomNavSection.Views)),
-                new("UseInGame", "Use in game", "Save, make this the starting Room, then press Run to play it.",
+                new("UseInGame", "Use in game", "Save, make this the first Room, then press Run to play it.",
                     ShowRoomGameGuide),
             ]);
         if (current is not null) _roomWorkflow.SetCurrent(current);

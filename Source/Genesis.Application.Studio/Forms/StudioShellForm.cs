@@ -175,6 +175,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         _autoSaveTimer.Tick += (_, _) => AutoSaveTick();
         _services.Settings.SettingsChanged += OnSettingsChanged;
         ThemeService.ThemeChanged += OnThemeChanged;
+        ProjectRoomOrder.OrderSaved += OnRoomOrderSaved;
         ApplyRuntimePreferences();
 
         ProjectOpeningNotice.Step("Applying the theme…");
@@ -1538,6 +1539,30 @@ public sealed partial class StudioShellForm : DpiAwareForm
         ApplyRuntimePreferences();
     }
 
+    /// <summary>
+    /// An editor saved a new Room order through its own copy of this project (the Terrain editor's
+    /// Use in game, the Room guide): this window's copy takes it, so Run plays the new first Room,
+    /// the Assets tree marks it, and the window's next save keeps it.
+    /// </summary>
+    private void OnRoomOrderSaved(ProjectSession saved)
+    {
+        if (IsDisposed || ReferenceEquals(saved, _project)
+            || !string.Equals(Path.GetFullPath(saved.RootPath).TrimEnd('\\', '/'),
+                Path.GetFullPath(_project.RootPath).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(() => OnRoomOrderSaved(saved));
+            return;
+        }
+
+        ProjectRoomOrder.Adopt(_project, saved);
+        _assetBrowser.RefreshTree();
+    }
+
     private void OnThemeChanged(object? sender, EventArgs e)
     {
         if (IsDisposed)
@@ -1740,6 +1765,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
             _playerSession?.Dispose();
             _services.Settings.SettingsChanged -= OnSettingsChanged;
             ThemeService.ThemeChanged -= OnThemeChanged;
+            ProjectRoomOrder.OrderSaved -= OnRoomOrderSaved;
             _assetBrowser.FinderInvalidated -= OnFinderInvalidated;
             _assetMonitor.Changed -= OnProjectAssetsChanged;
             _assetMonitor.Error -= OnAssetMonitorError;

@@ -253,7 +253,7 @@ public static class ObjectBehaviourRecipes
                     walkYaw = AngleNormalise(walkYaw + GetMouseLookDeltaX() * lookSpeed);
                     walkPitch = Clamp(walkPitch - GetMouseLookDeltaY() * lookSpeed, -80, 80);
                     if (Abs(GamepadAxis("RightX")) > 0.15) { walkYaw = AngleNormalise(walkYaw + GamepadAxis("RightX") * 120 * walkDt); }
-                    if (Abs(GamepadAxis("RightY")) > 0.15) { walkPitch = Clamp(walkPitch - GamepadAxis("RightY") * 70 * walkDt, -80, 80); }
+                    if (Abs(GamepadAxis("RightY")) > 0.15) { walkPitch = Clamp(walkPitch + GamepadAxis("RightY") * 70 * walkDt, -80, 80); }
                     var walkAcross = 0;
                     var walkAhead = 0;
                     if (KeyCheck("W") || KeyCheck("Up")) { walkAhead = walkAhead + 1; }

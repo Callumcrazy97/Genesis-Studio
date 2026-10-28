@@ -11,6 +11,24 @@ namespace Genesis.Application.Core.Projects;
 public static class ProjectRoomOrder
 {
     /// <summary>
+    /// Raised after a changed order is saved, with the copy of the project that saved it. Studio's
+    /// window keeps its own copy of the project, while an editor that reorders the Rooms (the
+    /// Terrain editor's Use in game, the Room guide's button) saves through a copy of its own; the
+    /// window takes the new order from here (<see cref="Adopt"/>), or Run would play the old first
+    /// Room and the window's next save would write the old order back.
+    /// </summary>
+    public static event Action<ProjectSession>? OrderSaved;
+
+    /// <summary>Takes the order, and so the starting Room, that another copy of the same project saved.</summary>
+    public static void Adopt(ProjectSession project, ProjectSession saved)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(saved);
+        project.Manifest.RoomOrder = [.. saved.Manifest.RoomOrder ?? []];
+        project.Manifest.StartRoom = saved.Manifest.StartRoom;
+    }
+
+    /// <summary>
     /// Every Room in the project, in order: the saved order first, then Rooms it does not name
     /// yet (new ones) in the order the Assets tree lists them.
     /// </summary>
@@ -92,6 +110,8 @@ public static class ProjectRoomOrder
     {
         project.Manifest.RoomOrder = order;
         if (order.Count > 0) project.Manifest.StartRoom = order[0];
-        if (save) new ProjectService().Save(project);
+        if (!save) return;
+        new ProjectService().Save(project);
+        OrderSaved?.Invoke(project);
     }
 }

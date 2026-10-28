@@ -1090,11 +1090,7 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
 
     private void OpenScatterDialog()
     {
-        IEnumerable<string> models = string.IsNullOrWhiteSpace(ProjectRoot)
-            ? Array.Empty<string>()
-            : Genesis.Shared.Assets.ResourceCatalog.For(ProjectRoot).Entries
-                .Where(entry => entry.Type == Genesis.Shared.Assets.ResourceType.Model).Select(entry => entry.Name);
-        using TerrainScatterDialog dialog = new(_nature.ScatterLayers, models, _settings.Layers.Select(layer => layer.Name).ToArray());
+        using TerrainScatterDialog dialog = CreateScatterDialog();
         if (dialog.ShowDialog(this) == DialogResult.OK) SetScatterLayers(dialog.Layers);
     }
 

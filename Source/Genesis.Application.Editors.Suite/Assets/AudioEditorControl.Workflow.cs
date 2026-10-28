@@ -24,7 +24,7 @@ public sealed partial class AudioEditorControl
     private ToolStrip BuildAudioWorkflowToolbar()
     {
         EditorCommandBar bar = _commandBar = EditorChrome.MakeToolbar();
-        _quickButton = EditorChrome.ToolButton("Quick setup", "Choose a WAV and edit its playback", ShowAudioQuickSetup, toggle: true);
+        _quickButton = EditorChrome.ToolButton("Quick setup", "Choose, import or make a sound and edit its playback", ShowAudioQuickSetup, toggle: true);
         _gameButton = EditorChrome.ToolButton("Use in game", "Create a saved sound Object and learn gameplay calls", ShowAudioGameGuide, toggle: true);
         ToolStripDropDownButton options = new("Options") { ForeColor = EditorChrome.Text };
         options.DropDownItems.Add(EditorDocumentMenuChrome.Item("Advanced ambience", "Show adaptive environment roles", () =>
@@ -70,7 +70,7 @@ public sealed partial class AudioEditorControl
         base.OnLoad(e);
         BeginInvoke((Action)(() =>
         {
-            if (IsDisposed || _showAudioGameGuide) return;
+            if (IsDisposed || _showAudioGameGuide || _showAudioSynth) return;
             _sourceCombo.Select();
             _propertyRows.AutoScrollPosition = Point.Empty;
         }));
@@ -78,8 +78,9 @@ public sealed partial class AudioEditorControl
 
     private void ShowAudioQuickSetup()
     {
-        _showAudioGameGuide = false;
+        _showAudioGameGuide = false; _showAudioSynth = false;
         if (_audioGameGuide is not null) _audioGameGuide.Visible = false;
+        if (_audioSynth is not null) _audioSynth.Visible = false;
         if (_audioWorkflow?.CurrentStepId == "UseInGame") _audioWorkflow.SetCurrent("Sound");
         ApplyAudioLayout(); RefreshAudioWorkflow();
         _propertyRows.AutoScrollPosition = Point.Empty;
@@ -101,13 +102,14 @@ public sealed partial class AudioEditorControl
             _audioWorkspace.Controls.Add(_audioGameGuide); _audioGameGuide.SizeChanged += (_, _) => LayoutAudioGameGuide();
         }
         foreach (Control child in _audioGameGuide.Controls.Cast<Control>().ToArray()) child.Dispose();
+        _showAudioSynth = false; if (_audioSynth is not null) _audioSynth.Visible = false;
         _showAudioGameGuide = true; _audioGameGuide.Visible = true; _audioGameGuide.BringToFront();
         _audioWorkflow?.SetCurrent("UseInGame");
         _audioGameGuide.AutoScrollPosition = Point.Empty;
         Button back = new() { Text = "Back to Quick setup" }; EditorChrome.StyleField(back); back.Click += (_, _) => ShowAudioQuickSetup();
         _audioGameGuide.Controls.Add(back);
         _audioGameGuide.Controls.Add(AudioWorkflowText("Use this sound in gameplay", true));
-        _audioGameGuide.Controls.Add(AudioWorkflowText("1. Select a WAV in Quick setup, choose Sound effect or Music, then Play. Trim/fades change the audible samples; repeat loops that selected region. Save when it sounds right. The imported source WAV is preserved."));
+        _audioGameGuide.Controls.Add(AudioWorkflowText("1. In Quick setup, select or import a WAV, or make a sound with Make a sound…, choose Sound effect or Music, then Play. Trim/fades change the audible samples; repeat loops that selected region. Save when it sounds right. The source WAV is preserved."));
         _audioGameGuide.Controls.Add(AudioWorkflowText("2. Create a sound Object", true));
         _audioGameGuide.Controls.Add(AudioWorkflowText("This creates a normal Object with real Create, Step and Destroy events. Its Create event starts this saved sound; Space stops and replays it; Destroy stops its voice. Place one instance for music. For a coin, jump or damage effect, use PlaySound in that gameplay event instead."));
         TextBox name = new() { Name = "AudioObjectName", Text = ResourceDisplayName.Format(ResourcePath) + " sound" };
@@ -134,7 +136,7 @@ public sealed partial class AudioEditorControl
     public string CreateAudioObject(string name)
     {
         string validName = ResourceNames.ValidateName(name);
-        if (_sourceClip is null) throw new InvalidOperationException("Choose a readable WAV in Quick setup before creating a sound Object.");
+        if (_sourceClip is null) throw new InvalidOperationException("Choose, import or make a sound in Quick setup before creating a sound Object.");
         if (File.Exists(ProjectAssetIndex.ResolveReference(ProjectRoot, validName, ResourceKind.GameObject)))
             throw new InvalidOperationException("An Object named '" + validName + "' already exists. Choose another name or place the existing Object in your Room.");
         Save();
@@ -154,9 +156,16 @@ public sealed partial class AudioEditorControl
         ResourceNames.Invalidate(ProjectRoot); RequestOpenLinkedResource(path); return path;
     }
 
+    // Both full-page panels (Use in game, Make a sound) are laid out the same way.
     private void LayoutAudioGameGuide()
     {
-        if (_audioGameGuide is not { Visible: true } guide) return;
+        LayoutAudioFlow(_audioGameGuide);
+        LayoutAudioFlow(_audioSynth);
+    }
+
+    private static void LayoutAudioFlow(FlowLayoutPanel? flow)
+    {
+        if (flow is not { Visible: true } guide) return;
         int width = Math.Max(100, guide.ClientSize.Width - guide.Padding.Horizontal - 24);
         foreach (Control field in guide.Controls)
         {
@@ -167,6 +176,12 @@ public sealed partial class AudioEditorControl
                 label.Height = TextRenderer.MeasureText(label.Text, label.Font, new Size(width, int.MaxValue), TextFormatFlags.WordBreak).Height + 8;
             }
             else if (field is TextBox { Multiline: true }) { field.Font = EditorChrome.CodeFont; field.Height = field.Font.Height * 4 + 18; }
+            else if (field is ListBox) { field.Font = EditorChrome.BaseFont; field.Height = field.Font.Height * 9 + 12; }
+            else if (field is CheckBox check)
+            {
+                check.Font = EditorChrome.BaseFont; check.AutoSize = false;
+                check.Height = TextRenderer.MeasureText(check.Text, check.Font, new Size(width - 24, int.MaxValue), TextFormatFlags.WordBreak).Height + 12;
+            }
             else { field.Font = EditorChrome.BaseFont; field.Height = field.Font.Height + 18; }
         }
         guide.AutoScrollMinSize = new Size(0, guide.Controls.Cast<Control>().Where(control => control.Visible)

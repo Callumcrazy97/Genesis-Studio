@@ -19,7 +19,7 @@ public sealed partial class TerrainEditorControl
                 () => SetMode(TerrainEditorMode.Sculpt)),
             new("Paint", "Paint", "Choose a layer, then drag to paint grass, rock or sand onto the ground.",
                 () => SetMode(TerrainEditorMode.Paint)),
-            new("Decorate", "Decorate", "Scatter trees and plants. Paths, water and objects are in Options › More terrain tools.",
+            new("Decorate", "Decorate", "Add forests, meadow flowers and grass, a lake and paths with the buttons at the top of the panel.",
                 () => SetMode(TerrainEditorMode.Foliage)),
             new("UseInGame", "Use in game", "Save, then create a 3D Room that uses this terrain.",
                 ShowTerrainGameGuide),

@@ -297,18 +297,18 @@ internal static class AssetImportSuite
             StudioModelResourceLoader.WriteReimportsToProject = false;
             try
             {
-                int writes = ModelBinaryCache.Writes, hits = ModelBinaryCache.Hits;
+                int writes = ModelBinaryCache.Writes, hits = ModelBinaryCache.HitsOnThisThread;
                 StudioModelResourceLoader.Load(keptResource);
                 bool written = SpinWait.SpinUntil(() => ModelBinaryCache.Writes > writes, 10000);
                 GModelAsset again = StudioModelResourceLoader.Load(keptResource);
-                Check(written && ModelBinaryCache.Hits == hits + 1 && Math.Abs(again.Meshes[0].Vertices[0].Position.Z - 4f) < 1e-4f,
+                Check(written && ModelBinaryCache.HitsOnThisThread == hits + 1 && Math.Abs(again.Meshes[0].Vertices[0].Position.Z - 4f) < 1e-4f,
                     "The Player imported a model's source again instead of reading the import it kept.");
                 Check(!File.Exists(StudioModelResourceLoader.CanonicalPath(keptResource)), "The Player wrote a cooked model into the project.");
                 File.WriteAllText(keptSource, Padded(5));
                 File.SetLastWriteTimeUtc(keptSource, DateTime.UtcNow.AddMinutes(5));
-                hits = ModelBinaryCache.Hits;
+                hits = ModelBinaryCache.HitsOnThisThread;
                 GModelAsset changed = StudioModelResourceLoader.Load(keptResource);
-                Check(ModelBinaryCache.Hits == hits && Math.Abs(changed.Meshes[0].Vertices[0].Position.Z - 5f) < 1e-4f,
+                Check(ModelBinaryCache.HitsOnThisThread == hits && Math.Abs(changed.Meshes[0].Vertices[0].Position.Z - 5f) < 1e-4f,
                     "A changed source was answered from the import kept before.");
             }
             finally

@@ -1207,10 +1207,10 @@ internal static class EngineAdditionsSuite
             }
 
             string shippedModel = Path.Combine(shipped, "Assets", "Models", "Hall.gmodel");
-            int hits = Genesis.Runtime.Modeling.ModelBinaryCache.Hits, viaContent = Genesis.Runtime.Modeling.ModelBinaryCache.SealedHits;
+            int hits = Genesis.Runtime.Modeling.ModelBinaryCache.HitsOnThisThread, viaContent = Genesis.Runtime.Modeling.ModelBinaryCache.SealedHitsOnThisThread;
             Genesis.Runtime.Modeling.GModelAsset loaded = Genesis.Runtime.Modeling.RuntimeModelStore.Load(shippedModel);
-            HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelBinaryCache.Hits == hits + 1
-                && Genesis.Runtime.Modeling.ModelBinaryCache.SealedHits == viaContent + 1,
+            HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelBinaryCache.HitsOnThisThread == hits + 1
+                && Genesis.Runtime.Modeling.ModelBinaryCache.SealedHitsOnThisThread == viaContent + 1,
                 "The shipped game did not use its cache after its files were copied and re-dated.");
             HeadlessHarness.Assert(loaded.Meshes.Count == 1 && loaded.Meshes[0].Vertices.Length == 40000
                 && loaded.Meshes[0].Vertices[777].Position == vertices[777].Position && loaded.Meshes[0].Indices.AsSpan().SequenceEqual(indices),
@@ -1221,9 +1221,9 @@ internal static class EngineAdditionsSuite
             int at = Array.IndexOf(patched, (byte)'7', patched.Length / 2);
             patched[at] = (byte)'8';
             File.WriteAllBytes(shippedModel, patched);
-            hits = Genesis.Runtime.Modeling.ModelBinaryCache.Hits;
+            hits = Genesis.Runtime.Modeling.ModelBinaryCache.HitsOnThisThread;
             Genesis.Runtime.Modeling.RuntimeModelStore.Load(shippedModel);
-            HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelBinaryCache.Hits == hits,
+            HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelBinaryCache.HitsOnThisThread == hits,
                 "A model changed after shipping, to the same length, was still read from the old cache.");
         });
 

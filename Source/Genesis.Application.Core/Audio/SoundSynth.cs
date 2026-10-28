@@ -38,10 +38,21 @@ public sealed class SynthLayer
     [Description("Spread of the copies, cents (default 8).")] public double Detune { get; set; } = 8;
     [Description("A slow swell in volume, Hz (wind, breathing pads).")] public double TremoloRate { get; set; }
     [Description("How deep the swell goes, 0 to 1.")] public double TremoloDepth { get; set; }
+
+    /// <summary>A separate layer with the same values.</summary>
+    public SynthLayer Copy() => (SynthLayer)MemberwiseClone();
 }
 
+/// <summary>What a ready-made sound is, for the Audio editor's gallery.</summary>
+/// <param name="Category">Effects, Footsteps, Ambience or Music: the gallery groups by it.</param>
+/// <param name="Description">One plain sentence on what it sounds like.</param>
+/// <param name="Loops">The sound is made to repeat (wind, birds, a drone), so the editor ticks Repeat for it.</param>
+/// <param name="InGallery">False for a second name of a sound already listed.</param>
+public sealed record SynthPresetInfo(string Category, string Description, bool Loops = false, bool InGallery = true);
+
 /// <summary>
-/// A small synthesiser for sound effects and simple music, made for Studio's automation (and Nova):
+/// A small synthesiser for sound effects and simple music, made for Studio's automation (and Nova) and
+/// offered in the Audio editor's "Make a sound" (both go through <see cref="SynthSounds"/>):
 /// oscillators with envelopes, pitch glides, vibrato, unison and a low-pass, mixed, given an echo,
 /// normalised and written as a 16-bit mono WAV that the Audio resource imports like any other.
 /// </summary>
@@ -231,12 +242,15 @@ public static class SoundSynth
                 new() { Wave = SynthWave.Square, Frequency = 220, FrequencyEnd = 70, Duration = 0.14, Duty = 0.4, Sustain = 0.5, Release = 0.05, Volume = 0.35 }],
             ["Power Up"] = () => [.. Melody("C5 E5 G5 C6:2", 0.07, 0, new SynthLayer { Wave = SynthWave.Square, Duty = 0.25, Sustain = 0.8, Release = 0.03, Volume = 0.35 })],
             ["Blip"] = () => [new() { Wave = SynthWave.Sine, Note = "A5", Duration = 0.08, Sustain = 1, Release = 0.03, Volume = 0.5 }],
-            ["Footstep"] = () => [new() { Wave = SynthWave.Noise, Frequency = 1400, Duration = 0.09, Attack = 0.003, Decay = 0.05, Sustain = 0.15, Release = 0.03, LowPass = 900, Volume = 0.7 }],
+            ["Footstep"] = FootstepOnGrass,
+            ["Footstep Grass"] = FootstepOnGrass,
+            ["Footstep Path"] = FootstepOnPath,
             ["Heartbeat"] = () => [
                 new() { Wave = SynthWave.Sine, Frequency = 62, FrequencyEnd = 45, Duration = 0.16, Decay = 0.1, Sustain = 0.3, Release = 0.05, Volume = 0.9 },
                 new() { Wave = SynthWave.Sine, Frequency = 55, FrequencyEnd = 40, Start = 0.24, Duration = 0.18, Decay = 0.1, Sustain = 0.3, Release = 0.06, Volume = 0.7 },
                 new() { Wave = SynthWave.Sine, Frequency = 30, Start = 0.42, Duration = 0.5, Volume = 0.0 }],
             ["Wind"] = () => [new() { Wave = SynthWave.Noise, Frequency = 600, Duration = 6, Attack = 1, Sustain = 1, Release = 1, LowPass = 500, TremoloRate = 0.25, TremoloDepth = 0.7, Volume = 0.6 }],
+            ["Birdsong"] = Birdsong,
             ["Drone"] = () => [
                 new() { Wave = SynthWave.Organ, Note = "C2", Duration = 8, Attack = 1.5, Sustain = 1, Release = 1.5, LowPass = 900, Volume = 0.5, Voices = 3, Detune = 6 },
                 new() { Wave = SynthWave.Organ, Note = "G2", Duration = 8, Attack = 2, Sustain = 1, Release = 1.5, LowPass = 900, Volume = 0.35, Voices = 3, Detune = 6 }],
@@ -245,4 +259,54 @@ public static class SoundSynth
             ["Organ Chord"] = () => [.. new[] { "C3", "G3", "C4", "E4" }.Select(note => new SynthLayer
                 { Wave = SynthWave.Organ, Note = note, Duration = 4, Attack = 0.15, Sustain = 1, Release = 0.8, LowPass = 3000, Volume = 0.35 })],
         };
+
+    /// <summary>What each preset is, by name; the Audio editor's gallery lists the ones with InGallery.</summary>
+    public static IReadOnlyDictionary<string, SynthPresetInfo> PresetInfo { get; } =
+        new Dictionary<string, SynthPresetInfo>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Coin"] = new("Effects", "A bright two-note pickup ping."),
+            ["Jump"] = new("Effects", "A quick rising hop."),
+            ["Laser"] = new("Effects", "A zap that falls in pitch."),
+            ["Explosion"] = new("Effects", "A low rumbling boom."),
+            ["Hit"] = new("Effects", "A short, sharp thud for a punch or a bump."),
+            ["Power Up"] = new("Effects", "Four notes climbing to a high finish."),
+            ["Blip"] = new("Effects", "A short, clean menu beep."),
+            ["Footstep"] = new("Footsteps", "The same step on grass as Footstep Grass, under its first name.", InGallery: false),
+            ["Footstep Grass"] = new("Footsteps", "A soft, muffled step on grass."),
+            ["Footstep Path"] = new("Footsteps", "A harder step on a dirt path, with a low thud under the scuff."),
+            ["Heartbeat"] = new("Ambience", "A slow double thump, for a tense moment.", Loops: true),
+            ["Wind"] = new("Ambience", "Wind that swells and fades.", Loops: true),
+            ["Birdsong"] = new("Ambience", "Seven short chirps: four gliding up, then three gliding down.", Loops: true),
+            ["Drone"] = new("Music", "A low organ drone that builds slowly.", Loops: true),
+            ["Choir Pad"] = new("Music", "A soft, slow chord of voices.", Loops: true),
+            ["Organ Chord"] = new("Music", "A held organ chord."),
+        };
+
+    // The step on grass the Nature Walk benchmark plays: a soft puff of low-passed noise.
+    private static IReadOnlyList<SynthLayer> FootstepOnGrass() =>
+        [new() { Wave = SynthWave.Noise, Frequency = 1400, Duration = 0.09, Attack = 0.003, Decay = 0.05, Sustain = 0.15, Release = 0.03, LowPass = 900, Volume = 0.7 }];
+
+    // The step on a path in the same benchmark: a longer scuff of noise over a short low thud.
+    private static IReadOnlyList<SynthLayer> FootstepOnPath() =>
+    [
+        new() { Wave = SynthWave.Noise, Frequency = 700, Duration = 0.14, Attack = 0.003, Decay = 0.05, Sustain = 0.3, Release = 0.06, LowPass = 1400, Volume = 0.8 },
+        new() { Wave = SynthWave.Sine, Frequency = 90, FrequencyEnd = 60, Duration = 0.08, Attack = 0.002, Release = 0.05, Volume = 0.4 },
+    ];
+
+    // The bird chirps of the Nature Walk benchmark: four short sine chirps gliding up, a pause, then three gliding down.
+    private static IReadOnlyList<SynthLayer> Birdsong()
+    {
+        var chirps = new List<SynthLayer>();
+        for (int i = 0; i < 4; i++)
+        {
+            double pitch = 2780 + i * 180;
+            chirps.Add(new() { Wave = SynthWave.Sine, Frequency = pitch, FrequencyEnd = pitch * 1.45, Start = 0.4 + i * 0.13, Duration = 0.08, Attack = 0.008, Decay = 0.03, Sustain = 0.4, Release = 0.04, Volume = 0.35 });
+        }
+        for (int i = 0; i < 3; i++)
+        {
+            double pitch = 3200 - i * 200;
+            chirps.Add(new() { Wave = SynthWave.Sine, Frequency = pitch, FrequencyEnd = pitch * 0.8, Start = 2.52 + i * 0.16, Duration = 0.11, Attack = 0.01, Release = 0.05, Volume = 0.25 });
+        }
+        return chirps;
+    }
 }

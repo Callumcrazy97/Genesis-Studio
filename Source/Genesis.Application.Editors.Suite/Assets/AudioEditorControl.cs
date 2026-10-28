@@ -14,9 +14,9 @@ using Newtonsoft.Json;
 namespace Genesis.Application.Editors.Suite.Assets;
 
 /// <summary>
-/// Audio Editor: pick a project sound file (WAV or Ogg Vorbis), see its decoded waveform, audition playback through the
-/// real runtime mixer, and edit the playback fields the game will honour (volume, pitch, bus,
-/// loop, and the spatial falloff curve). Saves <c>.audio.json</c>.
+/// Audio Editor: pick a project sound file (WAV or Ogg Vorbis) or make one with Genesis's synthesiser, see its decoded
+/// waveform, audition playback through the real runtime mixer, and edit the playback fields the game will honour (volume,
+/// pitch, bus, loop, and the spatial falloff curve). Saves <c>.audio.json</c>.
 /// </summary>
 /// <remarks>
 /// The audition deliberately runs through <see cref="XAudioSystem"/> rather than
@@ -168,12 +168,14 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
             Padding = new Padding(10, 8, 8, 8),
             WrapContents = false,
         };
-        rows.Controls.Add(AudioWorkflowText("Choose a clip, then Play", true));
-        rows.Controls.Add(AudioWorkflowText("1. Select or import a WAV or Ogg file. 2. Set volume and repeat; trim/fades use seconds. 3. Save and use this sound in a game."));
+        rows.Controls.Add(AudioWorkflowText("Choose, import or make a sound, then Play", true));
+        rows.Controls.Add(AudioWorkflowText("1. Select or import a WAV or Ogg file, or press Make a sound… to build one here. 2. Set volume and repeat; trim/fades use seconds. 3. Save and use this sound in a game."));
         rows.Controls.Add(EditorChrome.DividerLabel("Source"));
         rows.Controls.Add(_sourceCombo);
         Button import = new() { Text = "Import sound…", Width = 244, Height = 31, BackColor = EditorChrome.Raised, ForeColor = EditorChrome.Text, FlatStyle = FlatStyle.Flat };
         import.Click += (_, _) => ImportAudio(); rows.Controls.Add(import);
+        Button make = new() { Text = "Make a sound…", Name = "AudioMakeSound", Width = 244, Height = 31, BackColor = EditorChrome.Raised, ForeColor = EditorChrome.Text, FlatStyle = FlatStyle.Flat };
+        make.Click += (_, _) => ShowAudioSynth(); rows.Controls.Add(make);
         _quickPreset = new ThemedComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Name = "AudioStartingPreset" };
         _quickPreset.Items.AddRange(["Sound effect", "Music", "Custom / ambience"]); EditorChrome.StyleField(_quickPreset);
         _quickPreset.SelectedIndexChanged += (_, _) => { if (!_syncing && _quickPreset.SelectedIndex < 2) ApplyPlaybackPreset(_quickPreset.SelectedIndex == 1 ? "Music" : "General SFX"); };
@@ -977,8 +979,9 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
             }
             foreach (Label label in _inspectorPanel.Controls.OfType<Label>()) label.Font = EditorChrome.HeadingFont;
             _listenerLabel.Font = _statusLabel.Font = EditorChrome.SmallFont;
-            _inspectorPanel.Visible = _waveformPanel.Visible = !_showAudioGameGuide;
-            _curvePanel.Visible = _document.Spatial && !_showAudioGameGuide;
+            bool fullPage = _showAudioGameGuide || _showAudioSynth;
+            _inspectorPanel.Visible = _waveformPanel.Visible = !fullPage;
+            _curvePanel.Visible = _document.Spatial && !fullPage;
             foreach (Control field in _advancedAudioFields) field.Visible = _advancedAudio;
             foreach (Control field in _spatialAudioFields) field.Visible = _document.Spatial;
             _curvePanel.Height = Math.Max(96, Math.Min((int)(EditorChrome.BottomTimelineHeight * scale),

@@ -43,17 +43,19 @@ internal static class LargeWorldContentSuite
             HeadlessHarness.Assert(new FileInfo(file).Length > ModelBinaryCache.MinimumSourceBytes,
                 "The test model is too small to be cached.");
 
-            int hits = ModelBinaryCache.Hits;
+            // Counted on this thread: models still being read ahead for earlier cases count in Hits too.
+            int hits = ModelBinaryCache.HitsOnThisThread;
             var watch = Stopwatch.StartNew();
             GModelAsset parsed = RuntimeModelStore.Load(file);
             double parseMs = watch.Elapsed.TotalMilliseconds;
-            HeadlessHarness.Assert(ModelBinaryCache.Hits == hits, "The first load claimed a cache that did not exist yet.");
-            WaitFor(() => File.Exists(cache), "The cache was not written after the first load.");
+            HeadlessHarness.Assert(ModelBinaryCache.HitsOnThisThread == hits, "The first load claimed a cache that did not exist yet.");
+            WaitFor(() => ModelBinaryCache.IsCurrent(file), "The cache was not written after the first load.");
 
             watch.Restart();
             GModelAsset cached = RuntimeModelStore.Load(file);
             double cacheMs = watch.Elapsed.TotalMilliseconds;
-            HeadlessHarness.Assert(ModelBinaryCache.Hits == hits + 1, "The second load did not use the cache.");
+            HeadlessHarness.Assert(ModelBinaryCache.HitsOnThisThread == hits + 1,
+                $"The second load did not use the cache ({ModelBinaryCache.HitsOnThisThread - hits} hits on this thread).");
             AssertSame(parsed, cached);
             HeadlessHarness.Assert(new FileInfo(cache).Length < new FileInfo(file).Length * 0.6,
                 $"The cache ({new FileInfo(cache).Length:N0} bytes) is not much smaller than the model ({new FileInfo(file).Length:N0}).");
@@ -63,16 +65,16 @@ internal static class LargeWorldContentSuite
             // Editing the model must be seen at once: the cache is for the file as it was.
             Thread.Sleep(20);
             RuntimeModelStore.Save(file, Statue(1.5f));
-            int before = ModelBinaryCache.Hits, writes = ModelBinaryCache.Writes;
+            int before = ModelBinaryCache.HitsOnThisThread;
             GModelAsset edited = RuntimeModelStore.Load(file);
-            HeadlessHarness.Assert(ModelBinaryCache.Hits == before, "A stale cache was used after the model changed.");
+            HeadlessHarness.Assert(ModelBinaryCache.HitsOnThisThread == before, "A stale cache was used after the model changed.");
             HeadlessHarness.Assert(MathF.Abs(edited.Meshes[0].Vertices[10].Position.Length() - 1.5f) < 1e-3f,
                 "The edited model was not what loaded.");
 
             // A damaged cache is ignored, not fatal.
-            WaitFor(() => File.Exists(cache) && ModelBinaryCache.Writes > writes, "The cache was not rewritten for the edited model.");
+            WaitFor(() => ModelBinaryCache.IsCurrent(file), "The cache was not rewritten for the edited model.");
             GModelAsset recached = RuntimeModelStore.Load(file);
-            HeadlessHarness.Assert(ModelBinaryCache.Hits == before + 1
+            HeadlessHarness.Assert(ModelBinaryCache.HitsOnThisThread == before + 1
                 && MathF.Abs(recached.Meshes[0].Vertices[10].Position.Length() - 1.5f) < 1e-3f,
                 "The rewritten cache was not used, or does not hold the edited model.");
             // Damage that leaves the text well-formed is the dangerous kind: it would read back
@@ -80,9 +82,9 @@ internal static class LargeWorldContentSuite
             byte[] bytes = File.ReadAllBytes(cache);
             Array.Fill(bytes, (byte)'!', 128, Math.Min(4096, bytes.Length - 128));
             File.WriteAllBytes(cache, bytes);
-            int damagedHits = ModelBinaryCache.Hits;
+            int damagedHits = ModelBinaryCache.HitsOnThisThread;
             GModelAsset recovered = RuntimeModelStore.Load(file);
-            HeadlessHarness.Assert(ModelBinaryCache.Hits == damagedHits, "A damaged cache was accepted.");
+            HeadlessHarness.Assert(ModelBinaryCache.HitsOnThisThread == damagedHits, "A damaged cache was accepted.");
             HeadlessHarness.Assert(recovered.Meshes.Count == 1 && recovered.Meshes[0].Vertices.Length == edited.Meshes[0].Vertices.Length
                 && !recovered.ImportRequired,
                 "A damaged cache broke the load instead of falling back to the model file: "

@@ -1,6 +1,6 @@
 using System.Drawing;
-using System.Numerics;
 using System.Windows.Forms;
+using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Image.Controls;
 using Genesis.Runtime.Modeling;
 
@@ -46,28 +46,13 @@ public sealed partial class ModelEditorControl
 
     /// <summary>Adds a generated tree as a new part. Undoable.</summary>
     public void AddGeneratedTree(ProceduralTreeOptions options) =>
-        AddGenerated(ProceduralModelGenerator.GenerateTree(options), "Tree");
+        AddGenerated(GeneratedModels.Tree(options), "tree");
 
     /// <summary>Adds a generated rock as a new part. Undoable.</summary>
     public void AddGeneratedRock(ProceduralRockOptions options) =>
-        AddGenerated(ProceduralModelGenerator.GenerateRock(options), "Rock");
+        AddGenerated(GeneratedModels.Rock(options), "rock");
 
-    private void AddGenerated(ProceduralMeshResult result, string kind)
-    {
-        GModelAsset geometry = new() { Name = kind };
-        // The generators write their bark, leaf and stone colours into the vertices; a white,
-        // untextured material shows them as they are.
-        geometry.Materials.Add(new GModelMaterial { Name = kind, BaseColor = Vector4.One, RoughnessFactor = 0.9f });
-        geometry.Meshes.Add(new GModelMesh
-        {
-            Name = kind,
-            MaterialIndex = 0,
-            Vertices = result.Vertices,
-            Indices = result.Indices,
-            IsSkinned = false,
-        });
-        geometry.RecalculateBounds();
-        AddGeometry(geometry, "Generate " + kind.ToLowerInvariant(),
-            $"Generated a {kind.ToLowerInvariant()} · move or scale the part, or save and Use in game");
-    }
+    // The geometry comes from Core, where the Terrain editor's forests make Models from it too.
+    private void AddGenerated(GModelAsset geometry, string kind) =>
+        AddGeometry(geometry, "Generate " + kind, $"Generated a {kind} · move or scale the part, or save and Use in game");
 }
