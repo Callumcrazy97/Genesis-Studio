@@ -137,6 +137,11 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
                 OnSelectionChanged(args.Node);
             }
         };
+        _tree.MouseDown += (_, args) =>
+        {
+            if (args.Clicks == 1)
+                _pressedKey = _tree.GetNodeAt(args.Location)?.Tag is ResourceItem pressed ? ResourceBrowserProjection.Key(pressed) : null;
+        };
         _tree.NodeMouseDoubleClick += OnNodeDoubleClick;
         _tree.AfterExpand += (_, args) => RememberDisclosure(args.Node, true);
         _tree.AfterCollapse += (_, args) => RememberDisclosure(args.Node, false);
@@ -771,6 +776,14 @@ public sealed partial class ResourceBrowserDock : GenesisDockContent
         {
             // Folders: let TreeView perform its single expand/collapse. Calling Toggle()
             // here double-fires and immediately collapses the folder again.
+            return;
+        }
+
+        // Double-clicking a folder expands it, and the tree can scroll so that one of its
+        // resources is under the mouse when this event names a node: that resource then opened
+        // although nobody clicked it. Open only the resource the first click pressed.
+        if (!string.Equals(_pressedKey, ResourceBrowserProjection.Key(item), StringComparison.OrdinalIgnoreCase))
+        {
             return;
         }
 

@@ -21,6 +21,7 @@ public sealed partial class ResourceBrowserDock
     private ResourceKind? _kindFilter;
     private bool _updatingTree;
     private string? _selectionKey;
+    private string? _pressedKey;
     private string? _lastNotifiedIdentity;
     private int _resourceOperationDepth;
     private long _snapshotGeneration;

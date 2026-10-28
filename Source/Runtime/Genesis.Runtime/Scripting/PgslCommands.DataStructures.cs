@@ -242,12 +242,15 @@ public static partial class PgslCommands
         }
     }
 
-    [PgslCommand("DsListInsert", "DsListInsert(id, position, value)", "Insert a number at a 0-based position", "Lists")]
-    public static void DsListInsert(double id, double position, double value)
+    // Takes text as well as numbers: Ember games insert a string here, then overwrite it with
+    // DsListSetString, and a number-only value stopped them with a script error.
+    [PgslCommand("DsListInsert", "DsListInsert(id, position, value)", "Insert a number or a string at a 0-based position", "Lists")]
+    public static void DsListInsert(double id, double position, object value)
     {
         List<object> list = Resolve<List<object>>("list", id);
         if (list is null || list.Count >= MaxCollectionElements) return;
-        list.Insert((int)Math.Clamp(position, 0, list.Count), BoxNumber(value));
+        object entry = value is string text ? text : BoxNumber(Num(value));
+        list.Insert((int)Math.Clamp(position, 0, list.Count), entry);
     }
 
     [PgslCommand("DsListDelete", "DsListDelete(id, position)", "Remove the entry at a 0-based position", "Lists")]

@@ -193,7 +193,9 @@ public static class ResourceAssociates
             }
         }
 
-        foreach (string file in Directory.EnumerateFiles(directory))
+        string[] files = Directory.EnumerateFiles(directory).ToArray();
+        List<string> longerStems = LongerResourceStems(stem, files);
+        foreach (string file in files)
         {
             string candidate = Path.GetFullPath(file);
             if (string.Equals(candidate, fullPath, StringComparison.OrdinalIgnoreCase) ||
@@ -209,7 +211,7 @@ public static class ResourceAssociates
                 baseName.StartsWith(stem + "_", StringComparison.OrdinalIgnoreCase) ||
                 baseName.StartsWith(stem + "__layer_", StringComparison.OrdinalIgnoreCase);
 
-            if (!owned)
+            if (!owned || BelongsToLongerResource(Path.GetFileName(candidate), longerStems))
             {
                 continue;
             }
@@ -294,7 +296,11 @@ public static class ResourceAssociates
             if (string.Compare(sorted[middle].BaseName, stem, StringComparison.OrdinalIgnoreCase) < 0) low = middle + 1;
             else high = middle;
         }
-        for (int index = low; index < sorted.Length && sorted[index].BaseName.StartsWith(stem, StringComparison.OrdinalIgnoreCase); index++)
+        int end = low;
+        while (end < sorted.Length && sorted[end].BaseName.StartsWith(stem, StringComparison.OrdinalIgnoreCase)) end++;
+        // A longer-named resource's own files sort into the same run, so the run holds every one.
+        List<string> longerStems = LongerResourceStems(stem, sorted[low..end].Select(entry => entry.Path));
+        for (int index = low; index < end; index++)
         {
             (string baseName, string candidate) = sorted[index];
             if (string.Equals(candidate, fullPath, StringComparison.OrdinalIgnoreCase) ||
@@ -304,13 +310,39 @@ public static class ResourceAssociates
                 string.Equals(baseName, stem, StringComparison.OrdinalIgnoreCase) ||
                 baseName.StartsWith(stem + "_", StringComparison.OrdinalIgnoreCase) ||
                 baseName.StartsWith(stem + "__layer_", StringComparison.OrdinalIgnoreCase);
-            if (!owned) continue;
+            if (!owned || BelongsToLongerResource(Path.GetFileName(candidate), longerStems)) continue;
             string extension = Path.GetExtension(candidate);
             if (MediaExtensions.Contains(extension) || extension.Equals(".meta", StringComparison.OrdinalIgnoreCase))
                 results.Add(candidate);
         }
 
         return results;
+    }
+
+    // A name starting "stem_" usually belongs to the resource ("Hero_1.png" is a frame of Hero), but
+    // not when another resource in the folder has that longer name: "music_village_night.wav" and
+    // its .meta belong to "music_village_night", and deleting or renaming "music_village" took them.
+    private static List<string> LongerResourceStems(string stem, IEnumerable<string> files)
+    {
+        List<string> stems = [];
+        foreach (string file in files)
+        {
+            if (ResourceDefinitions.FromPath(file) is null) continue;
+            string other = GetStem(file);
+            if (other.Length > stem.Length + 1 && other.StartsWith(stem + "_", StringComparison.OrdinalIgnoreCase))
+                stems.Add(other);
+        }
+        return stems;
+    }
+
+    private static bool BelongsToLongerResource(string fileName, List<string> longerStems)
+    {
+        foreach (string other in longerStems)
+            if (fileName.Length > other.Length &&
+                fileName.StartsWith(other, StringComparison.OrdinalIgnoreCase) &&
+                fileName[other.Length] is '_' or '.')
+                return true;
+        return false;
     }
 
     public static IReadOnlyList<string> FindGeneratedFrames(string resourcePath)
