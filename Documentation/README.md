@@ -11,8 +11,8 @@ measurements and the changes are in [Design/FinishedProduct.md](Design/FinishedP
 - **What made games slow is fixed:** `batch` runs a scene's commands in one go (the whole walk in
   1.6 s, 33 commands); `room.create` makes 3D rooms that open on a sky (the Room editor's Sky cards
   are one shared list); Object recipes **Walk in first person**, **Third-person character** and a
-  3D **Spin**, in the Object editor and through automation; the Terrain editor's Use in game room
-  opens on a sunny day.
+  3D **Spin**, in the Object editor and through automation; the Room editor's 3D switch and the Terrain editor's Use in game room
+  open on a sunny day instead of a dark void.
 - **[Cookbook.md](Cookbook.md):** the loop (make, look, change), a 3D place, a player, the PGSL
   wanted most, the look and the pitfalls; its snippets are compiled by the tests. It and
   Automation.md now ship with Studio.

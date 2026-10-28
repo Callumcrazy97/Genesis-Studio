@@ -571,6 +571,9 @@ internal static class AutomationSuite
             HeadlessHarness.Assert(!Call("game.run", """{ "steps": [ { "seconds": 2 } ], "shots": [5] }""").Ok, "A picture after the run's end was accepted.");
             HeadlessHarness.Assert(Call("game.benchmark", """{ "seconds": 0.5 }""").Message.Contains("Measure 1 to 900", StringComparison.Ordinal), "A benchmark too short to mean anything was accepted.");
             HeadlessHarness.Assert(Genesis.Runtime.Project.TimedShots.Parse("9, 2,x,5.5").SequenceEqual(new[] { 2f, 5.5f, 9f }), "GENESIS_SHOTS was not read in order.");
+            HeadlessHarness.Assert(GameRunCommands.GameRun.SecondsToReady(["00:51:40.556  project=x", "00:51:49.277  Runtime boot ready: critical assets prepared"], new DateTime(2026, 10, 28, 0, 51, 40, 0)) is double ready && Math.Abs(ready - 9.277) < 0.01
+                && GameRunCommands.GameRun.SecondsToReady(["00:00:02.500  Runtime boot ready"], new DateTime(2026, 10, 27, 23, 59, 59, 0)) is double late && Math.Abs(late - 3.5) < 0.01,
+                "A run's start time was not read from its log (or not across midnight).");
             // A run's pictures after a door: the play-time clock must outlive the room it started in.
             HeadlessHarness.Assert(Genesis.Runtime.Project.ProjectRoomSwitcher.KeepSubsystem(new Genesis.Runtime.Project.TimedShots([1f], ctx.Workspace, null).Clock(null)),
                 "A room change dropped the timed pictures' clock, so no picture was taken after it.");

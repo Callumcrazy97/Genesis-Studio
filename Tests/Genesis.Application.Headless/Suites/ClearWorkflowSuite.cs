@@ -343,6 +343,33 @@ internal static class ClearWorkflowSuite
                 "Switching to 2D did not switch the workflow bar to the 2D steps.");
         });
 
+        HeadlessHarness.RunCase(context.Report, "Editor.Workflow.TheToolbarsSwitchTo3DOpensOnASky", () =>
+        {
+            // A new room made 3D with the toolbar's switch has a sunny day's sky, not a dark void,
+            // and one undo takes both back.
+            ProjectSession project = fixture.Blank;
+            string path = fixture.Resources(project).CreateResource(fixture.Folder(project, "Rooms"), ResourceKind.Room, "Sky Switch Room");
+            using Form host = GateSuite.NewHost(1440, 900);
+            using RoomEditorControl editor = new(path, project.RootPath);
+            host.Controls.Add(editor);
+            GateSuite.ShowHost(host);
+            GateSuite.Pump(8, 20);
+            HeadlessHarness.Assert(!editor.ViewMode3D && !editor.Room.Environment.DynamicSky, "A new room was not a 2D room without a sky.");
+            editor.SwitchDimensionFromToolbar(threeD: true);
+            GateSuite.Pump(4, 10);
+            HeadlessHarness.Assert(editor.ViewMode3D && editor.Room.Environment.DynamicSky && editor.Room.Environment.TimeScale == 0f
+                && editor.Room.Environment.AtmospherePreset == "ClearDay",
+                "Switching a room with no sky to 3D did not give it a sunny day.");
+            editor.Undo();
+            GateSuite.Pump(4, 10);
+            HeadlessHarness.Assert(!editor.ViewMode3D && !editor.Room.Environment.DynamicSky, "One undo did not take back both the switch and the sky.");
+            editor.ApplyScenePreset("Indoor");
+            editor.SwitchDimensionFromToolbar(threeD: true);
+            editor.SwitchDimensionFromToolbar(threeD: false);
+            editor.SwitchDimensionFromToolbar(threeD: true);
+            HeadlessHarness.Assert(editor.ViewMode3D && editor.Room.Environment.DynamicSky, "Switching back to 3D lost the sky it was given.");
+        });
+
         HeadlessHarness.RunCase(context.Report, "Editor.Workflow.ParticleAttachesToAnExistingObject", () =>
         {
             ProjectSession project = fixture.Blank;

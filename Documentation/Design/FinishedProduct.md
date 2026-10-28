@@ -48,7 +48,7 @@ The Genesis version was first built call by call, as an AI session would, with n
 | Gap | Change |
 |---|---|
 | A call per command | `batch`: a list of commands in one go, checked once at the end. The whole walk builds in **1.6 s** (33 commands) instead of minutes. |
-| A 2D room by default, and no sky | `room.create` with `"dimension": "3D"` starts on a sunny day; `"scene"` takes any of the Room editor's Sky cards (now one list, `RoomScenePresets`, shared by the editor and automation). `room.setEnvironment` takes `"scene"` too. |
+| A 2D room by default, and no sky | The Room editor's 3D switch and the Terrain editor's Use in game give a room with no sky a sunny day (one undo takes it back). `room.create` with `"dimension": "3D"` starts on a sunny day; `"scene"` takes any of the Room editor's Sky cards (now one list, `RoomScenePresets`, shared by the editor and automation). `room.setEnvironment` takes `"scene"` too. |
 | No 3D player | Object recipes **Walk in first person**, **Third-person character** and a 3D **Spin**, as ordinary PGSL in the Object editor's Behaviour cards and through automation (`object.create` `recipes`, `object.addRecipe`, listed by `object.info`). An Object that shows nothing yet is offered the 3D players, and choosing one makes it 3D. |
 | Your code against a recipe's | `object.create` puts recipes first and the caller's code after, so it can change their numbers. |
 | Learning PGSL and the commands each time | [Cookbook.md](../Cookbook.md): the loop, a 3D place, a player, the PGSL wanted most, the look, the pitfalls. Its PGSL is compiled by the test suite. |
@@ -71,9 +71,9 @@ The engine was never the limit. The days went on:
    The cookbook and the recipes now carry that.
 2. **Writing content instead of using the editors**: earlier attempts generated meshes and grass in
    Python or Blender, which bypassed Genesis's terrain, scatter and grass and then needed workarounds.
-   The Verdant Hollow template (`NatureWalkTemplate.cs`, hidden since 16 October) was ported from a
-   web reference that way and never looked right. Built with Genesis's own tools, the same walk
-   looks right first time.
+   The Verdant Hollow template (`NatureWalkTemplate.cs`, about 1,900 lines of C# that generate a
+   web reference's woodland, hidden in the 16 October template purge) was built that way. Built
+   with Genesis's own tools, the same kind of walk looks right first time.
 3. **Slow looks**: a minute per look means few looks, and quality comes from looking.
 4. **Scope**: a three.js game is one scene; Genesis games were asked for whole (menus, saves, rooms).
    Start from one good scene, as the benchmark does, then grow it.

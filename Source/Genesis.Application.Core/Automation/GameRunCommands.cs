@@ -150,6 +150,7 @@ public static class GameRunCommands
             if (File.Exists(checksPath)) File.Delete(checksPath);
 
             var clock = Stopwatch.StartNew();
+            DateTime launchedAt = DateTime.Now;
             ProjectRunLauncher.LaunchOutcome launched = ProjectRunLauncher.Launch(root, input.Room, extraEnvironment: environment);
             if (!launched.Success) throw new AutomationException("The game could not start: " + launched.ErrorMessage);
             using Process process = launched.Process;
@@ -186,6 +187,8 @@ public static class GameRunCommands
                 ["exitCode"] = timedOut ? (int?)null : process.ExitCode,
                 ["timedOut"] = timedOut,
                 ["seconds"] = Math.Round(clock.Elapsed.TotalSeconds, 1),
+                // How long the game took from launch to its first room ready: the cost of each look.
+                ["startSeconds"] = SecondsToReady(log, launchedAt) is double ready ? Math.Round(ready, 1) : null,
                 ["inputSeconds"] = Math.Round(length, 2),
                 ["input"] = context.Relative(recording),
                 ["pictures"] = new JsonArray([.. pictures.Select(p => (JsonNode?)Shown(context, p))]),
@@ -205,6 +208,20 @@ public static class GameRunCommands
                 : process.ExitCode != 0 ? $"The game closed with code {process.ExitCode}{checkText}."
                 : $"Ran {length:0.#} s of input in {launched.RoomName}: {pictures.Length} pictures, {problems.Length} log problems{checkText}.";
             return ok ? AutomationResult.Success(message, data) : AutomationResult.Failure(message, data);
+        }
+
+        /// <summary>
+        /// Seconds from launch to the log's "Runtime boot ready" line (its time of day, read against the
+        /// launch's), or null when the game never got there.
+        /// </summary>
+        public static double? SecondsToReady(IEnumerable<string> log, DateTime launchedAt)
+        {
+            string? ready = log.FirstOrDefault(line => line.Contains("Runtime boot ready", StringComparison.Ordinal));
+            if (ready is null || ready.Length < 12 || !TimeSpan.TryParseExact(ready[..12], @"hh\:mm\:ss\.fff", CultureInfo.InvariantCulture, out TimeSpan at))
+                return null;
+            double seconds = (at - launchedAt.TimeOfDay).TotalSeconds;
+            if (seconds < -43200) seconds += 86400; // past midnight
+            return seconds >= 0 ? seconds : null;
         }
 
         private static string? After(string line, string marker)

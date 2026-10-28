@@ -35,6 +35,26 @@ public sealed partial class RoomEditorControl
         _scenePresets.SendToBack();
     }
 
+    /// <summary>
+    /// The toolbar's 2D/3D switch. A room with no sky yet that becomes 3D opens on a sunny day (as the
+    /// Terrain editor's room and automation's room.create do) rather than on a dark void, in the same
+    /// undoable edit; the Sky cards change it, and Indoor takes the sky away again.
+    /// </summary>
+    public void SwitchDimensionFromToolbar(bool threeD)
+    {
+        if (!threeD || ViewMode3D || _room.Environment.DynamicSky)
+        {
+            ViewMode3D = threeD;
+            return;
+        }
+        RoomEnvironment previous = CloneEnvironment(_room.Environment);
+        RoomEnvironment next = CloneEnvironment(_room.Environment);
+        RoomScenePresets.Find(RoomScenePresets.DefaultOutdoor)!.Apply(next);
+        void ToThreeD() { ApplyRoomDimension(RoomDimension.ThreeD); ApplyEnvironment(next); }
+        ToThreeD();
+        PushEdit("Switch room to 3D", ToThreeD, () => { ApplyEnvironment(previous); ApplyRoomDimension(RoomDimension.TwoD); });
+    }
+
     /// <summary>Applies a scene preset as one undoable edit. Returns false for an unknown id.</summary>
     public bool ApplyScenePreset(string id)
     {

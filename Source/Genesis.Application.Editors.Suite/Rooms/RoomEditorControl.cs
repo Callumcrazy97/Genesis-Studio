@@ -296,7 +296,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
             paintTiles,
         ]));
 
-        _editorToolbar.DimensionChanged += is2D => ViewMode3D = !is2D;
+        _editorToolbar.DimensionChanged += is2D => SwitchDimensionFromToolbar(threeD: !is2D);
         _editorToolbar.ZoomInRequested += () => ZoomViewport(1.25f);
         _editorToolbar.ZoomOutRequested += () => ZoomViewport(0.8f);
         _editorToolbar.ResetViewRequested += ResetViewportView;

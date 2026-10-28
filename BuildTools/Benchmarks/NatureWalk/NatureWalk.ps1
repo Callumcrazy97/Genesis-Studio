@@ -102,7 +102,7 @@ $calls = @(
     (Call 'particle.create' @{ name = 'Motes'; preset = 'DustMotes' }),
     # The walker: the Object editor's "Walk in first person" recipe, with footsteps that follow the ground.
     (Call 'object.create' @{ name = 'Walker'; recipes = @('FirstPerson'); events = @{
-        Create = "stepSound = `"Step Grass`";`n// A second in, the game checks itself (game.run reports these).`nSetAlarm(1, 60);"
+        Create = "stepSound = `"Step Grass`";`n// Start with the feet on the ground, wherever the path is.`ny = Engine.Terrain.GetHeight(x, z);`nCharacterSetPosition(x, y, z);`n// A second in, the game checks itself (game.run reports these).`nSetAlarm(1, 60);"
         Step = "// The path is the terrain's second paint layer (Dirt).`nif (Engine.Terrain.MaterialAt(x, z) == 2) { stepSound = `"Step Path`"; } else { stepSound = `"Step Grass`"; }"
         Alarm1 = "TestCheck(`"the walker stands on the ground`", Abs(y - Engine.Terrain.GetHeight(x, z)) < 0.3, `"feet `" + String(y) + `", ground `" + String(Engine.Terrain.GetHeight(x, z)));`nTestCheck(`"the walk starts on the path`", Engine.Terrain.MaterialAt(x, z) == 2, `"layer `" + String(Engine.Terrain.MaterialAt(x, z)));" } }),
     (Call 'object.setComponent' @{ object = 'Assets/Objects/Walker.object.json'; type = 'ParticleComponent'; values = @{ Asset = 'Assets/Particles/Motes.particle.json' } }),
@@ -122,10 +122,13 @@ function Invoke-Locked([string]$Command, $InputObject) {
 }
 if ($Play) {
     $run = Invoke-Locked 'game.run' @{ steps = @(@{ seconds = 4 }, @{ seconds = 3; hold = @('W') }, @{ seconds = 1 }); shots = @(3.5, 7.5) }
-    "Played: $($run.message)"
+    "Played: $($run.message) The game took $($run.data.startSeconds) s to start; the run $($run.data.seconds) s."
+    foreach ($check in @($run.data.checks)) { if ($check) { "  {0} {1}: {2}" -f $(if ($check.passed) { 'PASS' } else { 'FAIL' }), $check.name, $check.detail } }
     foreach ($shot in @($run.data.pictures)) { "  $shot" }
 }
 if ($Benchmark) {
     $bench = Invoke-Locked 'game.benchmark' @{ seconds = 10; steps = @(@{ seconds = 12; hold = @('W') }) }
     "Benchmark: $($bench.message)"
+    $d = $bench.data
+    "  median {0} ms, p95 {1} ms, p99 {2} ms, worst {3} ms; {4} KB allocated a frame; {5} draw calls" -f $d.medianMilliseconds, $d.p95Milliseconds, $d.p99Milliseconds, $d.worstMilliseconds, $d.allocationKilobytesPerFrame, $d.averageDrawCalls
 }
