@@ -5,9 +5,10 @@ AI driving Studio's automation ([Automation.md](Automation.md)). Every recipe he
 editors and commands; nothing writes project files by hand. The PGSL snippets are checked by the
 test suite, so they always compile.
 
-The worked example is the Nature Walk benchmark in the Genesis source
-(`BuildTools\Benchmarks\NatureWalk\NatureWalk.ps1`). It builds a walk round a lake (terrain, trees,
-grass, water, sky, sound and a first-person walker) from nothing in one batch of commands.
+The worked example is [NatureWalk.batch.json](NatureWalk.batch.json), beside this guide: one
+`batch` of 33 commands, one a line, that you can copy and change (`call batch @NatureWalk.batch.json`
+in a new project). It builds a walk round a lake (terrain, trees, grass, water, sky, sound and a
+first-person walker) from nothing in about two seconds.
 
 ## The loop: make, look, change
 
@@ -34,9 +35,10 @@ rate. A new project already has a room called Start, so give yours another name.
 |---|---|
 | A 3D room with a sky | `room.create` with `"dimension": "3D"`; it starts on a sunny day. `"scene"`: `SunnyDay`, `GoldenHour`, `Overcast`, `Stormy`, `Snowy`, `Night`, `Alien`, `Indoor` (the Room editor's Sky cards). `"start": true` makes it the first room. |
 | A mood later | `room.setEnvironment` with `"scene"`, then `"values"` to fine-tune (`timeOfDayHours`, `visibilityKilometres`, `shadowDistance`, `atmosphericHaze`). |
-| Ground | `terrain.create` from a landform (`RollingHills`, `Hills`, `Mountains`, `Islands`...), then `room.addTerrain`. |
-| Hills, a basin, a flat path | `terrain.sculpt` strokes: `Raise`, `Lower`, `Flatten` (`flattenHeight`), `Smooth`, along world points `[x, z]`. |
+| Ground | `terrain.create` from a landform (`RollingHills`, `Hills`, `Mountains`, `Islands`...), then `room.addTerrain`. `minHeight` and `maxHeight` are limits, not the hills you get: rolling hills use a part of them (-10 to 30 gave about 9 m of relief), so sculpt for more. The terrain is centred on 0, 0. |
+| Hills, a basin, a flat path | `terrain.sculpt` strokes: `Raise`, `Lower`, `Flatten` (`flattenHeight`), `Smooth`, along world points `[x, z]`. A `Raise` pass at strength 1 adds about 5 m; run more passes for more. |
 | A path you can see | `terrain.sculpt` with `"brush": "Paint", "layer": "Dirt"` along it. Scripts read it back with `Engine.Terrain.MaterialAt(x, z)` (1 grass, 2 dirt, 3 rock, 4 snow). |
+| Trees kept off the path | Give tree layers `"paintLayerMask": 1, "minimumPaintWeight": 0.92` (only nearly pure grass), and paint a faint, wider dirt verge (`"radius": 6, "strength": 0.05`) along the path under the real one. |
 | Grass | `terrain.setGrass` (`MeadowGrass`, `TallGrass`, `Wildflower`...); it grows round the camera. |
 | Trees and rocks | `model.create` from primitives (Cylinder trunk, Cone or Sphere crowns), then `terrain.addScatterLayer` with density, spacing, height, slope, clumps, `collisionRadius` for trunks. |
 | A lake, a river, the sea | `terrain.addWater` (`Lake` with `sizeX`, `sizeZ`, `surfaceHeight`; `River` along points; `Ocean`). |
@@ -127,6 +129,11 @@ var headX = 1;
 var headZ = 0.5;
 Engine.Instance.Yaw = ArcTan2(headX, headZ);
 ```
+
+Words and a HUD, in an Object's DrawGui event (screen pixels from the top left):
+`DrawSetFontSize(size)`, `DrawSetColorRgb(r, g, b)`, `DrawSetAlpha(a)`, `DrawSetTextAlign(align)`,
+`DrawText(x, y, text)`, `DrawRectangle(x1, y1, x2, y2)`. Studio's Script editor shows every
+function with its arguments as you type.
 
 Checks a test run reports (`game.run` lists them, and a failed one fails the run):
 

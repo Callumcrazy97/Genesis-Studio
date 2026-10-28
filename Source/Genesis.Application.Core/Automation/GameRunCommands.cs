@@ -25,7 +25,7 @@ public static class GameRunCommands
     public sealed class InputStep
     {
         [Description("How long the step lasts, in seconds of play (default 1/60 s).")] public float? Seconds { get; set; }
-        [Description("Keys held down through the step: W, A, S, D, Space, LeftShift, Up, Enter, E...")] public List<string>? Hold { get; set; }
+        [Description("Keys held down through the step: W, A, S, D, Space, Shift, Control, Up, Enter, E...")] public List<string>? Hold { get; set; }
         [Description("Keys tapped at the step's start (down for its first frame).")] public List<string>? Press { get; set; }
         [Description("Mouse-look through the step, [x, y] in pixels a second (turning the camera).")] public float[]? Look { get; set; }
         [Description("Where the mouse pointer is, [x, y] in window pixels, from this step on.")] public float[]? Mouse { get; set; }
@@ -95,7 +95,15 @@ public static class GameRunCommands
         UInt128 bits = UInt128.Zero;
         foreach (string name in names ?? [])
         {
-            Key key = Parse<Key>(name, "key");
+            // A game reads one Shift, Control and Alt; the left and right names other tools use mean them.
+            string plain = name.Trim().ToLowerInvariant() switch
+            {
+                "leftshift" or "rightshift" or "lshift" or "rshift" => "Shift",
+                "leftcontrol" or "rightcontrol" or "ctrl" or "leftctrl" or "rightctrl" => "Control",
+                "leftalt" or "rightalt" => "Alt",
+                _ => name,
+            };
+            Key key = Parse<Key>(plain, "key");
             if (key == Key.Escape) throw new AutomationException("Escape hands a replay back to the real keyboard, so a run cannot press it.");
             if ((int)key is <= 0 or >= 128) throw new AutomationException($"'{name}' cannot be played back.");
             bits |= UInt128.One << (int)key;

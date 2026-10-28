@@ -22,6 +22,10 @@ From the published Studio folder:
 - `list` prints every command with its description and input schema.
 - `call` runs one command and prints its result; the exit code is 0 when it worked, 1 when it did
   not, 2 for a mistake in the command line itself. The input can be inline JSON or `@file.json`; from Windows PowerShell use `@file.json`, as it strips the quotes from inline JSON passed to a program.
+- **From PowerShell, capture the output:** `& "Genesis Application.exe" --automation ... | Out-String`.
+  Studio is a windowed program, so a bare `&` neither waits for it nor shows what it prints, and a
+  `new` or `call` seems to do nothing. Write batch files as JSON text (a here-string or a file you
+  edit), not with `ConvertTo-Json` of nested hashtables, which can hang or turn strings into objects.
 - `new` makes a project, as the Project Hub's New Project does, and prints its folder.
 - `mcp` is a Model Context Protocol server on standard input and output. Add it to an MCP client
   (Claude Code: `claude mcp add genesis -- "<Studio folder>\Genesis Application.exe" --automation

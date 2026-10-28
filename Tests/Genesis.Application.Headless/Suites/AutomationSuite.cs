@@ -640,6 +640,24 @@ internal static class AutomationSuite
                 "A batch did not stop at its failing call: " + stopped.ToJson().ToJsonString());
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.TheCookbooksWorkedExampleBuildsTheWalk", () =>
+        {
+            // Documentation/NatureWalk.batch.json ships with Studio as the Cookbook's worked example
+            // (written by BuildTools/Benchmarks/NatureWalk/NatureWalk.ps1 -ExportBatch). It must still
+            // build the whole walk, in a new project, and pass the strict check.
+            string example = Genesis.Application.Studio.Forms.StudioShellForm.FindDocumentation(AppContext.BaseDirectory, "NatureWalk.batch.json")
+                ?? throw new InvalidOperationException("Documentation/NatureWalk.batch.json was not found from the test host.");
+            JsonObject calls = JsonNode.Parse(File.ReadAllText(example)) as JsonObject
+                ?? throw new InvalidOperationException("The worked example is not a JSON object.");
+            int count = calls["calls"]!.AsArray().Count;
+            ProjectSession walk = new ProjectService().CreateProject(Path.Combine(ctx.Workspace, "automation-walk"), "Worked Example", "Blank");
+            AutomationContext walkContext = AutomationContext.For(walk);
+            walkContext.Caller = "test";
+            AutomationResult built = registry.Invoke(walkContext, AutomationRegistry.BatchCommand, calls);
+            HeadlessHarness.Assert(built.Ok && built.Data!["results"]!.AsArray().Count == count && count > 20,
+                $"The Cookbook's worked example did not build ({count} calls): " + built.ToJson().ToJsonString());
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.A2DLevelsTilesArePaintedFromATileSet", () =>
         {
             // A 64 by 32 tile set of 16-pixel tiles is 4 columns by 2 rows; tiles 0 and 5 are solid.

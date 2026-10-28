@@ -12,7 +12,10 @@ param(
     [string]$Studio = (Join-Path $PSScriptRoot '..\..\..\Genesis Application\Genesis Application.exe'),
     [switch]$Fresh,
     [switch]$Play,
-    [switch]$Benchmark)
+    [switch]$Benchmark,
+    # Writes the batch to this file and stops, touching no project: Documentation/NatureWalk.batch.json,
+    # the Cookbook's worked example, is made this way.
+    [string]$ExportBatch)
 $ErrorActionPreference = 'Stop'
 $Studio = (Resolve-Path $Studio).Path
 $work = Join-Path ([IO.Path]::GetTempPath()) 'genesis-nature-walk'
@@ -45,8 +48,8 @@ function PathPoint([double]$degrees) {
 }
 
 $clock = [Diagnostics.Stopwatch]::StartNew()
-if ($Fresh -and (Test-Path $Project)) { Remove-Item -LiteralPath $Project -Recurse -Force }
-if (-not (Test-Path (Join-Path $Project '*.genesisproj'))) {
+if ($Fresh -and -not $ExportBatch -and (Test-Path $Project)) { Remove-Item -LiteralPath $Project -Recurse -Force }
+if (-not $ExportBatch -and -not (Test-Path (Join-Path $Project '*.genesisproj'))) {
     $made = & $Studio --automation new (Split-Path $Project) (Split-Path $Project -Leaf) Blank 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "Could not make the project: $made" }
 }
@@ -110,6 +113,13 @@ $calls = @(
     (Call 'room.addInstance' @{ room = $R; object = 'Assets/Objects/Walker.object.json'; x = [Math]::Round($start[0], 2); y = 12; z = [Math]::Round($start[1], 2); yaw = [Math]::Round($startYaw, 1) }),
     (Call 'room.setEnvironment' @{ room = $R; values = @{ timeOfDayHours = 15.5; shadowDistance = 150; visibilityKilometres = 2.5; windAudio = 'Wind'; wildlifeAudio = 'Birds' } })
 )
+if ($ExportBatch) {
+    # One command a line, so it reads (and copies) as a list.
+    $lines = @($calls | ForEach-Object { '    ' + ($_ | ConvertTo-Json -Depth 12 -Compress) })
+    [IO.File]::WriteAllText($ExportBatch, "{`n  `"calls`": [`n" + ($lines -join ",`n") + "`n  ]`n}`n", (New-Object Text.UTF8Encoding($false)))
+    "Wrote the batch of $($calls.Count) commands to $ExportBatch"
+    return
+}
 $batch = Invoke-Automation 'batch' @{ calls = $calls }
 $built = $clock.Elapsed.TotalSeconds
 "Built in {0:0.0} s with {1} commands: {2}" -f $built, $calls.Count, $batch.message

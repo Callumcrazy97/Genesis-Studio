@@ -90,6 +90,36 @@ plays the recorded 1/60 s time step, so its 15 s of input were played out in abo
 the warm-up, and the measured frames stood still (found by the Task Checker, 28 October). Scripted
 input is being changed to play by clock time; the walking figure will be measured again on that build.
 
+## Measured again, honestly (28 October, daytime)
+
+The Task Checker pointed out that the scorecard set three.js *writing* time against Genesis *running*
+a script tuned all night. Two measurements replace that row:
+
+- **Blind trial (an AI, the shipped guides only).** A fresh agent with no notes, no source and no
+  benchmark script, only the published Studio, its Documentation folder and the three.js file, built
+  the walk through automation. It made a good picture after **about 29 minutes of its own working
+  time** (34 in all; another 148 minutes were spent waiting for the shared GPU), in 30 calls of which
+  8 failed, 5 of them its own PowerShell mistakes. Its picture: a path through a flowery meadow
+  between clumped pines and oaks under a blue sky, close to the three.js version but not as good
+  (grass one bright green, pale turquoise water, a flat sky, one looping birdsong). Its worst traps,
+  now fixed in the guides and commands: no worked example a user has (the Cookbook now ships
+  [NatureWalk.batch.json](../NatureWalk.batch.json), kept building by a test); a key example that did
+  not exist (`LeftShift`; now `Shift`, with the left and right names accepted); Studio from PowerShell
+  seeming to do nothing without `| Out-String`; terrain height limits read as the relief; drawing
+  functions listed without their arguments.
+- **A person in Studio's UI** (traced in the code, not timed with a person): about 115 clicks and
+  values over 7 editors, an estimated 60 to 75 minutes the first time and 20 practised. The traps:
+  Run played the new project's empty Start room, not the terrain's room; forests were under Options
+  and needed models made first; there was no way to make a sound in the UI. Fixed the same day: the
+  terrain's room starts the game when the first room is empty, Decorate makes pine, oak and boulder
+  models and their layers, meadow flowers and grass, water and paths in about 12 clicks, and the
+  Audio editor makes sounds (Wind, Birdsong, footsteps...). Not yet timed with a person.
+
+| Measure | three.js | Genesis now |
+|---|---|---|
+| An AI, from the guides, to a good picture | about 15 minutes (writing) | about 29 minutes of working time, before the guide fixes above |
+| A person in Studio | (needs code) | estimated 35 to 45 minutes the first time after the fixes; not yet timed |
+
 ## Why a game used to take days
 
 The engine was never the limit. The days went on:
