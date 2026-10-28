@@ -59,7 +59,7 @@ $start = PathPoint 21.6; $ahead = PathPoint 26
 $startYaw = [Math]::Atan2($ahead[0] - $start[0], $ahead[1] - $start[1]) * 180 / [Math]::PI
 
 $calls = @(
-    (Call 'room.create' @{ name = 'Meadow'; dimension = '3D'; scene = 'SunnyDay'; width = 400; height = 80; depth = 400; start = $true }),
+    (Call 'room.create' @{ name = 'Meadow'; dimension = '3D'; scene = 'SunnyDay'; width = 400; height = 80; depth = 400; windowWidth = 1600; windowHeight = 900; start = $true }),
     # Ground: rolling hills, a ring of higher hills, a lake basin and a dirt path, with the Terrain editor's brushes.
     (Call 'terrain.create' @{ name = 'Valley'; preset = 'RollingHills'; seed = 7; resolutionX = 401; resolutionZ = 401; cellSize = 1; minHeight = -8; maxHeight = 28; erosionIterations = 20 }),
     (Call 'terrain.sculpt' @{ terrain = $T; brush = 'Raise'; points = (Ring 0 0 165 48 20); radius = 34; strength = 1 }),

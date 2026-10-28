@@ -31,6 +31,8 @@ public static class RoomCommands
         [Description("Width, metres in 3D or pixels in 2D (default: Studio's).")] public int? Width { get; set; }
         [Description("Height, metres in 3D or pixels in 2D (default: Studio's).")] public int? Height { get; set; }
         [Description("Depth of a 3D room, metres (default: Studio's).")] public int? Depth { get; set; }
+        [Description("The game window's width, pixels (a 3D room: 1280 unless given, never its width in metres).")] public int? WindowWidth { get; set; }
+        [Description("The game window's height, pixels (a 3D room: 720 unless given).")] public int? WindowHeight { get; set; }
         [Description("Make it the room the game starts in (default false).")] public bool? Start { get; set; }
     }
 
@@ -57,6 +59,12 @@ public static class RoomCommands
             if (input.Width is int width) room.Settings.Width = width;
             if (input.Height is int height) room.Settings.Height = height;
             if (input.Depth is int depth) room.Settings.Depth = depth;
+            // A room with no window size of its own opens a window its width by its height: right for
+            // a 2D room in pixels, wrong for a 3D room in metres (400 by 80 m gave a 400 by 80 window).
+            if (input.WindowWidth is int windowWidth) room.Settings.WindowWidth = windowWidth;
+            else if (threeD) room.Settings.WindowWidth = 1280;
+            if (input.WindowHeight is int windowHeight) room.Settings.WindowHeight = windowHeight;
+            else if (threeD) room.Settings.WindowHeight = 720;
             scene?.Apply(room.Environment);
             RoomAssetLoader.Save(room, full);
             if (input.Start == true)

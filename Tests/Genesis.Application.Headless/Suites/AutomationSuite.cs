@@ -597,7 +597,8 @@ internal static class AutomationSuite
                 "The batch did not run its six calls: " + batch.ToJson().ToJsonString());
             var room = Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve("Assets/Rooms/Walk Room.room.json"));
             HeadlessHarness.Assert(room.Dimension == Genesis.Runtime.Scene.RoomDimension.ThreeD && room.Environment.DynamicSky
-                && room.Environment.TimeScale == 0f && !room.Environment.AutomaticWeather && room.Settings.Depth == 200 && room.Nodes.Count == 1,
+                && room.Environment.TimeScale == 0f && !room.Environment.AutomaticWeather && room.Settings.Depth == 200 && room.Nodes.Count == 1
+                && Genesis.Runtime.Scene.RoomDisplayLayout.WindowSize(room) == new System.Drawing.Size(1280, 720),
                 "room.create did not make a 3D room with a sunny day's sky: " + File.ReadAllText(context.Resolve("Assets/Rooms/Walk Room.room.json")));
             string hero = context.Resolve("Assets/Objects/Walk Hero.object.json");
             Dictionary<string, string> heroEvents = Genesis.Runtime.Scripting.ObjectEventStore.Load(hero);

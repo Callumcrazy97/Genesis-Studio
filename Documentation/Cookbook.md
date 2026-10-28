@@ -138,6 +138,11 @@ TestCheck("walker stands on the ground", Abs(y - Engine.Terrain.GetHeight(x, z))
 
 ## Pitfalls
 
+- A room's width and height are its size; with no window size of its own the game window takes
+  them, which is right in 2D (pixels) and wrong in 3D (metres). `room.create` gives a 3D room a
+  1280 by 720 window unless you pass `windowWidth` and `windowHeight`; set them yourself in rooms
+  made another way.
+
 - Resource names are unique across kinds: an Object and a Model both called "Tree" break
   `CreateInstance`. Call the model "Tree Model" or the Object "Tree Thing".
 - A project's saves live in the user's folder by project id: test with copies made by Studio
