@@ -55,22 +55,28 @@ public sealed partial class RoomRenderSubsystem
         Camera3D camera = scene.Camera3D;
         (Vector3 Position, float Yaw, float Pitch, float Fov, float Near, float Far, float Aspect) previous =
             (camera.Position, camera.Yaw, camera.Pitch, camera.FieldOfView, camera.NearPlane, camera.FarPlane, camera.AspectRatio);
-        var rendered = new List<(TextureHandle Texture, RoomViewport Port)>();
+        var rendered = new List<(TextureHandle Texture, System.Drawing.Rectangle Place)>();
         try
         {
             for (int index = 0; index < _room.Viewports.Count; index++)
             {
                 RoomViewport port = _room.Viewports[index];
+                // Where the port lands in the window as it is now: with scaleViewportsWithWindow the
+                // authored layout grows and shrinks with the window (and full screen), as the 2D
+                // views and the GUI rectangle do; otherwise the authored rectangle as it is.
+                System.Drawing.Rectangle place = port.PortWidth > 0 && port.PortHeight > 0
+                    ? RoomDisplayLayout.Port(_room, port, renderer.PixelWidth, renderer.PixelHeight)
+                    : System.Drawing.Rectangle.Empty;
                 if (!port.Enabled || port.PortWidth <= 0 || port.PortHeight <= 0
-                    || (long)port.PortX + port.PortWidth <= 0 || (long)port.PortY + port.PortHeight <= 0
-                    || port.PortX >= renderer.PixelWidth || port.PortY >= renderer.PixelHeight)
+                    || (long)place.X + place.Width <= 0 || (long)place.Y + place.Height <= 0
+                    || place.X >= renderer.PixelWidth || place.Y >= renderer.PixelHeight)
                 {
                     if (_viewportTargets.Remove(index, out var unused)) renderer.ReleaseRenderTarget(unused.Target);
                     continue;
                 }
                 // Never allocate an authored 100,000-pixel port at that size. Composition clips to the actual window.
-                int width = Math.Clamp(port.PortWidth, 1, Math.Max(1, renderer.PixelWidth));
-                int height = Math.Clamp(port.PortHeight, 1, Math.Max(1, renderer.PixelHeight));
+                int width = Math.Clamp(place.Width, 1, Math.Max(1, renderer.PixelWidth));
+                int height = Math.Clamp(place.Height, 1, Math.Max(1, renderer.PixelHeight));
                 if (!_viewportTargets.TryGetValue(index, out var target) || target.Width != width || target.Height != height)
                 {
                     if (target.Target.IsValid) renderer.ReleaseRenderTarget(target.Target);
@@ -86,17 +92,17 @@ public sealed partial class RoomRenderSubsystem
                 renderer.SetViewport(0, 0, width, height);
                 renderCamera();
                 renderer.EndFrame();
-                rendered.Add((renderer.GetRenderTargetTexture(target.Target), port));
+                rendered.Add((renderer.GetRenderTargetTexture(target.Target), place));
             }
             renderer.SetRenderTargetDefault();
             renderer.BeginCameraPass(postProcessing: false);
             renderer.Set3DFrameActive(false);
             renderer.SetViewport(0, 0, renderer.PixelWidth, renderer.PixelHeight);
             renderer.SetCamera2D(renderer.PixelWidth * .5f, renderer.PixelHeight * .5f, 1f, 0f);
-            foreach ((TextureHandle texture, RoomViewport port) in rendered)
+            foreach ((TextureHandle texture, System.Drawing.Rectangle place) in rendered)
                 renderer.DrawSprite(new SpriteDrawCall
                 {
-                    Texture = texture, X = port.PortX, Y = port.PortY, Width = port.PortWidth, Height = port.PortHeight,
+                    Texture = texture, X = place.X, Y = place.Y, Width = place.Width, Height = place.Height,
                     ScaleX = 1, ScaleY = 1, Alpha = 1, Tint = new RenderColor(1, 1, 1, 1),
                 });
             return true;
