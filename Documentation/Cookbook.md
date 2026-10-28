@@ -139,7 +139,7 @@ TestCheck("walker stands on the ground", Abs(y - Engine.Terrain.GetHeight(x, z))
   off the ground and walls are automatic in a game (`Engine.Lighting.*` to tune or turn off).
 - **Distance**: `visibilityKilometres` sets how far the haze lets you see; 2 to 3 km gives depth
   without hiding the hills.
-- **Shadows**: `shadowDistance` (metres) covers what the player walks among; 100 to 150 for a walk.
+- **Shadows**: `shadowDistance` (metres) covers what the player walks among; 100 to 150 for a walk. `Engine.Rendering.Shadows.Strength` (0 to 1) lightens shade that looks too dark for a sunny scene; 0.7 is gentle.
 - **Colour**: give terrain paint layers images for real ground (`Layer(slot, name, image, tileMetres)`
   or the Terrain editor's layers); a model's parts take colours in `model.create`.
 - **Exposure**: `Engine.Rendering.AutoExposure(0.18, 1.5)` lets the picture adapt between sun and

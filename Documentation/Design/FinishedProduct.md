@@ -51,7 +51,17 @@ The Genesis version was first built call by call, as an AI session would, with n
 | A 2D room by default, and no sky | The Room editor's 3D switch and the Terrain editor's Use in game give a room with no sky a sunny day (one undo takes it back). `room.create` with `"dimension": "3D"` starts on a sunny day; `"scene"` takes any of the Room editor's Sky cards (now one list, `RoomScenePresets`, shared by the editor and automation). `room.setEnvironment` takes `"scene"` too. |
 | No 3D player | Object recipes **Walk in first person**, **Third-person character** and a 3D **Spin**, as ordinary PGSL in the Object editor's Behaviour cards and through automation (`object.create` `recipes`, `object.addRecipe`, listed by `object.info`). An Object that shows nothing yet is offered the 3D players, and choosing one makes it 3D. |
 | Your code against a recipe's | `object.create` puts recipes first and the caller's code after, so it can change their numbers. |
-| Learning PGSL and the commands each time | [Cookbook.md](../Cookbook.md): the loop, a 3D place, a player, the PGSL wanted most, the look, the pitfalls. Its PGSL is compiled by the test suite. |
+| Learning PGSL and the commands each time | [Cookbook.md](../Cookbook.md): the loop, a 3D place, a 2D level, a player, the PGSL wanted most, the look, the pitfalls. Its PGSL is compiled by the test suite. |
+| A 3D window the size of the room in metres | `room.create` gives a 3D room a 1280 by 720 window unless told otherwise (a 400 by 80 m valley had played in a 400 by 80 window). |
+| No way to paint a 2D level's tiles | `room.paintTiles` (cells and rectangles from a tile set, solid on request, autotiled sets choosing their own edges) and tile sets with tile size and solid tiles from `image.create`. |
+| How long a look takes | `game.run` reports `startSeconds`, launch to the first room ready. |
+
+## Tried and not kept
+
+- **Hemisphere sky light and eye adaptation on the Sky cards.** On the sunny walk, switching them on
+  (strength 1.5, key 0.18) made the picture darker and bluer, not brighter in the shade, so the
+  scene presets were left as they were. Shade under trees is still darker than in the three.js
+  version, which fills it with a hemisphere light; that is the one look difference left.
 
 ## Scorecard
 
@@ -60,7 +70,7 @@ The Genesis version was first built call by call, as an AI session would, with n
 | Building the walk | ~15 min of writing | ~30 separate calls, minutes, several traps | one batch, 1.6 s |
 | Player | ~25 lines | 45 lines by hand | one recipe |
 | Looks | the yardstick | as good (grass, trees, haze, shadows) | as good, with flowers and a clear path |
-| Change and look again | ~2 s | 66 s (cold) | see below |
+| Change and look again | ~2 s | 66 s (cold, after another build replaced the files) | 1.6 s to rebuild the whole scene, then a 7 s look took 12 s in all (warm): about 5 s to start the game |
 | Frame time | 60 fps | see below | see below |
 
 ## Why a game used to take days
