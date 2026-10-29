@@ -13,7 +13,7 @@ using Genesis.Application.Core.Resources;
 namespace Genesis.Application.Editors.Suite.Assets;
 
 public enum ModelEditorRole { Viewer, Composer }
-public enum ModelEditorMode { Compose, Sculpt, Paint, Mesh, Rig, Animate }
+public enum ModelEditorMode { Compose, Sculpt, Paint, Mesh, Rig, Animate, TexturePaint }
 
 /// <summary>Model authoring rebuilt around the dedicated Viewer and retained animation workspace.</summary>
 public sealed partial class ModelEditorControl : ModelViewerControl
@@ -87,7 +87,10 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         Surface.Host.MouseLeave += (_, _) => _hover = null;
         Surface.Host.MouseUp += (_, e) => PointerUp(e.Location, e.Button);
         Surface.DrawOverlay += DrawBrushCursor;
+        Surface.DrawOverlay += DrawTexturePaintCursor;
         Surface.DrawOverlay += DrawAuthoringOverlay;
+        // Unsaved texture painting shows in this editor's preview only, never in games.
+        PreviewRenderer.MaterialAlbedoOverride = LivePaintTexture;
         Surface.DrawOverlay += DrawOrganicSelectionOverlay;
         Surface.DrawOverlay += DrawMeshSelectionOverlay;
         Surface.MiddleButtonPans = true;
@@ -95,6 +98,7 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         Disposed += (_, _) =>
         {
             if (_mini.Host.Renderer is { } renderer) _miniRenderer.InvalidateAssets(renderer);
+            ReleasePaintTextures();
             _frameAnimation?.Stop();
             _frameAnimation?.Dispose();
         };
@@ -229,8 +233,9 @@ public sealed partial class ModelEditorControl : ModelViewerControl
     public void SetMode(ModelEditorMode mode)
     {
         CancelPushPull();
-        FinishStroke(); AllowSpin(mode is not (ModelEditorMode.Paint or ModelEditorMode.Sculpt)); _mode = mode; SelectClip("");
-        if (mode == ModelEditorMode.Paint) SetShading(ModelPreviewShading.Textured);
+        FinishStroke(); AllowSpin(mode is not (ModelEditorMode.Paint or ModelEditorMode.Sculpt or ModelEditorMode.TexturePaint)); _mode = mode; SelectClip("");
+        if (mode is ModelEditorMode.Paint or ModelEditorMode.TexturePaint) SetShading(ModelPreviewShading.Textured);
+        _paintHover = null; RefreshTexturePaintControls();
         RefreshToolboxVisibility(mode);
         UpdateToolHeader();
         Surface.NavigationEnabled = true;
@@ -305,6 +310,7 @@ public sealed partial class ModelEditorControl : ModelViewerControl
     {
         if (button != MouseButtons.Left || IsOrientationHit(point)) return;
         if (TryCommitPrimitivePlacement(point)) return;
+        if (_mode == ModelEditorMode.TexturePaint) { BeginTexturePaint(point); return; }
         if (_mode == ModelEditorMode.Mesh && _tool is ModelAuthoringTool.Push or ModelAuthoringTool.Pull)
         {
             BeginPushPull(point);
@@ -368,6 +374,7 @@ public sealed partial class ModelEditorControl : ModelViewerControl
     }
     public void FinishStroke()
     {
+        FinishTexturePaintStroke();
         if (!_stroke) return;
         _stroke = false; Surface.NavigationEnabled = true; Surface.Host.Capture = false;
         if (_didStroke && _beforeDynamicStroke is not null)
@@ -507,6 +514,8 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         if (ModelImportInProgress) return;
         if (IsViewer || IsAnimationLibrary) { base.Save(); return; }
         FinishStroke();
+        // The painted Images first, so the saved model never names an Image without its strokes.
+        SavePaintTextures();
         PersistModelChanges(Asset); AcceptSave();
     }
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -539,12 +548,19 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         if (keyData == Keys.F) { FrameSelection(); return true; }
         if (keyData == Keys.Escape)
         {
+            if (CancelTexturePaintStroke()) return true;
             if (CancelPrimitivePlacement()) return true;
             if (CancelMeshGizmoDrag()) return true;
             if (CancelPushPull()) return true;
             CancelAuthoringGesture(); CancelStroke(); ClearElementSelection();
             if (_toolPageHost?.ActiveMode == nameof(ModelToolPage.Select)) SelectTool(ModelAuthoringTool.Region);
-            else { _tool = ModelAuthoringTool.Select; UpdateToolHeader(); }
+            else
+            {
+                _tool = ModelAuthoringTool.Select;
+                // Leaving texture painting returns the Texture page to its own mode.
+                if (_mode == ModelEditorMode.TexturePaint) SetMode(ModelEditorMode.Paint);
+                UpdateToolHeader();
+            }
             return true;
         }
         return base.ProcessCmdKey(ref msg, keyData);

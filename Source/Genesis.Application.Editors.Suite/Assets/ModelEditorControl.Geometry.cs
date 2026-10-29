@@ -13,6 +13,7 @@ public sealed partial class ModelEditorControl
 
     public void CancelStroke()
     {
+        FinishTexturePaintStroke(cancel: true);
         if (!_stroke) return;
         if (_beforeDynamicStroke is not null) ReplaceAsset(ModelPoseWorkflow.Copy(_beforeDynamicStroke));
         else if (_beforeStroke is not null) { for (int m = 0; m < _beforeStroke.Length; m++) SetVertices(Asset.Meshes[m], _beforeStroke[m]); NotifyMeshChanged(); }

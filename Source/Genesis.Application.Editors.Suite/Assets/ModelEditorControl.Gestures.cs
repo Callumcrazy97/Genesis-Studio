@@ -44,6 +44,7 @@ public sealed partial class ModelEditorControl
     {
         if (UpdatePrimitivePlacement(point)) return;
         if (_meshGizmoDragging && buttons == MouseButtons.Left) { UpdateMeshGizmoDrag(point); return; }
+        if (_mode == ModelEditorMode.TexturePaint) { MoveTexturePaint(point, buttons); return; }
         _hover=TryPickSurface(point,out var hit)?hit:null;
         if(_gesture && buttons==MouseButtons.Left)
         {

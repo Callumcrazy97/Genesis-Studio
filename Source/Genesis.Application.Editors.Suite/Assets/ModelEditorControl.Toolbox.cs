@@ -10,7 +10,7 @@ using Genesis.Shared.Interfaces;
 
 namespace Genesis.Application.Editors.Suite.Assets;
 
-public enum ModelAuthoringTool { Brush, Line, Cube, Sphere, Cylinder, SquareFace, CircleFace, TriangleFace, Push, Pull, Smooth, Colouring, Wand, Lasso, Region, BrushSelect, Select, Tube }
+public enum ModelAuthoringTool { Brush, Line, Cube, Sphere, Cylinder, SquareFace, CircleFace, TriangleFace, Push, Pull, Smooth, Colouring, Wand, Lasso, Region, BrushSelect, Select, Tube, TexturePaint }
 public enum ModelToolPage { Create, Edit, Select, Texture, RigAnimate, Outliner }
 
 public sealed partial class ModelEditorControl
@@ -234,6 +234,7 @@ public sealed partial class ModelEditorControl
 
     private void BuildTexturePage(FlowLayoutPanel page)
     {
+        BuildTexturePaintSection(page);
         CollapsibleSection imagePaint = Section(page, "PAINT YOUR IMAGE", 108);
         Button paintImage = Tool("Paint linked Image…", OpenTexturePainting);
         paintImage.Name = "ModelPaintLinkedImage"; paintImage.SetBounds(8, 6, 250, 31);
@@ -417,6 +418,8 @@ public sealed partial class ModelEditorControl
         return section;
     }
 
+    public void ShowToolPageForTest(ModelToolPage page) => ShowToolPage(page);
+
     private void ShowToolPage(ModelToolPage page)
     {
         CancelAuthoringGesture(); FinishStroke();
@@ -439,7 +442,7 @@ public sealed partial class ModelEditorControl
                 SelectTool(ModelAuthoringTool.Region);
                 break;
             case ModelToolPage.Texture:
-                SetMode(ModelEditorMode.Paint);
+                SetMode(_tool == ModelAuthoringTool.TexturePaint ? ModelEditorMode.TexturePaint : ModelEditorMode.Paint);
                 break;
             case ModelToolPage.RigAnimate:
                 SetMode(ModelEditorMode.Rig);
@@ -501,6 +504,7 @@ public sealed partial class ModelEditorControl
         CancelAuthoringGesture(); FinishStroke(); _tool=tool;
         SetBrush(tool == ModelAuthoringTool.Push ? ModelBrushKind.Carve : tool == ModelAuthoringTool.Smooth ? ModelBrushKind.Smooth : ModelBrushKind.Draw);
         SetMode(tool == ModelAuthoringTool.Colouring ? ModelEditorMode.Paint
+            : tool == ModelAuthoringTool.TexturePaint ? ModelEditorMode.TexturePaint
             : tool is ModelAuthoringTool.Brush or ModelAuthoringTool.Smooth ? ModelEditorMode.Sculpt
             : tool is ModelAuthoringTool.Push or ModelAuthoringTool.Pull or ModelAuthoringTool.Wand
                 or ModelAuthoringTool.Lasso or ModelAuthoringTool.Region or ModelAuthoringTool.BrushSelect ? ModelEditorMode.Mesh
@@ -524,6 +528,7 @@ public sealed partial class ModelEditorControl
             nameof(ModelToolPage.Edit) when IsPushPullTool => "Edit\nPush / Pull · drag up or down on a face",
             nameof(ModelToolPage.Edit) => $"Edit\nSelect {_elementSelectionMode.ToString().ToLowerInvariant()}",
             nameof(ModelToolPage.Select) => "Select\n" + ToolName(_tool),
+            nameof(ModelToolPage.Texture) when _tool == ModelAuthoringTool.TexturePaint => _paintErase ? "Texture\nErase on the model" : "Texture\nPaint on the model",
             nameof(ModelToolPage.Texture) => _tool == ModelAuthoringTool.Colouring ? "Texture\nVertex Paint" : "Texture\nMaterial and vertex colour",
             nameof(ModelToolPage.RigAnimate) => "Rig & animate\nSkeleton, poses and clips",
             _ => "Outliner\nMesh part hierarchy",
@@ -537,6 +542,7 @@ public sealed partial class ModelEditorControl
         ModelAuthoringTool.CircleFace => "Circle",
         ModelAuthoringTool.TriangleFace => "Triangle",
         ModelAuthoringTool.Colouring => "Vertex Paint",
+        ModelAuthoringTool.TexturePaint => "Paint on model",
         ModelAuthoringTool.Region => "Box Select",
         ModelAuthoringTool.Wand => "Wand",
         ModelAuthoringTool.BrushSelect => "Brush Select",
