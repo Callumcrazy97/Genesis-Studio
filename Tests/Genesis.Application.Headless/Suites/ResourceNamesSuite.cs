@@ -409,6 +409,43 @@ internal static class ResourceNamesSuite
             Assert(ImageDocumentSerializer.LoadAtomic(moved).Document.TextureGroup == TextureGroupCatalog.DefaultName,
                 "An image naming a group the project lacks was not moved to the default group.");
         });
+        // GS1: "music_village_night.wav" starts with "music_village_", which is how a resource owns its
+        // frames and sidecars, but it belongs to the resource music_village_night. Deleting
+        // music_village took it, and its .meta, with it.
+        HeadlessHarness.RunCase(ctx.Report, "Resources.Delete.KeepsLongerNamedResourcesFiles", () =>
+        {
+            using ProjectFixture p = new();
+            ResourceService service = new(p.Session);
+            string shorter = service.CreateResource(p.Session.AssetsPath, ResourceKind.Audio, "music_village");
+            string longer = service.CreateResource(p.Session.AssetsPath, ResourceKind.Audio, "music_village_night");
+            string folder = Path.GetDirectoryName(shorter)!;
+            Assert(string.Equals(folder, Path.GetDirectoryName(longer), StringComparison.OrdinalIgnoreCase), "The two sounds were made in different folders.");
+            string Sound(string name) { string file = Path.Combine(folder, name); File.WriteAllText(file, "sound"); return file; }
+            string shorterWav = Sound("music_village.wav"), shorterLoop = Sound("music_village_loop.wav"), shorterFrame = Sound("music_village_2.ogg");
+            string longerWav = Sound("music_village_night.wav"), longerLoop = Sound("music_village_night_loop.wav");
+            ResourceNames.Invalidate(p.Root);
+
+            string[] Names(IEnumerable<string> paths) => paths.Select(Path.GetFileName).OfType<string>().Order(StringComparer.OrdinalIgnoreCase).ToArray();
+            string[] before = Names(ResourceAssociates.Find(shorter));
+            string[] ownedFiles = ["music_village.audio.json.meta", "music_village.wav", "music_village_2.ogg", "music_village_loop.wav"];
+            Assert(before.SequenceEqual(ownedFiles, StringComparer.OrdinalIgnoreCase),
+                $"The shorter sound's files are [{string.Join(", ", before)}], not [{string.Join(", ", ownedFiles)}]: it must own its sidecars and none of music_village_night's.");
+            Assert(Names(ResourceAssociates.Find(shorter, ResourceAssociates.FolderListing.Read(folder))).SequenceEqual(before, StringComparer.OrdinalIgnoreCase),
+                "The Assets tree's folder listing found other files than the disk does.");
+
+            string trashed = service.MoveToTrash(shorter);
+            foreach (string gone in new[] { shorter, shorter + ".meta", shorterWav, shorterLoop, shorterFrame })
+                Assert(!File.Exists(gone), $"Deleting music_village left {Path.GetFileName(gone)} behind.");
+            foreach (string kept in new[] { longer, longer + ".meta", longerWav, longerLoop })
+                Assert(File.Exists(kept), $"Deleting music_village took {Path.GetFileName(kept)}, which belongs to music_village_night.");
+            Assert(File.Exists(trashed) && File.Exists(Path.Combine(Path.GetDirectoryName(trashed)!, "music_village.wav"))
+                && !File.Exists(Path.Combine(Path.GetDirectoryName(trashed)!, "music_village_night.wav")),
+                "The trash does not hold music_village and its sound alone.");
+
+            ResourceNames.Invalidate(p.Root);
+            Assert(Names(ResourceAssociates.Find(longer)).SequenceEqual(["music_village_night.audio.json.meta", "music_village_night.wav", "music_village_night_loop.wav"], StringComparer.OrdinalIgnoreCase),
+                "music_village_night lost track of its own files.");
+        });
     }
 
     /// <summary>The Assets tree as one line per item, in order.</summary>

@@ -163,9 +163,11 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
         fields.Controls.Add(Field("Anchor", _anchor));
         fields.Controls.Add(Pair("Position", _x, _y, "X", "Y"));
         fields.Controls.Add(_sizeRow = Pair("Size", _width, _height, "W", "H"));
+        AddContainerFields(fields);
         fields.Controls.Add(_textRow = Field("Text", _text));
         fields.Controls.Add(_fontRow = Field("Font family", _font));
         fields.Controls.Add(_fontSizeRow = Field("Font size", _fontSize));
+        AddTextInputFields(fields);
 
         TableLayoutPanel imageRow = new() { Dock = DockStyle.Top, Height = 36, ColumnCount = 2, RowCount = 1 };
         imageRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 75));
@@ -186,6 +188,7 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
         fields.Controls.Add(_backgroundRow = Field("Background", _background));
         fields.Controls.Add(_foregroundRow = Field("Text colour", _foreground));
         fields.Controls.Add(_accentRow = Field("Accent colour", _accent));
+        AddThemeStyleField(fields);
         AddStyleFields(fields);
         fields.Controls.Add(_visible);
 
@@ -267,12 +270,16 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
             },
             Width = type is UiElementType.ProgressBar or UiElementType.Slider ? 320f : type == UiElementType.Text ? 180f : 240f,
             Height = type == UiElementType.ProgressBar ? 28f : type == UiElementType.Text ? 42f
-                : type is UiElementType.Slider or UiElementType.Toggle ? 36f : 80f,
+                : type is UiElementType.Slider or UiElementType.Toggle ? 36f : type == UiElementType.TextInput ? 44f
+                : type == UiElementType.ScrollList ? 200f : 80f,
             X = 40 + (_document.Elements.Count % 8) * 18,
             Y = 40 + (_document.Elements.Count % 8) * 18,
             Order = _document.Elements.Count,
         };
         if (type == UiElementType.Slider) { element.Value = 50; element.CornerRadius = 6; }
+        if (type == UiElementType.TextInput) { element.Placeholder = "Type here"; element.CornerRadius = 4; }
+        // A Scroll List stacks its children and scrolls them; give it the layout that does so.
+        if (type == UiElementType.ScrollList) { element.Layout = UiLayoutMode.Vertical; element.Spacing = 8; element.Padding = 8; }
         if (type == UiElementType.Toggle) { element.Value = 0; element.Maximum = 1; element.Background = "#FF3A4250"; }
         _document.Elements.Add(element);
         _canvas.SelectedElement = element;
@@ -351,7 +358,7 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
                 control.Enabled = element is not null;
             foreach (Control control in new Control[] { _cornerRadius, _borderWidth, _borderColor, _fill, _gradientEnd, _textAlign, _textVerticalAlign,
                          _letterSpacing, _minimum, _step, _imageFit, _cropX, _cropY, _cropWidth, _cropHeight, _enabled, _stateChoice,
-                         _stateBackground, _stateForeground, _stateBorder })
+                         _stateBackground, _stateForeground, _stateBorder, _layout, _spacing, _padding, _styleName, _placeholder, _maxLength })
                 control.Enabled = element is not null;
             if (element is null) return;
             string parentSelection = string.IsNullOrWhiteSpace(element.ParentId) ? "(Canvas)" : element.ParentId;
@@ -382,6 +389,7 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
             _foreground.BackColor = ParseColor(element.Foreground, EditorChrome.Text);
             _accent.BackColor = ParseColor(element.Accent, EditorChrome.Accent);
             RefreshStyleFields(element);
+            RefreshStructureFields(element);
             UpdateColourButtons();
         }
         finally { _syncing = false; }
@@ -424,6 +432,7 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
             if (element.Type != UiElementType.Slider || maximum > element.Minimum) element.Maximum = maximum;
         }
         ApplyStyleFields(element);
+        ApplyStructureFields(element);
         element.Anchor = _anchor.SelectedItem is UiAnchor anchor ? anchor : UiAnchor.TopLeft;
         if (element.Anchor != UiAnchor.Stretch)
         {
@@ -545,7 +554,7 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
             new("UI element", "Ui.Foreground", ForegroundCaption(element.Type), element.Foreground),
             new("UI element", "Ui.Accent", "Accent colour", element.Accent),
         ];
-        return values.Concat(StyleLiveValues(element)).Where(value => IsApplicable(element.Type, value.PropertyPath)).ToArray();
+        return values.Concat(StructureLiveValues(element)).Concat(StyleLiveValues(element)).Where(value => IsApplicable(element.Type, value.PropertyPath)).ToArray();
     }
 
     public bool TryApplyInspectorValue(string propertyPath, object? value) => TryApplyLiveInspectorValue(propertyPath, value);
@@ -585,7 +594,8 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
                 foreach (UiElement child in _document.Elements.Where(item => item.ParentId.Equals(previous, StringComparison.OrdinalIgnoreCase))) child.ParentId = text;
                 break;
             default:
-                if (TryApplyStyleValue(element, propertyPath, text) != true) return false;
+                bool? structure = TryApplyStructureValue(element, propertyPath, text);
+                if (structure == false || structure is null && TryApplyStyleValue(element, propertyPath, text) != true) return false;
                 break;
         }
         if (element.Anchor != UiAnchor.Stretch)
@@ -680,6 +690,8 @@ public sealed partial class UiEditorControl : EditorSurfaceControl, IResourceIns
         UiElementType.ProgressBar => "▬",
         UiElementType.Slider => "━",
         UiElementType.Toggle => "◑",
+        UiElementType.TextInput => "▭",
+        UiElementType.ScrollList => "☰",
         _ => "□",
     };
 
@@ -950,9 +962,11 @@ internal sealed partial class UiDesignCanvas : Control
             .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
         Dictionary<string, RectangleF> designRects = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, RectangleF> result = new(StringComparer.OrdinalIgnoreCase);
+        // The children of a Panel or Scroll List with a Layout stand one after another, as in the game.
+        IReadOnlyDictionary<string, float> slots = UiLayoutPlacement.Slots(Document.Elements.OrderBy(element => element.Order).ToArray(), elements).Slots;
         foreach (UiElement element in Document.Elements)
         {
-            RectangleF design = ResolveDesignRect(element, elements, designRects, []);
+            RectangleF design = ResolveDesignRect(element, elements, designRects, [], slots);
             result[element.Id] = new RectangleF(
                 canvas.X + design.X * sx,
                 canvas.Y + design.Y * sy,
@@ -966,18 +980,23 @@ internal sealed partial class UiDesignCanvas : Control
         UiElement element,
         IReadOnlyDictionary<string, UiElement> elements,
         IDictionary<string, RectangleF> cache,
-        HashSet<string> visiting)
+        HashSet<string> visiting,
+        IReadOnlyDictionary<string, float> slots)
     {
         if (cache.TryGetValue(element.Id, out RectangleF cached)) return cached;
         RectangleF parent = new(0, 0, Document.DesignWidth, Document.DesignHeight);
+        UiElement? container = null;
         if (!string.IsNullOrWhiteSpace(element.ParentId)
             && elements.TryGetValue(element.ParentId, out UiElement? parentElement)
             && visiting.Add(element.Id))
         {
-            parent = ResolveDesignRect(parentElement, elements, cache, visiting);
+            parent = ResolveDesignRect(parentElement, elements, cache, visiting, slots);
             visiting.Remove(element.Id);
+            container = parentElement;
         }
-        RectangleF result = AnchorRect(parent, element);
+        RectangleF result = container is { Layout: not UiLayoutMode.None } && slots.TryGetValue(element.Id, out float slot)
+            ? UiLayoutPlacement.Place(parent, container, element, slot)
+            : AnchorRect(parent, element);
         cache[element.Id] = result;
         return result;
     }
