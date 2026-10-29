@@ -21,7 +21,7 @@ namespace Genesis.Application.Headless.Suites;
 /// session folder (frames.csv, summary.json, report.md). Captures of the strip and of each tab
 /// are written for inspection.
 /// </summary>
-internal static class DebugScreenSuite
+internal static partial class DebugScreenSuite
 {
     public static void Run(HeadlessContext ctx)
     {
@@ -31,6 +31,7 @@ internal static class DebugScreenSuite
         try
         {
             RunCases(ctx);
+            RunDiagnosticsCases(ctx);
             ProfileRecordingSuite.Run(ctx);
             ProfileRecordingSuite.RunScreenshotKey(ctx);
         }
