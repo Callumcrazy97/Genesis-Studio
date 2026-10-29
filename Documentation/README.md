@@ -10132,6 +10132,9 @@ the game all use what it made; a game never reads the graph.
   Object position undoes the draw's own world matrix, so copies of a mesh drawn together in one
   instanced batch give their world position (the surface input has no object position yet). There is
   no vertex stage, no groups, comments or sub-graphs, and no copy and paste yet.
+- **Preview fix (any shader).** A previewed model now carries the shader's own textures (t17 and
+  up), as the sphere always did; until 29 October a Model shader sampling a texture of its own
+  previewed black on a model asset, though it drew correctly in the game.
 - **Automation.** `shader.graph` writes a resource's graph and the code it makes, checked by
   compiling for DX11 and SPIR-V; `shader.nodes` lists the node kinds and their ports
   ([Automation](Automation.md), [Cookbook](Cookbook.md#make-a-shader-from-nodes)).
