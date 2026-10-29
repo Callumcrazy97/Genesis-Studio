@@ -1186,6 +1186,9 @@ namespace Genesis.Rendering.Core
 
             float emissive = template.Emissive;
             if ((template.Flags & MeshDrawFlags.Emissive) != 0 && emissive <= 0f) emissive = 0.5f;
+            // The whole material, as DrawMeshBatch passes it: a model drawn through a room's static
+            // instanced layer used to lose its factors, ORM and emission maps, emission colour and
+            // UV repeat and slide, and shaded differently from the same model drawn on its own.
             _fwd.SubmitInstances(
                 template.Mesh,
                 instances,
@@ -1199,7 +1202,16 @@ namespace Genesis.Rendering.Core
                 shaderParams1: template.ShaderParams1,
                 shaderParams2: template.ShaderParams2,
                 shaderParams3: template.ShaderParams3,
-                authoredTextures: ResolveAuthoredTextures(template.AuthoredTextures));
+                authoredTextures: ResolveAuthoredTextures(template.AuthoredTextures),
+                surfaceParams: template.SurfaceParams,
+                subsurfaceColorSteps: template.SubsurfaceColorSteps,
+                normalId: template.NormalMap.Id, ormId: template.OrmMap.Id, heightId: template.HeightMap.Id,
+                emissionId: template.EmissionMap.Id, extrasId: template.ExtrasMap.Id, flowId: template.FlowMap.Id,
+                orm: ResolveGpuTexture(template.OrmMap.Id), height: ResolveGpuTexture(template.HeightMap.Id),
+                emission: ResolveGpuTexture(template.EmissionMap.Id), extras: ResolveGpuTexture(template.ExtrasMap.Id),
+                flow: ResolveGpuTexture(template.FlowMap.Id), heightMode: template.HeightMode,
+                detailParams: template.DetailParams, materialFactors: template.MaterialFactors,
+                emissionColor: template.EmissionColor);
         }
 
         private GpuTextureHandle GetGpuTexture(TextureHandle handle)

@@ -3404,9 +3404,12 @@ namespace Genesis.Rendering.Primitives
         }
 
         /// <summary>
-        /// Fast path for a pre-culled foliage field. The caller supplies one species/LOD batch;
-        /// transforms are copied directly into the renderer instance buffer and become one
-        /// DrawIndexedInstanced command on every backend.
+        /// Many instances of one mesh and material in one call (a pre-culled foliage field, a room's
+        /// static models): transforms go straight into the renderer's instance buffer and become one
+        /// DrawIndexedInstanced command on every backend. The material is everything
+        /// <see cref="Submit"/> takes for it (maps, factors, emission colour, the picture's repeat
+        /// and slide), so a model drawn this way shades as it does drawn on its own; it is part of
+        /// the batch key, once per call, not per instance.
         /// </summary>
         public void SubmitInstances(
             MeshHandle mesh,
@@ -3421,11 +3424,20 @@ namespace Genesis.Rendering.Primitives
             Vector4 shaderParams1 = default,
             Vector4 shaderParams2 = default,
             Vector4 shaderParams3 = default,
-            AuthoredGpuTextures authoredTextures = default)
+            AuthoredGpuTextures authoredTextures = default,
+            Vector4 surfaceParams = default,
+            Vector4 subsurfaceColorSteps = default,
+            int normalId = 0, int ormId = 0, int heightId = 0, int emissionId = 0, int extrasId = 0, int flowId = 0,
+            GpuTextureHandle orm = default, GpuTextureHandle height = default,
+            GpuTextureHandle emission = default, GpuTextureHandle extras = default,
+            GpuTextureHandle flow = default,
+            MaterialHeightMode heightMode = MaterialHeightMode.None,
+            Vector4 detailParams = default, Vector4 materialFactors = default, Vector4 emissionColor = default)
         {
             if (!mesh.IsValid || instances.IsEmpty || !TryGetMesh(mesh.Id, out MeshEntry meshEntrySource)) return;
             if (RuntimePassMode(shader) != Genesis.Shared.Assets.ShaderMeshPassMode.Surface)
                 flags |= MeshDrawFlags.NoShadow;
+            emissionColor = SafeEmissionColor(emissionColor);
 
             bool transparent = (flags & MeshDrawFlags.Transparent) != 0;
             bool additive = (flags & MeshDrawFlags.Additive) != 0;
@@ -3444,10 +3456,11 @@ namespace Genesis.Rendering.Primitives
                 {
                     MeshId = mesh.Id,
                     TextureId = textureId != 0 ? textureId : texture.Id,
-                    NormalId = normal.Id,
+                    NormalId = normalId != 0 ? normalId : normal.Id,
                     BlendMode = blendMode,
                     NoFog = noFog,
                     Emissive = emissive,
+                    EmissionColor = emissionColor,
                 };
                 if (!_transBatches.TryGetValue(tkey, out TransBatch tb))
                 {
@@ -3458,6 +3471,7 @@ namespace Genesis.Rendering.Primitives
                     tb.Normal = normal;
                     tb.BlendMode = blendMode;
                     tb.Emissive = emissive;
+                    tb.EmissionColor = emissionColor;
                     tb.NoFog = noFog;
                     _transBatches[tkey] = tb;
                     _transBatchList.Add(tb);
@@ -3499,9 +3513,24 @@ namespace Genesis.Rendering.Primitives
                     Submit(mesh, instance.World, color, textureId, texture, flags, emissive,
                         normal: normal, shader: shader, shaderParams0: shaderParams0,
                         shaderParams1: shaderParams1, shaderParams2: shaderParams2,
-                        shaderParams3: shaderParams3, authoredTextures: authoredTextures);
+                        shaderParams3: shaderParams3, authoredTextures: authoredTextures,
+                        normalId: normalId, ormId: ormId, heightId: heightId, emissionId: emissionId,
+                        extrasId: extrasId, flowId: flowId, orm: orm, height: height, emission: emission,
+                        extras: extras, flow: flow, heightMode: heightMode, surfaceParams: surfaceParams,
+                        detailParams: detailParams, subsurfaceColorSteps: subsurfaceColorSteps,
+                        materialFactors: materialFactors, emissionColor: emissionColor);
                 }
                 return;
+            }
+
+            // A foliage card takes what Submit's foliage batches take: its picture, normal map and
+            // shader. The material maps and factors below belong to ordinary meshes.
+            if (foliage)
+            {
+                orm = height = emission = extras = flow = default;
+                ormId = heightId = emissionId = extrasId = flowId = 0;
+                heightMode = MaterialHeightMode.None;
+                detailParams = materialFactors = emissionColor = default;
             }
 
             // R7.9 Auto-Instancing Draw Queue: bulk-append into BatchKey (mesh + material fingerprint
@@ -3513,7 +3542,12 @@ namespace Genesis.Rendering.Primitives
             {
                 MeshId = mesh.Id,
                 TextureId = textureId != 0 ? textureId : texture.Id,
-                NormalId = normal.Id,
+                NormalId = normalId != 0 ? normalId : normal.Id,
+                OrmId = ormId != 0 ? ormId : orm.Id,
+                HeightId = heightId != 0 ? heightId : height.Id,
+                EmissionId = emissionId != 0 ? emissionId : emission.Id,
+                ExtrasId = extrasId != 0 ? extrasId : extras.Id,
+                FlowId = flowId != 0 ? flowId : flow.Id,
                 NoFog = noFog,
                 NoReceiveShadow = noReceiveShadow,
                 TerrainGround = terrainGround,
@@ -3521,6 +3555,12 @@ namespace Genesis.Rendering.Primitives
                 Foliage = foliage,
                 Unlit = (flags & MeshDrawFlags.Unlit) != 0,
                 IsFloor = isFloor,
+                HeightMode = heightMode,
+                SurfaceParams = surfaceParams,
+                DetailParams = detailParams,
+                SubsurfaceColorSteps = subsurfaceColorSteps,
+                MaterialFactors = materialFactors,
+                EmissionColor = emissionColor,
                 Emissive = emissive,
                 ShaderId = shader.Id,
                 ShaderParams0 = shaderParams0,
@@ -3536,6 +3576,17 @@ namespace Genesis.Rendering.Primitives
                 batch.TextureId = textureId;
                 batch.Texture = texture;
                 batch.Normal = normal;
+                batch.Orm = orm;
+                batch.Height = height;
+                batch.Emission = emission;
+                batch.Extras = extras;
+                batch.Flow = flow;
+                batch.HeightMode = heightMode;
+                batch.SurfaceParams = surfaceParams;
+                batch.DetailParams = detailParams;
+                batch.SubsurfaceColorSteps = subsurfaceColorSteps;
+                batch.MaterialFactors = materialFactors;
+                batch.EmissionColor = emissionColor;
                 batch.Emissive = emissive;
                 batch.NoFog = noFog;
                 batch.NoReceiveShadow = noReceiveShadow;
@@ -6593,6 +6644,9 @@ namespace Genesis.Rendering.Primitives
             batch.ShaderParams3 = default;
             batch.AuthoredTextures = default;
             batch.EmissionColor = default;
+            // A path that does not set the factors must not inherit the last owner's (metallic 1
+            // from a glTF model turned the next batch from the pool dark).
+            batch.MaterialFactors = default;
             batch.Instances.Clear();
             return batch;
         }

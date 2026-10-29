@@ -826,6 +826,10 @@ internal static class RenderBackendSuite
         HeadlessHarness.RunCase(ctx.Report, "Render.SeeThrough.ViewportKeepsCoverageOnAllBackends",
             () => SeeThroughCoverageSuite.ViewportKeepsCoverage(ctx));
 
+        // A lit material shades the same drawn on its own and as instances (StaticModelLayer).
+        HeadlessHarness.RunCase(ctx.Report, "Render.Instancing.MaterialShadesTheSameSingleAndInstanced",
+            () => InstancedMaterialSuite.SameShadingSingleAndInstanced(ctx));
+
         // AF1.2: GTAO math + enable wiring (default off; Software skip).
         HeadlessHarness.RunCase(ctx.Report, "Render.Gtao.MathAndEnableWiring", () =>
         {
