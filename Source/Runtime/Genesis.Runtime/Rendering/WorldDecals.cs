@@ -42,6 +42,7 @@ namespace Genesis.Runtime.Rendering
             public float Age;
             public DecalBlend Blend;
             public bool SeeThrough;
+            public int Layer;
             // The object it stays on (an entity id, 0 for none), and where it sits in that object's frame.
             public int Follow;
             public Vector3 LocalPosition, LocalNormal;
@@ -64,6 +65,18 @@ namespace Genesis.Runtime.Rendering
         public static int Limit
         {
             get { lock (Gate) return _limit; }
+        }
+
+        /// <summary>Whether decals are drawn at all (Engine.Decal.Enabled); kept while off. On at each room's start.</summary>
+        public static bool Enabled { get; set; } = true;
+
+        private static int _defaultLayer;
+
+        /// <summary>The layer a new decal gets (Engine.Decal.Layer), 0 at each room's start.</summary>
+        public static int DefaultLayer
+        {
+            get => _defaultLayer;
+            set => _defaultLayer = Math.Clamp(value, 0, MeshDrawCall.DecalLayerCount - 1);
         }
 
         /// <summary>
@@ -94,6 +107,7 @@ namespace Genesis.Runtime.Rendering
                     // little enough not to wrap round a corner or onto feet passing through.
                     Depth = size * 0.5f,
                     Life = float.IsFinite(life) && life > 0f ? life : 0f,
+                    Layer = _defaultLayer,
                 });
                 return id;
             }
@@ -132,6 +146,23 @@ namespace Genesis.Runtime.Rendering
         /// <see cref="DecalDrawCall.SeeThrough"/>); false when there is no such decal.
         /// </summary>
         public static bool SetSeeThrough(int id, bool seeThrough) => Edit(id, decal => decal.SeeThrough = seeThrough);
+
+        /// <summary>
+        /// The decal's layer (0 to <see cref="MeshDrawCall.DecalLayerCount"/> - 1): it shows only on
+        /// surfaces that take that layer (Engine.Model.DecalLayers). False for a layer out of range.
+        /// </summary>
+        public static bool SetLayer(int id, int layer) =>
+            layer >= 0 && layer < MeshDrawCall.DecalLayerCount && Edit(id, decal => decal.Layer = layer);
+
+        /// <summary>A decal's layer, or -1 when there is no such decal.</summary>
+        public static int LayerOf(int id)
+        {
+            lock (Gate)
+            {
+                int index = IndexOf(id);
+                return index < 0 ? -1 : Decals[index].Layer;
+            }
+        }
 
         /// <summary>Whether a decal is drawn on see-through surfaces; false when there is no such decal.</summary>
         public static bool IsSeeThrough(int id)
@@ -285,6 +316,8 @@ namespace Genesis.Runtime.Rendering
                 Pictures.Clear();
                 _limit = DefaultLimit;
                 _nextId = 0;
+                _defaultLayer = 0;
+                Enabled = true;
             }
         }
 
@@ -336,7 +369,7 @@ namespace Genesis.Runtime.Rendering
         /// </summary>
         public static int Submit(IRenderController renderer, string projectPath)
         {
-            if (renderer == null) return 0;
+            if (renderer == null || !Enabled) return 0;
             lock (Gate)
             {
                 if (Decals.Count == 0) return 0;
@@ -365,6 +398,7 @@ namespace Genesis.Runtime.Rendering
                         Color = new Vector4(decal.Color.X, decal.Color.Y, decal.Color.Z, opacity),
                         Blend = decal.Blend,
                         SeeThrough = decal.SeeThrough,
+                        Layer = decal.Layer,
                     };
                 }
                 Pictures.Clear();

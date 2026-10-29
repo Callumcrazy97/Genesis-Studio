@@ -1168,7 +1168,7 @@ namespace Genesis.Rendering.Core
                     authoredTextures: ResolveAuthoredTextures(c.AuthoredTextures),
                     materialFactors: c.MaterialFactors, layer: c.Layer,
                     outline: c.Outline, outlineId: c.OutlineId, outlineThroughWalls: c.OutlineThroughWalls,
-                    emissionColor: c.EmissionColor);
+                    emissionColor: c.EmissionColor, decalLayers: c.DecalLayers);
             }
         }
 
@@ -1211,7 +1211,7 @@ namespace Genesis.Rendering.Core
                 emission: ResolveGpuTexture(template.EmissionMap.Id), extras: ResolveGpuTexture(template.ExtrasMap.Id),
                 flow: ResolveGpuTexture(template.FlowMap.Id), heightMode: template.HeightMode,
                 detailParams: template.DetailParams, materialFactors: template.MaterialFactors,
-                emissionColor: template.EmissionColor);
+                emissionColor: template.EmissionColor, decalLayers: template.DecalLayers);
         }
 
         private GpuTextureHandle GetGpuTexture(TextureHandle handle)

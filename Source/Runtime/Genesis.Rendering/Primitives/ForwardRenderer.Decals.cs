@@ -42,6 +42,26 @@ internal sealed partial class ForwardRenderer
         public Vector4 CameraPos;
         public Vector4 Viewport;
         public Vector4 Params;
+        // x = 1 when the picture of the decal layers each surface refuses is bound (t3).
+        public Vector4 Layers;
+    }
+
+    /// <summary>The bits of a surface's refused decal layers (MeshDrawCall.DecalLayerCount of them).</summary>
+    private const int DecalLayerMask = (1 << MeshDrawCall.DecalLayerCount) - 1;
+
+    // Some surface this frame refuses a decal layer: the decal pass then reads which, per pixel.
+    private bool _decalLayersInUse;
+    private GpuRenderTargetHandle _decalLayerTarget;
+    private GpuTextureHandle _decalLayerTexture;
+    private int _decalLayerWidth, _decalLayerHeight;
+    private GpuShaderProgramHandle _decalLayerProgram;
+
+    /// <summary>A draw's refused decal layers (MeshDrawCall.RefusedDecalLayers), noting that the frame has some.</summary>
+    private int NoteDecalLayers(int decalLayers)
+    {
+        int refused = MeshDrawCall.RefusedDecalLayers(decalLayers) & DecalLayerMask;
+        if (refused != 0) _decalLayersInUse = true;
+        return refused;
     }
 
     private struct PendingDecal
@@ -105,7 +125,9 @@ internal sealed partial class ForwardRenderer
                 AxisY = new Vector4(bitangent * call.Height, 0f),
                 AxisZ = new Vector4(normal * call.Depth, 0f),
                 Color = new Vector4(ToLinearColor(tint), opacity),
-                Params = new Vector4(DecalFullAngleCos, DecalZeroAngleCos, 0f, 0f),
+                // z: the decal's layer as its bit, tested against the surface's refused layers.
+                Params = new Vector4(DecalFullAngleCos, DecalZeroAngleCos,
+                    1 << Math.Clamp(call.Layer, 0, MeshDrawCall.DecalLayerCount - 1), 0f),
             },
             Texture = texture,
             TextureId = textureId,
@@ -127,6 +149,74 @@ internal sealed partial class ForwardRenderer
     {
         _pendingDecalCount = 0;
         _pendingDecalCardCount = 0;
+        _decalLayersInUse = false;
+    }
+
+    /// <summary>
+    /// Copies the fog/ambient attachment's flag channel, where each surface's refused decal layers
+    /// ride (ForwardShaders MakeOut), to a picture of its own: the decal pass draws into that
+    /// attachment and cannot read it at the same time. Only for frames where some surface refuses
+    /// a layer; false when it cannot be made (the decal pass then shows decals everywhere).
+    /// </summary>
+    private bool CopyDecalLayers(int width, int height)
+    {
+        if (string.Equals(_gpu.BackendName, "Software", StringComparison.OrdinalIgnoreCase)) return false;
+        try
+        {
+            if (!_decalLayerProgram.IsValid)
+            {
+                _decalLayerProgram = _gpu.CreateShaderProgram(new GpuShaderProgramDesc
+                {
+                    BinaryFormat = _gpu.ShaderBinaryFormat,
+                    VertexShader = CompileShader(DecalShaders.Source, "VS_DecalLayerCopy", GpuShaderStage.Vertex),
+                    PixelShader = CompileShader(DecalShaders.Source, "PS_DecalLayerCopy", GpuShaderStage.Pixel),
+                    DebugName = "Decal layer copy",
+                });
+            }
+            if (!_decalLayerTarget.IsValid || _decalLayerWidth != width || _decalLayerHeight != height)
+            {
+                if (_decalLayerTarget.IsValid) _gpu.ReleaseRenderTarget(_decalLayerTarget);
+                _decalLayerTarget = _gpu.CreateRenderTarget(new GpuRenderTargetDesc
+                {
+                    Width = width,
+                    Height = height,
+                    ColorFormats = new[] { GpuFormat.R16G16B16A16Float },
+                    DebugName = "Decal layers",
+                });
+                _decalLayerTexture = _gpu.GetRenderTargetTexture(_decalLayerTarget, 0);
+                (_decalLayerWidth, _decalLayerHeight) = (width, height);
+            }
+        }
+        catch (Exception ex)
+        {
+            RenderLog.Line("Decal layers unavailable: " + ex.Message);
+            return false;
+        }
+        if (!_decalLayerProgram.IsValid || !_decalLayerTexture.IsValid || !TryGetMesh(_decalQuad.Id, out MeshEntry quad)) return false;
+
+        GpuTextureHandle flags = _gpu.GetRenderTargetTexture(_currentTarget, 1);
+        if (!flags.IsValid) return false;
+        _gpu.BeginRenderPass(new GpuRenderPassDesc
+        {
+            Target = _decalLayerTarget,
+            ColorActions = KeepColor,
+            HasDepth = false,
+            DebugName = "Decal layers",
+        });
+        _gpu.SetViewport(0, 0, width, height);
+        _gpu.SetDepthState(_dssNoTest);
+        _gpu.SetBlendState(_bsOpaque);
+        _gpu.SetRasterState(_rsCullNone);
+        _gpu.SetShaderProgram(_decalLayerProgram);
+        _gpu.SetVertexLayout(_layout);
+        _gpu.SetPrimitiveTopology(GpuPrimitiveTopology.TriangleList);
+        SetMeshBuffers(ref quad);
+        _gpu.SetTexture(GpuShaderStage.Pixel, 3, flags);
+        _gpu.DrawIndexed(quad.IndexCount);
+        _gpu.ClearTexture(GpuShaderStage.Pixel, 3);
+        _gpu.EndRenderPass();
+        LastDrawCalls++;
+        return true;
     }
 
     private bool EnsureDecalResources()
@@ -281,6 +371,9 @@ internal sealed partial class ForwardRenderer
         };
 
         _gpu.EndRenderPass();
+        // Which decal layers each surface refuses, when some surface refuses any this frame.
+        bool layers = _decalLayersInUse && CopyDecalLayers(width, height);
+        constants.Layers = new Vector4(layers ? 1f : 0f, 0f, 0f, 0f);
         BeginForwardColorPass(hasDepth: false, "Decals");
         _gpu.SetDepthState(_dssNoTest);
         _gpu.SetRasterState(_rsCullNone);
@@ -292,6 +385,7 @@ internal sealed partial class ForwardRenderer
         _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 0, _cbDecal);
         _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 0, _decalBuffer);
         _gpu.SetTexture(GpuShaderStage.Pixel, 1, _currentDepthTexture);
+        if (layers) _gpu.SetTexture(GpuShaderStage.Pixel, 3, _decalLayerTexture);
         _gpu.SetSampler(GpuShaderStage.Pixel, 0, _linearSampler);
 
         int start = 0;
@@ -318,6 +412,7 @@ internal sealed partial class ForwardRenderer
 
         _gpu.ClearTexture(GpuShaderStage.Pixel, 1);
         _gpu.ClearTexture(GpuShaderStage.Pixel, 2);
+        if (layers) _gpu.ClearTexture(GpuShaderStage.Pixel, 3);
         _gpu.EndRenderPass();
         BeginForwardColorPass(hasDepth: true, "Forward after decals");
 
@@ -344,6 +439,12 @@ internal sealed partial class ForwardRenderer
         _cbDecal = GpuBufferHandle.Invalid;
         _decalProgram = GpuShaderProgramHandle.Invalid;
         _decalBufferCapacity = 0;
+        if (_decalLayerProgram.IsValid) _gpu.ReleaseShaderProgram(_decalLayerProgram);
+        if (_decalLayerTarget.IsValid) _gpu.ReleaseRenderTarget(_decalLayerTarget);
+        _decalLayerProgram = GpuShaderProgramHandle.Invalid;
+        _decalLayerTarget = GpuRenderTargetHandle.Invalid;
+        _decalLayerTexture = GpuTextureHandle.Invalid;
+        _decalLayerWidth = _decalLayerHeight = 0;
         ReleaseDecalCardResources();
     }
 }

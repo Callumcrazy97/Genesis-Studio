@@ -830,6 +830,10 @@ internal static class RenderBackendSuite
         HeadlessHarness.RunCase(ctx.Report, "Render.Instancing.MaterialShadesTheSameSingleAndInstanced",
             () => InstancedMaterialSuite.SameShadingSingleAndInstanced(ctx));
 
+        // A projected decal shows only on surfaces that take its layer, on every GPU backend.
+        HeadlessHarness.RunCase(ctx.Report, "Render.Decals.LayersPickTheirSurfacesOnEveryBackend",
+            () => DecalLayerSuite.LayersPickTheirSurfaces(ctx));
+
         // AF1.2: GTAO math + enable wiring (default off; Software skip).
         HeadlessHarness.RunCase(ctx.Report, "Render.Gtao.MathAndEnableWiring", () =>
         {

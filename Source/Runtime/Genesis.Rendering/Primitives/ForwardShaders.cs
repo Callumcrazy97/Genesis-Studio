@@ -139,6 +139,9 @@ cbuffer DrawConstants : register(b2)
     // emission map and the w share of MaterialParams.x that is the material's (the rest is a
     // whole-model glow). w = 0 leaves the light as it was.
     float4             MaterialEmissionColor;
+    // x: the decal layers this surface refuses (a bit mask, 0 for none), kept in the fog flag's
+    // fraction (MakeOut) for the decal pass to read.
+    float4             SurfaceDecalLayers;
 };
 
 // ── Resources ────────────────────────────────────────────────────────────────
@@ -955,7 +958,10 @@ PSOut MakeOut(float4 c, float skip, float3 ambient, float foliage)
     if (VolumetricParams.z > 1.5)
         c.rgb = LinearToSrgb3(c.rgb);
     o.Color = c;
-    o.Aux = float4((skip > 0.5 ? 1.0 : 0.5) - (foliage > 0.5 ? 0.125 : 0.0), ambient);
+    // The flags are eighths (1, 0.5, 0.875, 0.375); the decal layers the surface refuses ride in
+    // 1/1024 steps below the next eighth (at most 63/1024), which half-float keeps exactly and
+    // every reader of the flags (thresholds at 0.25 and 0.75) ignores.
+    o.Aux = float4((skip > 0.5 ? 1.0 : 0.5) - (foliage > 0.5 ? 0.125 : 0.0) + SurfaceDecalLayers.x / 1024.0, ambient);
     return o;
 }
 

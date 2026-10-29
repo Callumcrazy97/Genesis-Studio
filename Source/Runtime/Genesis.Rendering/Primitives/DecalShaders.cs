@@ -23,6 +23,7 @@ cbuffer DecalConstants : register(b0)
     float4 CameraPos;     // xyz = eye, w = scene depth is reversed
     float4 Viewport;      // width, height, 1 / width, 1 / height
     float4 DecalParams;   // x = first decal of this draw, y = blend (0 multiply, 1 alpha, 2 add), z = linear colour, w = decals in this draw
+    float4 DecalLayers;   // x = 1: DecalLayerTex holds the decal layers each surface refuses
 };
 
 // One decal: the box is Center + AxisX * x + AxisY * y + AxisZ * z for x, y, z in [-0.5, 0.5].
@@ -34,13 +35,24 @@ struct DecalGpu
     float4 AxisY;
     float4 AxisZ;
     float4 Color;    // linear tint rgb, a = opacity
-    float4 Params;   // x = cosine of the angle with full strength, y = cosine where it is gone
+    float4 Params;   // x = cosine of the angle with full strength, y = cosine where it is gone, z = the decal's layer bit
 };
 
 StructuredBuffer<DecalGpu> Decals    : register(t0);
 Texture2D<float>           SceneDepth : register(t1);
 Texture2D                  DecalTex   : register(t2);
+// The forward pass's flag channel (r): eighths for the fog flags plus the surface's refused decal
+// layers in 1/1024 steps (ForwardShaders MakeOut). A copy, so the decal pass may read it.
+Texture2D                  DecalLayerTex : register(t3);
 SamplerState               DecalSamp  : register(s0);
+
+// Whether the surface at a pixel refuses a decal layer (its bit).
+bool DecalLayerRefused(int2 pixel, float layerBit)
+{
+    float r = DecalLayerTex.Load(int3(pixel, 0)).r;
+    uint refused = (uint)round((r - floor(r * 8.0) / 8.0) * 1024.0);
+    return (refused & (uint)(layerBit + 0.5)) != 0u;
+}
 
 #define GENESIS_DEPTH_REVERSED (CameraPos.w > 0.5)
 " + SceneDepthHlsl.Helpers + @"
@@ -176,6 +188,9 @@ PSOut PS_Decal(VSOut IN)
     float3 local = float3(dot(rel, IN.InvX.xyz), dot(rel, IN.InvY.xyz), dot(rel, IN.InvZ.xyz));
     if (abs(local.x) > 0.5 || abs(local.y) > 0.5 || abs(local.z) > 0.5)
         discard;
+    // A surface that does not take this decal's layer (MeshDrawCall.DecalLayers) keeps none of it.
+    if (DecalLayers.x > 0.5 && DecalLayerRefused(pixel, IN.Fade.z))
+        discard;
 
     // Full strength on surfaces facing the decal, nothing on those turned past the fade angle,
     // and nothing at all on a surface facing away (the back of a wall).
@@ -212,6 +227,25 @@ PSOut PS_Decal(VSOut IN)
         OUT.Aux = float4(0.0, 0.0, 0.0, 0.0);
     }
     return OUT;
+}
+
+// The flag channel copied for the decal pass (ForwardRenderer.CopyDecalLayers): the decal quad's
+// corners (0..1) cover the whole picture; the source is bound at t3.
+struct CopyOut
+{
+    float4 SvPos : SV_Position;
+};
+
+CopyOut VS_DecalLayerCopy(VSIn IN)
+{
+    CopyOut OUT;
+    OUT.SvPos = float4(saturate(IN.Position.xy) * 2.0 - 1.0, 0.5, 1.0);
+    return OUT;
+}
+
+float4 PS_DecalLayerCopy(CopyOut IN) : SV_Target0
+{
+    return float4(DecalLayerTex.Load(int3(int2(IN.SvPos.xy), 0)).r, 0.0, 0.0, 1.0);
 }
 
 // A decal on a see-through surface (DecalDrawCall.SeeThrough): drawn as a flat picture in its own

@@ -215,6 +215,7 @@ namespace Genesis.Runtime.Scene
                             CastShadows = B(props, "CastShadows", true),
                             ReceiveShadows = B(props, "ReceiveShadows", true),
                             InFront = B(props, "InFront", false),
+                            DecalLayers = (int)Math.Clamp(F(props, "DecalLayers", 0f), 0f, (1 << Genesis.Shared.Interfaces.MeshDrawCall.DecalLayerCount) - 1),
                             KeepPreviousTransform = B(props, "KeepPreviousTransform", false),
                             LodPolicy = (int)F(props, "LodPolicy", 0f),
                             Culling = culling,

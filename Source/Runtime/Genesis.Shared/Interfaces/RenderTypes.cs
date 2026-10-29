@@ -1091,6 +1091,19 @@ namespace Genesis.Shared.Interfaces
         /// default, leaves the light as it was.
         /// </summary>
         public Vector4 EmissionColor;
+        /// <summary>
+        /// The decal layers this surface takes (bit n for layer n, 0 to <see cref="DecalLayerCount"/> - 1):
+        /// a projected decal shows on it only when its layer's bit is set. 0, the default, takes every
+        /// layer, as before (a character that should not take bullet holes on layer 0 sets 2, say).
+        /// </summary>
+        public int DecalLayers;
+
+        /// <summary>How many decal layers there are (<see cref="DecalLayers"/>, <see cref="DecalDrawCall.Layer"/>).</summary>
+        public const int DecalLayerCount = 6;
+
+        /// <summary>The layers a surface refuses, as the renderer keeps them: none for 0 (every layer).</summary>
+        public static int RefusedDecalLayers(int decalLayers) =>
+            decalLayers == 0 ? 0 : ~decalLayers & ((1 << DecalLayerCount) - 1);
     }
 
     /// <summary>
