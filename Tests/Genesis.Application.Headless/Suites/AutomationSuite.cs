@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Genesis.Application.Core.Automation;
 using Genesis.Application.Core.Projects;
+using RuntimePaths = Genesis.Runtime.RuntimePaths;
 
 namespace Genesis.Application.Headless.Suites;
 
@@ -579,6 +580,68 @@ internal static class AutomationSuite
             // A run's pictures after a door: the play-time clock must outlive the room it started in.
             HeadlessHarness.Assert(Genesis.Runtime.Project.ProjectRoomSwitcher.KeepSubsystem(new Genesis.Runtime.Project.TimedShots([1f], ctx.Workspace, null).Clock(null)),
                 "A room change dropped the timed pictures' clock, so no picture was taken after it.");
+        });
+
+        // game.run plays the Player RuntimePaths.ResolveRunDir finds. Searching up the folders from a git
+        // worktree used to reach the main checkout and play its older build without a word.
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.GameRunPlaysAWorktreesOwnPlayerAndNeverAnotherCheckouts", () =>
+        {
+            string root = Path.GetFullPath(Path.Combine(ctx.Workspace, "player-lookup"));
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            string main = Path.Combine(root, "main"), worktree = Path.Combine(main, ".claude", "worktrees", "wt");
+            string StudioIn(string checkout) => Path.Combine(checkout, "Source", "Genesis.Application.Studio", "bin", "Release", "net10.0-windows");
+            string PlayerIn(string checkout) => Path.Combine(checkout, "Source", "Genesis.Player", "bin", "Release", "net10.0-windows");
+            void Exe(string folder)
+            {
+                Directory.CreateDirectory(folder);
+                File.WriteAllBytes(Path.Combine(folder, RuntimePaths.RuntimeExeName), Array.Empty<byte>());
+            }
+            bool Same(string? found, string expected) =>
+                found is not null && string.Equals(Path.GetFullPath(found), Path.GetFullPath(expected), StringComparison.OrdinalIgnoreCase);
+
+            // A main checkout (its .git a folder) with a built Player, and a worktree in it as git makes them
+            // (its .git a file) that has built none.
+            Directory.CreateDirectory(Path.Combine(main, ".git"));
+            Exe(PlayerIn(main));
+            string mainStudio = StudioIn(main), worktreeStudio = StudioIn(worktree);
+            Directory.CreateDirectory(mainStudio);
+            Directory.CreateDirectory(worktreeStudio);
+            File.WriteAllText(Path.Combine(worktree, ".git"), "gitdir: " + Path.Combine(main, ".git", "worktrees", "wt"));
+
+            HeadlessHarness.Assert(RuntimePaths.FindWorktreeRoot(mainStudio) is null
+                && Same(RuntimePaths.FindRuntimeDir(mainStudio, mainStudio, confineToWorktree: true), PlayerIn(main))
+                && Same(RuntimePaths.FindRuntimeDir(mainStudio, mainStudio, confineToWorktree: false), PlayerIn(main)),
+                "The main checkout's run no longer finds its own Player up the folders.");
+            HeadlessHarness.Assert(RuntimePaths.MissingPlayerMessage(mainStudio, mainStudio) == "Could not find GenesisEngine.exe. Build Genesis Studio first (Build.bat).",
+                "The message outside a worktree changed.");
+
+            HeadlessHarness.Assert(Same(RuntimePaths.FindWorktreeRoot(worktreeStudio), worktree), "The worktree's root was not found from Studio's folder in it.");
+            HeadlessHarness.Assert(Same(RuntimePaths.FindRuntimeDir(worktreeStudio, worktreeStudio, confineToWorktree: false), PlayerIn(main)),
+                "The plain search no longer reaches the main checkout's Player from the worktree, so this case does not guard the fix.");
+            HeadlessHarness.Assert(RuntimePaths.FindRuntimeDir(worktreeStudio, worktreeStudio, confineToWorktree: true) is null,
+                "A worktree without a Player played the main checkout's.");
+            HeadlessHarness.Assert(RuntimePaths.FindRuntimeDir(worktreeStudio, mainStudio, confineToWorktree: true) is null,
+                "A current folder in the main checkout led a worktree to the main checkout's Player.");
+            string message = RuntimePaths.MissingPlayerMessage(worktreeStudio, worktreeStudio);
+            HeadlessHarness.Assert(message.Contains(worktree, StringComparison.OrdinalIgnoreCase)
+                && message.Contains(Path.Combine(PlayerIn(main), RuntimePaths.RuntimeExeName), StringComparison.OrdinalIgnoreCase)
+                && message.Contains(@"Source\Genesis.Player\Genesis.Player.csproj", StringComparison.Ordinal)
+                && message.Contains("agent-compile.ps1", StringComparison.Ordinal) && message.Contains("Build.bat --quick", StringComparison.Ordinal),
+                "The message did not name the worktree, the Player it would have played and how to build its own: " + message);
+
+            // Its own Player, once built: the build output, then the package its Build.bat published.
+            Exe(PlayerIn(worktree));
+            HeadlessHarness.Assert(Same(RuntimePaths.FindRuntimeDir(worktreeStudio, worktreeStudio, confineToWorktree: true), PlayerIn(worktree)),
+                "A worktree that built its Player did not play it.");
+            File.Delete(Path.Combine(PlayerIn(worktree), RuntimePaths.RuntimeExeName));
+            string published = Path.Combine(worktree, "Genesis Application", RuntimePaths.PlayerSubfolder);
+            Exe(published);
+            HeadlessHarness.Assert(Same(RuntimePaths.FindRuntimeDir(worktreeStudio, worktreeStudio, confineToWorktree: true), published),
+                "A worktree's published Player was not found.");
+            string beside = Path.Combine(worktreeStudio, RuntimePaths.PlayerSubfolder);
+            Exe(beside);
+            HeadlessHarness.Assert(Same(RuntimePaths.FindRuntimeDir(worktreeStudio, worktreeStudio, confineToWorktree: true), beside),
+                "The Player bundled beside Studio did not come first.");
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.AScenesCallsRunInOneBatchWithA3DRoomAndAWalker", () =>
