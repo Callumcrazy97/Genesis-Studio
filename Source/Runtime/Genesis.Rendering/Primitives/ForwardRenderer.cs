@@ -3597,8 +3597,6 @@ namespace Genesis.Rendering.Primitives
                 ShaderParams2 = shaderParams2,
                 ShaderParams3 = shaderParams3,
                 AuthoredTextures = authoredTextures,
-                SurfaceParams = surfaceParams,
-                SubsurfaceColorSteps = subsurfaceColorSteps,
                 DecalRefused = decalRefused,
             };
             if (!_batches.TryGetValue(key, out Batch batch))
