@@ -62,6 +62,7 @@ public static class UiGlyphs
     public const string Code = "";
     public const string Color = "";
     public const string Audio = "";
+    public const string MusicNote = "";
     public const string Layers = "";
     public const string Grid = "";
     public const string Floor = "";

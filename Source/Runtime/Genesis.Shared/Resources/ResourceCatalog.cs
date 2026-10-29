@@ -11,7 +11,7 @@ namespace Genesis.Shared.Assets;
 public enum ResourceType
 {
     Unknown, Image, Audio, Object, Room, Model, Shader, Particle, Physics,
-    Terrain, TerrainEntity, Pathing, UserInterface, Script, Note, AnimationController
+    Terrain, TerrainEntity, Pathing, UserInterface, Script, Note, AnimationController, Music
 }
 
 /// <summary>Public identity and private storage location. Only Name is a resource reference.</summary>
@@ -39,7 +39,8 @@ public sealed partial class ResourceCatalog
         (".audio.json", ResourceType.Audio), (".model.json", ResourceType.Model),
         (".room.json", ResourceType.Room), (".pathing.json", ResourceType.Pathing),
         (".ui.json", ResourceType.UserInterface), (".pathing", ResourceType.Pathing),
-        (".pgsl", ResourceType.Script), (".cs", ResourceType.Script), (".md", ResourceType.Note)
+        (".pgsl", ResourceType.Script), (".cs", ResourceType.Script), (".md", ResourceType.Note),
+        (".music.json", ResourceType.Music)
     };
     private static readonly string[] LegacyRoots =
     { "Sprites", "Images", "Audio", "Objects", "Particles", "Shaders", "Scripts", "Physics", "Terrain", "Rooms", "Notes", "Models", "Paths", "User Interfaces", "UI" };

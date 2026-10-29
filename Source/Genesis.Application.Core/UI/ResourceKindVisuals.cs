@@ -27,6 +27,7 @@ public static class ResourceKindVisuals
         ResourceKind.UserInterface => UiGlyphs.Monitor,
         ResourceKind.Note => UiGlyphs.Document,
         ResourceKind.AnimationController => UiGlyphs.Walk,
+        ResourceKind.Music => UiGlyphs.MusicNote,
         ResourceKind.Folder => UiGlyphs.Folder,
         _ => UiGlyphs.Document,
     };
@@ -48,6 +49,7 @@ public static class ResourceKindVisuals
         ResourceKind.UserInterface => UiTokens.FromHex("#7AA5C9"),
         ResourceKind.Note => UiTokens.FromHex("#9DA6BB"),
         ResourceKind.AnimationController => UiTokens.FromHex("#C77DDB"),
+        ResourceKind.Music => UiTokens.FromHex("#E58AD0"),
         _ => UiTokens.Accent,
     };
 
@@ -68,6 +70,7 @@ public static class ResourceKindVisuals
         ResourceKind.UserInterface => "Menus, HUDs, health bars and buttons.",
         ResourceKind.Note => "Design notes, ideas and to-do lists.",
         ResourceKind.AnimationController => "How a character's animations follow one another: idle, walk, run, jump.",
+        ResourceKind.Music => "Songs and tunes: notes on tracks of instruments, or an imported MIDI file.",
         _ => string.Empty,
     };
 
@@ -75,7 +78,7 @@ public static class ResourceKindVisuals
     public static string Category(ResourceKind kind) => kind switch
     {
         ResourceKind.Image or ResourceKind.Audio or ResourceKind.Model or ResourceKind.Shader
-            or ResourceKind.Particle or ResourceKind.AnimationController => "Art and sound",
+            or ResourceKind.Particle or ResourceKind.AnimationController or ResourceKind.Music => "Art and sound",
         ResourceKind.Room or ResourceKind.Terrain or ResourceKind.TerrainEntity or ResourceKind.Pathing
             or ResourceKind.Physics => "Worlds",
         _ => "Logic and interface",

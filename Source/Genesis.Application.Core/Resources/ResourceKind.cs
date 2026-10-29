@@ -32,5 +32,7 @@ public enum ResourceKind
     Note,
     /// <summary>A model's animation states, blends and transitions, shared by the Objects that use it.</summary>
     AnimationController,
+    /// <summary>A piece of music: tracks of notes with instruments, rendered to an Audio resource (the Audio editor's Music mode).</summary>
+    Music,
 }
 

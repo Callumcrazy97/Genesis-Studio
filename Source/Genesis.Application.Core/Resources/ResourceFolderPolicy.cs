@@ -11,6 +11,7 @@ public static class ResourceFolderPolicy
     [
         new("Sprites", ResourceKind.Image),
         new("Audio", ResourceKind.Audio),
+        new("Music", ResourceKind.Music),
         new("Objects", ResourceKind.GameObject),
         new("Particles", ResourceKind.Particle),
         new("Shaders", ResourceKind.Shader),
