@@ -222,13 +222,16 @@ internal static class Effects2DSuite
             var hits = new Dictionary<(int X, int Y), (int Count, double Alpha)>();
             foreach (var rect in surface.Rectangles)
             {
-                Assert(rect.Filled && rect.H == 1, "Smooth shapes are drawn as filled one-pixel rows.");
-                for (int x = (int)rect.X; x < (int)(rect.X + rect.W); x++)
-                {
-                    var key = (x, (int)rect.Y);
-                    hits.TryGetValue(key, out var hit);
-                    hits[key] = (hit.Count + 1, hit.Alpha + (rect.Color.A / 255.0));
-                }
+                // Rows that match (the same place, width and colour) are one rectangle, so a box is a few and not one a pixel row.
+                Assert(rect.Filled && rect.H >= 1 && rect.H == (int)rect.H && rect.X == (int)rect.X && rect.Y == (int)rect.Y,
+                    "Smooth shapes are drawn as filled rectangles of whole pixels.");
+                for (int y = (int)rect.Y; y < (int)(rect.Y + rect.H); y++)
+                    for (int x = (int)rect.X; x < (int)(rect.X + rect.W); x++)
+                    {
+                        var key = (x, y);
+                        hits.TryGetValue(key, out var hit);
+                        hits[key] = (hit.Count + 1, hit.Alpha + (rect.Color.A / 255.0));
+                    }
             }
             Assert(hits.Values.All(hit => hit.Count == 1), "A pixel of a translucent shape was drawn more than once (darker seams).");
             double Covered(Func<(int X, int Y), bool> where) => hits.Where(pair => where(pair.Key)).Sum(pair => pair.Value.Alpha) / 0.5;

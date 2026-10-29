@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Numerics;
 using System.Windows.Forms;
 using Genesis.Application.Core.Images;
 using Genesis.Application.Core.Projects;
@@ -10,6 +11,8 @@ using Genesis.Rendering.Viewport;
 using Genesis.Runtime.Input;
 using Genesis.Runtime.Scripting;
 using Genesis.Shared.Assets;
+using Genesis.Shared.Interfaces;
+using Genesis.Shared.Overlay;
 using Genesis.Shared.Scripting;
 
 namespace Genesis.Application.Headless.Suites;
@@ -525,6 +528,114 @@ internal static class UiMenuStyleSuite
             finally { PgslCommands.ActiveGameContext = oldGame; PgslCommands.ProjectPath = oldPath; }
         });
 
+        // Mushroom Meadow's HUD and stage card (their numbers, at the 1280 x 720 they are designed for) and the menu style above,
+        // on windows the size games run at. Their rounded, bordered and gradient boxes were a draw call for every pixel row
+        // they cover (the debug screen's GUI page counted 8,969 for the HUD and the card at 1920 x 1080, and 12,426 for the
+        // main menu); they are a few batches of joined runs now, and the picture is the one the rows made.
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.UI.MenuStyle.RoundedAndGradientBoxesAreAFewDrawCallsAndTheSamePicture", () =>
+        {
+            const string like = "Meadow Like";
+            UiAssetDocument.Save(resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.UserInterface), ResourceKind.UserInterface, like), MeadowLikeUi());
+            bool oldAuto = PgslCommands.UiScaleAutoEnabled;
+            double oldScale = PgslCommands.UiScaleValue;
+            PgslCommands.UiScaleAutoEnabled = true;
+            PgslCommands.UiScaleValue = 1;
+            List<string> numbers = [], elements = [];
+            try
+            {
+                foreach (string name in new[] { like, Ui })
+                    foreach ((int width, int height) in new[] { (1280, 720), (1920, 1080), (1366, 768) })
+                    {
+                        GuiShapeRows.Merge = false;
+                        OverlayCommandList rows = DrawGui(name, project.RootPath, width, height);
+                        GuiShapeRows.Merge = true;
+                        OverlayCommandList batches = DrawGui(name, project.RootPath, width, height);
+                        string at = $"{name} at {width}x{height}";
+                        numbers.Add($"{at}: {rows.Count} commands as rows, {batches.Count} commands ({Rectangles(batches)} rectangles) as batches");
+                        HeadlessHarness.Assert(Painted(rows, width, height).AsSpan().SequenceEqual(Painted(batches, width, height)),
+                            at + " is not the picture the rows made.");
+                        HeadlessHarness.Assert(Others(rows) == Others(batches), at + " drew its text and images differently.");
+                        // The bound: a UI of a dozen elements is at most 40 draw calls, and never more rectangles than the rows were (under
+                        // half for the HUD and card; a gradient that changes colour every row, as the menu style's does, cannot join any).
+                        HeadlessHarness.Assert(batches.Count <= 40 && batches.Count * 8 < rows.Count && Rectangles(batches) < Rectangles(rows)
+                                && (name != like || Rectangles(batches) * 2 < Rectangles(rows)),
+                            at + " is still many draw calls: " + string.Join("; ", numbers));
+                    }
+
+                // Each element of the HUD and card on its own at 1920 x 1080: draw calls as rows, and as batches (rectangles).
+                string[] ids = MeadowLikeUi().Elements.Select(element => element.Id).ToArray();
+                foreach (string id in ids)
+                {
+                    string[] others = ids.Where(other => other != id).ToArray();
+                    GuiShapeRows.Merge = false;
+                    OverlayCommandList rows = DrawGui(like, project.RootPath, 1920, 1080, others);
+                    GuiShapeRows.Merge = true;
+                    OverlayCommandList batches = DrawGui(like, project.RootPath, 1920, 1080, others);
+                    elements.Add($"{id} {rows.Count} -> {batches.Count} ({Rectangles(batches)})");
+                }
+
+                // What one frame of them costs the CPU, for the record (not asserted: timings differ from machine to machine).
+                foreach (bool merged in new[] { false, true })
+                {
+                    GuiShapeRows.Merge = merged;
+                    DrawGui(like, project.RootPath, 1920, 1080);
+                    System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+                    for (int frame = 0; frame < 100; frame++) DrawGui(like, project.RootPath, 1920, 1080);
+                    elements.Add($"drawing them all, {(merged ? "batched" : "as rows")}: {clock.Elapsed.TotalMilliseconds / 100:0.00} ms a frame");
+                }
+            }
+            finally
+            {
+                GuiShapeRows.Merge = true;
+                PgslCommands.UiScaleAutoEnabled = oldAuto;
+                PgslCommands.UiScaleValue = oldScale;
+            }
+            Console.WriteLine("Rounded and gradient UI boxes, draw calls a frame: " + string.Join("; ", numbers));
+            Console.WriteLine("Each element at 1920x1080, draw calls as rows -> as batches (rectangles): " + string.Join("; ", elements));
+        });
+
+        // The script commands that draw the same shapes (DrawRoundRectEx, DrawCircleEx) and a gradient are batches too.
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.UI.MenuStyle.ScriptShapesAreBatchesToo", () =>
+        {
+            const int width = 1280, height = 720;
+            OverlayCommandList DrawShapes(double offset)
+            {
+                OverlayCommandList list = new();
+                list.Reset(width, height);
+                PgslRenderDrawSurface surface = new(null, new Genesis.Runtime.Project.OverlayHudCanvas(list, width, height), width, height, projectPath: project.RootPath, isGui: true);
+                PgslContext? previous = PgslCommands.BindContext(new PgslContext { RoomWidth = width, RoomHeight = height, DrawSurface = surface });
+                try
+                {
+                    // Drawn through DrawSetOffset (a menu laid out from 0, 0 on a second screen) the shapes are batches still.
+                    PgslCommands.DrawSetOffset(offset, offset / 2);
+                    PgslCommands.DrawSetAlpha(0.8);
+                    PgslCommands.DrawSetColorRgb(40, 90, 160);
+                    PgslCommands.DrawRoundRectEx(10.5, 10, 610, 410.25, 28, 0);
+                    PgslCommands.DrawSetColorRgb(250, 210, 90);
+                    PgslCommands.DrawRoundRectEx(10.5, 10, 610, 410.25, 28, 5);
+                    PgslCommands.DrawCircleEx(900, 300, 120, 0);
+                    PgslCommands.DrawRectangleGradient(700, 450, 1200, 700, 255, 0, 0, 1, 0, 0, 255, 0.5, true);
+                }
+                finally { PgslCommands.BindContext(previous); }
+                return list;
+            }
+            try
+            {
+                foreach (double offset in new[] { 0d, 37d })
+                {
+                    GuiShapeRows.Merge = false;
+                    OverlayCommandList rows = DrawShapes(offset);
+                    GuiShapeRows.Merge = true;
+                    OverlayCommandList batches = DrawShapes(offset);
+                    HeadlessHarness.Assert(batches.Count == 4 && rows.Count > 1000 && Rectangles(batches) < Rectangles(rows),
+                        $"A box, its border, a disc and a gradient (offset {offset}) were {rows.Count} commands as rows and {batches.Count} ({Rectangles(batches)} rectangles) as batches (4 expected).");
+                    HeadlessHarness.Assert(Painted(rows, width, height).AsSpan().SequenceEqual(Painted(batches, width, height)),
+                        $"The batched shapes (offset {offset}) are not the picture the rows made.");
+                }
+            }
+            finally { GuiShapeRows.Merge = true; }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.UI.MenuStyle.StylesRenderOnEveryBackend", () =>
         {
             InputState input = new();
@@ -599,6 +710,103 @@ internal static class UiMenuStyleSuite
             finally { PgslCommands.ActiveGameContext = oldGame; }
             HeadlessHarness.Assert(failures.Count == 0, string.Join(" | ", failures));
         });
+    }
+
+    /// <summary>Mushroom Meadow's HUD and stage card as its game draws them (images left out: each is one sprite).</summary>
+    private static UiAssetDocument MeadowLikeUi()
+    {
+        UiAssetDocument document = new() { DesignWidth = 1280, DesignHeight = 720 };
+        void Add(string id, UiElementType type, float x, float y, float width, float height, string background, float radius = 0, float? border = 0,
+            string borderColor = "", UiFill fill = UiFill.Solid, string gradientEnd = "", string text = "", float fontSize = 18, string foreground = "#FFFFFFFF",
+            UiHorizontalAlign align = UiHorizontalAlign.Auto, float spacing = 0) =>
+            document.Elements.Add(new UiElement
+            {
+                Id = id, Type = type, X = x, Y = y, Width = width, Height = height, Order = document.Elements.Count, Background = background,
+                CornerRadius = radius, BorderWidth = border, BorderColor = borderColor, Fill = fill, GradientEnd = gradientEnd, Text = text,
+                Font = "Consolas", FontSize = fontSize, Foreground = foreground, TextAlign = align,
+                TextVerticalAlign = align == UiHorizontalAlign.Auto ? UiVerticalAlign.Auto : UiVerticalAlign.Middle, LetterSpacing = spacing,
+            });
+        // The HUD.
+        Add("hudBar", UiElementType.Panel, 20, 14, 1240, 80, "#F01D3043", 10, 3, "#FFFFE7A0", UiFill.VerticalGradient, "#F0142232");
+        Add("hudSheen", UiElementType.Panel, 26, 18, 1228, 6, "#30FFFFFF", 3);
+        Add("bigCoinLabel", UiElementType.Text, 900, 22, 140, 26, "#00000000", text: "SUN MEDALS", fontSize: 15, foreground: "#FFFFE7A0");
+        for (int pip = 0; pip < 3; pip++)
+        {
+            Add("pip" + pip, UiElementType.Panel, 1040 + (pip * 30), 24, 22, 22, "#FF2A1D2E", 11, 2, "#FFE89A1B");
+            Add("pipFill" + pip, UiElementType.Panel, 1044 + (pip * 30), 28, 14, 14, "#FFFFD23F", 7, 0, "", UiFill.VerticalGradient, "#FFE89A1B");
+        }
+        // The stage card.
+        Add("shade", UiElementType.Panel, 0, 100, 1280, 620, "#661A1020");
+        Add("frame", UiElementType.Panel, 176, 196, 928, 384, "#F0203550", 14, 4, "#FFFFD23F", UiFill.VerticalGradient, "#F0122133");
+        Add("frameInner", UiElementType.Panel, 188, 208, 904, 360, "#00000000", 10, 2, "#80FFF1C8");
+        Add("ribbon", UiElementType.Panel, 440, 182, 400, 34, "#FFD8433B", 6, 2, "#FF2A1D2E", UiFill.VerticalGradient, "#FFA52D2B");
+        Add("ribbonText", UiElementType.Text, 440, 182, 400, 34, "#00000000", text: "STAGE 1", fontSize: 20, foreground: "#FFFFF4D6", align: UiHorizontalAlign.Center, spacing: 2);
+        return document;
+    }
+
+    /// <summary>The overlay commands DrawUi gives a game's GUI canvas on a window of this size, with the elements named in <paramref name="hide"/> hidden.</summary>
+    private static OverlayCommandList DrawGui(string ui, string projectRoot, int width, int height, string[]? hide = null)
+    {
+        OverlayCommandList list = new();
+        list.Reset(width, height);
+        PgslRenderDrawSurface surface = new(null, new Genesis.Runtime.Project.OverlayHudCanvas(list, width, height), width, height, projectPath: projectRoot, isGui: true);
+        PgslContext? previousContext = PgslCommands.BindContext(new PgslContext { RoomWidth = width, RoomHeight = height, DrawSurface = surface });
+        IGameContext? previousGame = PgslCommands.ActiveGameContext;
+        string previousPath = PgslCommands.ProjectPath;
+        PgslCommands.ProjectPath = projectRoot;
+        PgslCommands.ActiveGameContext = null;
+        try
+        {
+            foreach (string id in hide ?? []) PgslCommands.UiSetVisible(ui, id, false);
+            PgslCommands.DrawUi(ui);
+        }
+        finally { PgslCommands.BindContext(previousContext); PgslCommands.ActiveGameContext = previousGame; PgslCommands.ProjectPath = previousPath; }
+        return list;
+    }
+
+    /// <summary>How many rectangles the commands draw (a batch counts each of its rectangles).</summary>
+    private static int Rectangles(OverlayCommandList list)
+    {
+        int count = 0;
+        foreach (OverlayCommand command in list.Commands)
+            count += command.Kind == OverlayCommandKind.Rectangles ? (int)command.B : command.Kind == OverlayCommandKind.Rect ? 1 : 0;
+        return count;
+    }
+
+    /// <summary>Everything the commands draw but rectangles, in order: text and images.</summary>
+    private static string Others(OverlayCommandList list) => string.Join("|", list.Commands
+        .Where(command => command.Kind is not (OverlayCommandKind.Rect or OverlayCommandKind.Rectangles))
+        .Select(command => $"{command.Kind}:{command.Text}:{command.A}:{command.B}:{command.C}:{command.D}:{command.Size}"));
+
+    /// <summary>
+    /// The rectangles of the commands painted in order onto a black picture (red, green and blue from 0 to 1), each over what is
+    /// under it by its alpha, covering the pixels whose centres are inside it (as a GPU does). Two draws of the same shapes give
+    /// equal pictures exactly when every pixel is covered by the same colours in the same order.
+    /// </summary>
+    private static float[] Painted(OverlayCommandList list, int width, int height)
+    {
+        float[] picture = new float[width * height * 3];
+        void Cover(float x, float y, float w, float h, Vector4 colour)
+        {
+            int left = Math.Max(0, (int)MathF.Ceiling(x - 0.5f)), top = Math.Max(0, (int)MathF.Ceiling(y - 0.5f));
+            int right = Math.Min(width, (int)MathF.Ceiling(x + w - 0.5f)), bottom = Math.Min(height, (int)MathF.Ceiling(y + h - 0.5f));
+            for (int py = top; py < bottom; py++)
+                for (int px = left; px < right; px++)
+                {
+                    int at = ((py * width) + px) * 3;
+                    picture[at] += (colour.X - picture[at]) * colour.W;
+                    picture[at + 1] += (colour.Y - picture[at + 1]) * colour.W;
+                    picture[at + 2] += (colour.Z - picture[at + 2]) * colour.W;
+                }
+        }
+        foreach (OverlayCommand command in list.Commands)
+        {
+            if (command.Kind == OverlayCommandKind.Rect && command.Filled) Cover(command.A, command.B, command.C, command.D, command.Color);
+            else if (command.Kind == OverlayCommandKind.Rectangles)
+                foreach (GuiRectangle rectangle in list.RectanglesOf(command))
+                    Cover(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height, rectangle.Color);
+        }
+        return picture;
     }
 
     private static PgslRecordingDrawSurface Draw(string ui, string projectRoot, IGameContext? game)

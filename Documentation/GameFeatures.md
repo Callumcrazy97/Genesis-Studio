@@ -1388,7 +1388,11 @@ video memory. **F7** opens the full panel:
   shader); the legend says so and the frame stays shaded.
 - **GUI**: which instances' Draw GUI events and C# HUDs drew in the last frame, the draw calls each
   made, the area it covered, and the User Interface resources it drew (their elements and the GUI
-  size they were laid out for).
+  size they were laid out for). A call is one command to the GUI canvas: a text, an image, a
+  rectangle or a batch of rectangles. A rounded, bordered or gradient box, a circle and a gradient
+  are one batch each however many pixel rows they cover (before 29 October 2026 each row was a
+  call: Mushroom Meadow's HUD and stage card counted 8,969 here, see
+  [MenuFeatures](MenuFeatures.md#shapes)).
 - **Object**: the report on one instance. Turn on *Pick with the mouse* and click it in the game,
   or step through the room's instances with Previous and Next. It says its Object, position,
   model, materials and their shaders, body, size on screen and level of detail, and whether it is

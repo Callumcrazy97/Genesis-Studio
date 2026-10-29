@@ -52,14 +52,19 @@ internal sealed class OffsetDrawSurface : IPgslDrawSurface
     public void DrawSpritePart(string spriteName, int frame, RectangleF source, RectangleF destination, Color blend, float alpha) =>
         _inner.DrawSpritePart(spriteName, frame, source, Move(destination), blend, alpha);
 
+    [ThreadStatic] private static GuiRectangle[] _moved;
+
+    // The moved rectangles go on as one batch, so a shape or a map drawn through an offset is one draw call too.
     public void FillRectangles(ReadOnlySpan<GuiRectangle> rectangles)
     {
-        foreach (GuiRectangle r in rectangles)
+        if (rectangles.IsEmpty) return;
+        GuiRectangle[] moved = _moved is { } kept && kept.Length >= rectangles.Length ? kept : _moved = new GuiRectangle[Math.Max(256, rectangles.Length)];
+        for (int i = 0; i < rectangles.Length; i++)
         {
-            Vector4 c = Vector4.Clamp(r.Color, Vector4.Zero, Vector4.One) * 255f;
-            _inner.FillRectangle(Color.FromArgb((int)MathF.Round(c.W), (int)MathF.Round(c.X), (int)MathF.Round(c.Y), (int)MathF.Round(c.Z)),
-                new RectangleF(r.X + _x, r.Y + _y, r.Width, r.Height));
+            GuiRectangle r = rectangles[i];
+            moved[i] = new GuiRectangle(r.X + _x, r.Y + _y, r.Width, r.Height, r.Color);
         }
+        _inner.FillRectangles(moved.AsSpan(0, rectangles.Length));
     }
 
     public void DrawSpriteParts(string spriteName, ReadOnlySpan<GuiSpritePart> parts, Color blend)

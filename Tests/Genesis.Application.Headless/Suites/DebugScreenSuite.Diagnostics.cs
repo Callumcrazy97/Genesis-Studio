@@ -271,6 +271,41 @@ internal static partial class DebugScreenSuite
                 DebugScreenSettings.Reset();
             }
         });
+
+        // Found on the GUI page: Mushroom Meadow's HUD and stage card were 8,969 draw calls, because every pixel row of a
+        // rounded, bordered or gradient box was a call of its own. A shape is one batch, so one call, now.
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.DebugScreen.Diagnostics.AShapeIsOneDrawCallNotOneForEveryPixelRow", () =>
+        {
+            DebugScreenSettings.Reset();
+            Genesis.Runtime.Scripting.VM.VMEngine.Initialize();
+            ScriptAssetRegistry.ClearCache();
+            var host = new ScriptHostSystem();
+            var world = new Genesis.Runtime.ECS.World();
+            var events = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["DrawGui"] = "DrawSetColorRgb(30, 60, 90);\nDrawRoundRectEx(10, 10, 610, 410, 30, 0);\nDrawRoundRectEx(10, 10, 610, 410, 30, 4);\n"
+                    + "DrawCircleEx(900, 200, 150, 6);\nDrawRectangleGradient(700, 400, 1000, 700, 255, 0, 0, 1, 0, 0, 255, 1, true);\n",
+            };
+            using (host.UseEventSources(events)) host.Attach(world, world.CreateEntity(), "ShapeProbe");
+            host.Update(1f / 60f);
+            try
+            {
+                using var overlay = new DebugOverlay();
+                OpenPanel(overlay, DebugHudPanel.Gui);
+                var hud = new RecordingHudCanvas();
+                overlay.Draw(hud, renderer: null, hud.Width, hud.Height);
+                var gui = new RecordingHudCanvas();
+                host.DispatchPgslGuiDraw(renderer: null, gui);
+                overlay.Draw(hud, renderer: null, hud.Width, hud.Height);
+                IReadOnlyList<GuiLayerTrace.Layer> layers = GuiLayerTrace.Last;
+                HeadlessHarness.Assert(layers.Count == 1 && layers[0].DrawCalls == 4 && gui.RectCount > 4,
+                    $"Four shapes of about 1,400 pixel rows must be four draw calls, not one for each row: {DebugOverlay.GuiLayersText()} ({gui.RectCount} rectangles reached the canvas).");
+            }
+            finally
+            {
+                DebugScreenSettings.Reset();
+            }
+        });
     }
 
     private static bool Near(Color pixel, Vector4 colour) =>

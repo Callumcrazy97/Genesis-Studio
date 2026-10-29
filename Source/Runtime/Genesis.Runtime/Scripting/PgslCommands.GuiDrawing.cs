@@ -169,6 +169,9 @@ public static partial class PgslCommands
         float length = vertical ? height : width;
         int bands = (int)Math.Clamp(Math.Ceiling(length), 1, 2048);
         float step = length / bands;
+        // The bands go to the surface as one batch (a 2048-pixel gradient was 2048 draw calls).
+        GuiRectangle[] batch = BatchBuffer(ref _rectangleBatch, bands);
+        int count = 0;
         for (int i = 0; i < bands; i++)
         {
             double t = bands == 1 ? 0.5 : i / (double)(bands - 1);
@@ -179,8 +182,10 @@ public static partial class PgslCommands
             RectangleF band = vertical
                 ? new RectangleF(left, top + (i * step), width, step)
                 : new RectangleF(left + (i * step), top, step, height);
-            surface.FillRectangle(color, band);
+            batch[count++] = new GuiRectangle(band.X, band.Y, band.Width, band.Height,
+                new Vector4(color.R / 255f, color.G / 255f, color.B / 255f, color.A / 255f));
         }
+        if (count > 0) surface.FillRectangles(batch.AsSpan(0, count));
     }
 
     private static int Channel(double value) => double.IsFinite(value) ? (int)Math.Clamp(Math.Round(value), 0, 255) : 0;
@@ -240,7 +245,8 @@ public static partial class PgslCommands
     /// Fills a shape given as up to two horizontal spans per height, one pixel row at a time, so
     /// no pixel is drawn twice (a translucent shape has no darker seams). Each row is sampled at
     /// four heights: pixels the edge passes through get the share of the pixel the shape covers
-    /// as their alpha, which is what makes the edges smooth.
+    /// as their alpha, which is what makes the edges smooth. The runs go to the surface as one
+    /// batch, the ones that match joined (<see cref="GuiShapeRows"/>), not one draw call a run.
     /// </summary>
     private static void FillCoverage(IPgslDrawSurface surface, Color color, double top, double bottom, SpanSource source)
     {
@@ -251,6 +257,7 @@ public static partial class PgslCommands
         Span<int> sampleCounts = stackalloc int[CoverageSamples];
         Span<double> scratch = stackalloc double[4];
         Span<int> edges = stackalloc int[CoverageSamples * 4];
+        GuiShapeRows runs = GuiShapeRows.Begin(surface, transposed: false);
 
         for (int row = firstRow; row < lastRow; row++)
         {
@@ -277,12 +284,13 @@ public static partial class PgslCommands
                 if (previous != int.MinValue && column > previous + 1)
                 {
                     double between = Coverage(sampleSpans, sampleCounts, previous + 1, column);
-                    Emit(surface, color, previous + 1, row, column - previous - 1, between);
+                    Emit(runs, color, previous + 1, row, column - previous - 1, between);
                 }
-                Emit(surface, color, column, row, 1, Coverage(sampleSpans, sampleCounts, column, column + 1));
+                Emit(runs, color, column, row, 1, Coverage(sampleSpans, sampleCounts, column, column + 1));
                 previous = column;
             }
         }
+        runs.End();
     }
 
     /// <summary>Average share of the pixels from <paramref name="from"/> to <paramref name="to"/> the spans cover.</summary>
@@ -301,12 +309,12 @@ public static partial class PgslCommands
         return covered / ((to - from) * CoverageSamples);
     }
 
-    private static void Emit(IPgslDrawSurface surface, Color color, int x, int y, int width, double coverage)
+    private static void Emit(GuiShapeRows runs, Color color, int x, int y, int width, double coverage)
     {
         if (coverage <= 0.002 || width <= 0) return;
         Color shade = coverage >= 0.998 ? color : Color.FromArgb((int)Math.Round(color.A * Math.Min(1, coverage)), color);
         if (shade.A == 0) return;
-        surface.FillRectangle(shade, new RectangleF(x, y, width, 1));
+        runs.Add(x, y, width, shade);
     }
 
     #endregion
