@@ -329,6 +329,10 @@ namespace Genesis.Runtime
                     subsystem.Update(this, GameTime);
                 mark = WorkTimes.Add(part, mark);
             }
+
+            // Camera rigs (Engine.Camera.Rigs) go last, after the scripts and the orbit camera, so
+            // the active rig's pose is the one drawn. A room with no active rig is not touched.
+            Cameras.CameraRigDirector.Update(this, dt);
         }
 
         public void ConfigureClimate(EnvironmentOptions options, WeatherKind initialWeather)

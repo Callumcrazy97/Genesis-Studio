@@ -246,6 +246,21 @@ whatever is in the middle of the screen). Off unless a game turns it on; a sharp
 never smears over a blurred background or the reverse. DX11, DX12, Vulkan and OpenGL; the
 Software renderer draws without it.
 
+## Camera rigs: shots that blend, and dolly tracks (29 October 2026)
+
+A game names its shots from script and switches between them: `Engine.Camera.Rigs.Create(name,
+kind)` makes a rig (`fixed`, `follow`, `orbit`, `shoulder`, `lookat` or `dolly`), `Engine.Camera.Rig.*`
+sets it up (its target, offsets, field of view, damping, angles, arm), and `Engine.Camera.Rigs.Active
+= name` or `BlendTo(name, seconds, curve)` makes it drive the camera, blending position, rotation
+and field of view over the time given along a cut, linear or eased curve. A dolly rides a track of
+points or a Pathing resource's route, set by a 0 to 1 position or at a speed, looking at its target
+or along the track. The active rig is applied last in the frame, after the scripts and the orbit
+camera; with none active the camera is exactly as it was (the orbit, shoulder and collision cameras,
+the FirstPerson recipe, a script's own camera). The rigs belong to the room. In a room drawn
+through several 3D views each view keeps its own camera. The F6 world values show
+`Camera.Rigs.Active` once a room has rigs. Recipe: Cookbook.md, "Camera rigs". Checked by
+`Runtime.Camera.Rigs.*` (`--test camera-rigs`, also in `engine-systems`).
+
 ## Run This Resource, and a check before export (24-25 October 2026)
 
 **Run This Resource** (Shift+F5, File menu, or the command palette) runs the resource selected in

@@ -100,6 +100,36 @@ SetCameraTarget(x + Sin(lookYaw) * Cos(lookPitch), y + 1.7 + Sin(lookPitch), z +
 Engine.Camera.Fov = 68;
 ```
 
+Camera rigs: named shots the game switches between, blending position, rotation and field of view,
+and a dolly that rides a track. In the player's Create:
+
+```pgsl
+Engine.Camera.Rigs.Create("wide", "fixed");        // stands where the camera is now (or set OffsetX/Y/Z, Yaw, Pitch)
+Engine.Camera.Rigs.Create("chase", "follow");      // 3 m up and 8 m behind, looking at its target
+Engine.Camera.Rig.Target = id;
+Engine.Camera.Rig.Damping = 0.3;                   // a soft follow; 0 is rigid
+Engine.Camera.Rigs.Create("flyby", "dolly");
+Engine.Camera.Rig.Path.Use("Intro Track");         // a Pathing resource, or Engine.Camera.Rig.Path.Add(x, y, z) point by point
+Engine.Camera.Rig.Path.Speed = 6;                  // metres a second; or set Engine.Camera.Rig.Path.Position (0 to 1)
+Engine.Camera.Rig.Target = id;                     // looks at the player; with no target it looks along the track
+Engine.Camera.Rigs.Cut("flyby");                   // start on the track
+```
+
+Later, from any event:
+
+```pgsl
+Engine.Camera.Rigs.BlendTo("chase", 1.5, "easeinout");   // or "linear", "easein", "easeout", "cut"
+Engine.Camera.Rigs.Active = "wide";                      // blends over Engine.Camera.Rigs.BlendTime (1 s) along BlendCurve
+Engine.Camera.Rigs.Active = "";                          // hands the camera back to the room, the orbit camera or your script
+```
+
+Kinds: `fixed`, `follow`, `orbit` and `shoulder` (an arm round the target that the mouse turns:
+`Distance`, `Yaw`, `Pitch` looking down, `MouseLook`, `Collision`), `lookat` (stands still, turns to
+the target) and `dolly`. `Engine.Camera.Rig.Fov` is 0 to keep the camera's own. The rigs belong to the
+room: a room change removes them, so make them in a Create or Room Start event. The same commands
+take a rig's name too: `CameraRigCreate(name, kind)`, `CameraSetRigOffset(name, x, y, z)`,
+`CameraRigBlendTo(name, seconds, curve)`, `CameraRigPathAdd(name, x, y, z)`.
+
 A sound once, a little varied, and one that loops:
 
 ```pgsl

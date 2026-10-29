@@ -40,7 +40,7 @@ script sets it, then holds); Engine.Audio.Listener.FollowCamera; Engine.Room.Cha
 ProgressBar, Text); Engine.Debug.Keys.Enabled; Engine.Particle.Bursts.Limit; Engine.Mesh.Upload.Budget;
 Engine.Water.Reflections.Enabled; Engine.Tile.Autotile.Enabled; Engine.Model.Shadows (Cast, Receive),
 Model.Glow (Strength, EmissionScale); Engine.Input.Gamepad.KeyboardEmulation; Engine.View.Camera.Zoom;
-Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Resolution (Scale, Sharpness, Current, Dynamic.Enabled, Dynamic.TargetFps, Dynamic.MinimumScale), Engine.Room.Streaming (Remember, Forget(), Remembered, Save(), Load(text)), Engine.Rendering (Backend, DrawCalls, Triangles, GpuMs, Instances.Drawn, Instances.Culled; read), Engine.Instance.Update.Distance, Engine.Tile.Layer (Visible, SetVisible, Alpha, SetAlpha, OffsetX, OffsetY, SetOffset by name), Engine.Physics.Joint limits (PhysicsJointHinge, PhysicsJointLimitSwing, PhysicsJointLimitTwist). Colours are "#rrggbb" text.
+Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Resolution (Scale, Sharpness, Current, Dynamic.Enabled, Dynamic.TargetFps, Dynamic.MinimumScale), Engine.Room.Streaming (Remember, Forget(), Remembered, Save(), Load(text)), Engine.Rendering (Backend, DrawCalls, Triangles, GpuMs, Instances.Drawn, Instances.Culled; read), Engine.Instance.Update.Distance, Engine.Tile.Layer (Visible, SetVisible, Alpha, SetAlpha, OffsetX, OffsetY, SetOffset by name), Engine.Physics.Joint limits (PhysicsJointHinge, PhysicsJointLimitSwing, PhysicsJointLimitTwist); 29 October: Engine.Camera.Rigs (Enabled, Active, BlendTime, BlendCurve, Blending, Progress, Count, Create(), BlendTo(), Cut(), Remove(), Exists(), Clear()), Engine.Camera.Rig (Name, Kind, Target, SetTargetPoint(), OffsetX/Y/Z, LookOffsetX/Y/Z, Fov, Damping, Yaw, Pitch, Distance, MouseLook, Collision) and Engine.Camera.Rig.Path (Position, Speed, Loop, Smooth, Count, Length, Add(), Clear(), Use()). Colours are "#rrggbb" text.
 
 ---
 
@@ -79,6 +79,9 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 | Engine.Camera.Shake | + Enabled, + Strength, + Duration, + Frequency, + Roll, ✓ Shake(strength, seconds) [Shake3D], ✓ ShakeRoll(...) [ShakeRoll3D], + Stop() |
 | Engine.Camera.Focus (depth of field) | + Enabled, + Distance, + Range, + Blur, + Auto (focus on what is at the centre) |
 | Engine.Camera.Layers | ✓ ModelLayer.Fov/Near/Visible [ModelLayerSetFov...], ✓ ViewLayer.Fov/Near [ViewLayerSetFov] |
+| Engine.Camera.Rigs (29 Oct: named virtual cameras; the room's, gone with it) | ✓ Enabled, ✓ Active (the rig driving the camera; setting it blends, "" hands back), ✓ BlendTime, ✓ BlendCurve ("cut", "linear", "easein", "easeout", "easeinout"), ✓ Blending (read), ✓ Progress (read), ✓ Count (read), ✓ Create(name, kind) [CameraRigCreate], ✓ BlendTo(name, seconds, curve) [CameraRigBlendTo], ✓ Cut(name), ✓ Remove(name), ✓ Exists(name), ✓ Clear() |
+| Engine.Camera.Rig (the rig being set up: the last made, or Name = "...") | ✓ Name, ✓ Kind ("fixed", "follow", "orbit", "shoulder", "lookat", "dolly"), ✓ Target (id) [CameraSetRigTarget], ✓ SetTargetPoint(x, y, z), ✓ OffsetX/Y/Z [CameraSetRigOffset], ✓ LookOffsetX/Y/Z, ✓ Fov (0 keeps the camera's), ✓ Damping (seconds), ✓ Yaw, ✓ Pitch (degrees down), ✓ Distance, ✓ MouseLook, ✓ Collision; + Roll, + follow turned with the target, + framing (dead zone, screen position) |
+| Engine.Camera.Rig.Path (a dolly rig's track) | ✓ Position (0 to 1 by distance), ✓ Speed, ✓ Loop, ✓ Smooth, ✓ Count (read), ✓ Length (read), ✓ Add(x, y, z) [CameraRigPathAdd], ✓ Clear(), ✓ Use(pathing) [CameraSetRigPath]; + Auto (ride to the point nearest the target) |
 
 ## Engine.View (views and split screens, in 2D and 3D rooms)
 
