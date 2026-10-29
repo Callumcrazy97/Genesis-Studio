@@ -55,6 +55,10 @@ public sealed partial class StudioShellForm : DpiAwareForm
     private string _appliedFinderTerm = string.Empty;
     private long _finderGeneration;
     private readonly ProjectAssetMonitor _assetMonitor;
+    // The project file, watched for a Room order another process saved (see WatchProjectFile).
+    private FileSystemWatcher? _projectFileWatcher;
+    private System.Threading.Timer? _projectFileDebounce;
+    private const int ProjectFileDebounceMilliseconds = 300;
 
     public StudioShellForm(
         StudioServices services,
@@ -176,6 +180,7 @@ public sealed partial class StudioShellForm : DpiAwareForm
         _services.Settings.SettingsChanged += OnSettingsChanged;
         ThemeService.ThemeChanged += OnThemeChanged;
         ProjectRoomOrder.OrderSaved += OnRoomOrderSaved;
+        WatchProjectFile();
         ApplyRuntimePreferences();
 
         ProjectOpeningNotice.Step("Applying the theme…");
@@ -1563,6 +1568,59 @@ public sealed partial class StudioShellForm : DpiAwareForm
         _assetBrowser.RefreshTree();
     }
 
+    /// <summary>
+    /// Watches the project file for a Room order or starting Room another process saved while this
+    /// window is open (automation's room.create with start, room.makeStart): OrderSaved is raised
+    /// only inside the process that saved, and this window's next save would write its old order
+    /// back over the new one.
+    /// </summary>
+    private void WatchProjectFile()
+    {
+        try
+        {
+            string folder = Path.GetDirectoryName(_project.ProjectFile)!;
+            _projectFileDebounce = new System.Threading.Timer(_ => OnProjectFileSettled(), null, Timeout.Infinite, Timeout.Infinite);
+            _projectFileWatcher = new FileSystemWatcher(folder, Path.GetFileName(_project.ProjectFile))
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName | NotifyFilters.CreationTime,
+            };
+            _projectFileWatcher.Changed += OnProjectFileChanged;
+            _projectFileWatcher.Created += OnProjectFileChanged;
+            _projectFileWatcher.Renamed += OnProjectFileChanged;
+            _projectFileWatcher.EnableRaisingEvents = true;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            _services.Log.Warning("Project", "The project file is not watched; a Room order saved by another tool shows after the project is reopened: " + exception.Message);
+        }
+    }
+
+    // On a pool thread, several times for one save: the debounce waits for them to stop.
+    private void OnProjectFileChanged(object sender, FileSystemEventArgs e)
+    {
+        try { _projectFileDebounce?.Change(ProjectFileDebounceMilliseconds, Timeout.Infinite); }
+        catch (ObjectDisposedException) { }
+    }
+
+    private void OnProjectFileSettled()
+    {
+        if (IsDisposed || Disposing) return;
+        try
+        {
+            // A window not shown yet has no thread to hand this to: look again shortly.
+            if (!IsHandleCreated) _projectFileDebounce?.Change(ProjectFileDebounceMilliseconds, Timeout.Infinite);
+            else BeginInvoke(AdoptSavedProjectFile);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException) { }
+    }
+
+    private void AdoptSavedProjectFile()
+    {
+        if (IsDisposed || Disposing || !ProjectRoomOrder.AdoptFromFile(_project)) return;
+        _assetBrowser.RefreshTree();
+        SetStatus($"The Room order was changed on disk: {_project.Manifest.StartRoom} is the first Room.");
+    }
+
     private void OnThemeChanged(object? sender, EventArgs e)
     {
         if (IsDisposed)
@@ -1766,6 +1824,14 @@ public sealed partial class StudioShellForm : DpiAwareForm
             _services.Settings.SettingsChanged -= OnSettingsChanged;
             ThemeService.ThemeChanged -= OnThemeChanged;
             ProjectRoomOrder.OrderSaved -= OnRoomOrderSaved;
+            if (_projectFileWatcher is { } projectFileWatcher)
+            {
+                projectFileWatcher.EnableRaisingEvents = false;
+                projectFileWatcher.Dispose();
+                _projectFileWatcher = null;
+            }
+            _projectFileDebounce?.Dispose();
+            _projectFileDebounce = null;
             _assetBrowser.FinderInvalidated -= OnFinderInvalidated;
             _assetMonitor.Changed -= OnProjectAssetsChanged;
             _assetMonitor.Error -= OnAssetMonitorError;
