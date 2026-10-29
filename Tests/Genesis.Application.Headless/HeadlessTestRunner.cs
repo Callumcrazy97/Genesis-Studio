@@ -1091,6 +1091,7 @@ internal static class HeadlessTestRunner
         Suites.ModelImageWorkflowSuite.Run(ctx);
         Suites.ModelTexturePaintingSuite.Run(ctx);
         Suites.ModelLiveTexturePaintSuite.Run(ctx);
+        Suites.InputActionsSuite.Run(ctx);
         Suites.ModelProfileWorkflowSuite.Run(ctx);
         Suites.ModelTubeWorkflowSuite.Run(ctx);
         Suites.ModelPushPullWorkflowSuite.Run(ctx);
@@ -1171,6 +1172,9 @@ internal static class HeadlessTestRunner
         // flash lights, surface shaders and outlines, room changes with preloaded sounds (not part of the tiers).
         ["requests-1010"] = ["sky-light-exposure", "decals", "flash-lights", "mesh-surface", "outlines", "room-change"],
         ["combat-effects"] = ["flash-lights", "decals"],
+        // The Model editor's suites with input actions and the rebinding screen (29 Oct 2026 parity
+        // work: hidden materials, texture painting, analogue actions, chords, controllers' own bindings).
+        ["model-and-input"] = ["model-editor", "input-actions"],
         // The 11 Oct 2026 small requests: 2D darkness, failing shaders named, the anti-aliasing
         // picker, lamp shadows on painted terrain, Ogg sources in the Audio editor (not part of the tiers).
         ["requests-1011"] = ["effects-2d", "shader-precompiled", "anti-aliasing", "shadows", "runtime-resources"],
@@ -1291,8 +1295,12 @@ internal static class HeadlessTestRunner
                 break;
             case "engine-systems":
                 Suites.EngineSystemsSuite.Run(ctx);
+                Suites.InputActionsSuite.Run(ctx);
                 Suites.FramePathAssetIoSuite.Run(ctx);
                 Suites.LoadCacheSuite.Run(ctx);
+                break;
+            case "input-actions":
+                Suites.InputActionsSuite.Run(ctx);
                 break;
             case "load-cache":
                 Suites.LoadCacheSuite.Run(ctx);
