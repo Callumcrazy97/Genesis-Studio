@@ -101,6 +101,8 @@ namespace Genesis.Runtime.Scene
         public float SkyLightStrength { get; set; } = SkyLightDefaults.Strength;
         /// <summary>Hemisphere sky light colour multiplier (white = none).</summary>
         public Vector3 SkyLightTint { get; set; } = Vector3.One;
+        /// <summary>Hemisphere sky light: the light from below has this tint instead (black, the default: the same tint).</summary>
+        public Vector3 SkyLightGroundTint { get; set; } = Vector3.Zero;
         /// <summary>Hemisphere sky light colourfulness: 1 the sky's own, 0 grey.</summary>
         public float SkyLightSaturation { get; set; } = SkyLightDefaults.Saturation;
 

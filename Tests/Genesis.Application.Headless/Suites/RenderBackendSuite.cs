@@ -838,6 +838,12 @@ internal static class RenderBackendSuite
         HeadlessHarness.RunCase(ctx.Report, "Render.Decals.NormalAndRoughnessMapsOnEveryBackend",
             () => DecalLayerSuite.MapsReshadeTheSurface(ctx));
 
+        // GS5: post effects read the sun and sky (GenesisSky, b7); the sky light's light from below has its own tint.
+        HeadlessHarness.RunCase(ctx.Report, "Render.PostEffects.GenesisSkyGivesTheSunAndSkyColours",
+            () => SkyInputsSuite.PostEffectsReadTheSky(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Render.SkyLight.GroundTintTintsTheLightFromBelow",
+            SkyInputsSuite.GroundTintTintsTheLightFromBelow);
+
         // AF1.2: GTAO math + enable wiring (default off; Software skip).
         HeadlessHarness.RunCase(ctx.Report, "Render.Gtao.MathAndEnableWiring", () =>
         {

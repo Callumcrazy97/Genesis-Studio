@@ -871,6 +871,12 @@ namespace Genesis.Shared.Interfaces
         public float   SkyLightStrength;
         /// <summary>Hemisphere sky light: multiplies its colour. Black counts as white.</summary>
         public Vector3 SkyLightTint;
+        /// <summary>
+        /// Hemisphere sky light: multiplies the light from below (the lit ground) instead of
+        /// <see cref="SkyLightTint"/>, which then tints only the light from above. Black, the
+        /// default, is <see cref="SkyLightTint"/> for both.
+        /// </summary>
+        public Vector3 SkyLightGroundTint;
         /// <summary>Hemisphere sky light: 1 keeps the sky's own colour, 0 is grey light of the same brightness.</summary>
         public float   SkyLightSaturation;
         /// <summary>Eye adaptation: the exposure follows the scene's brightness (off by default).</summary>

@@ -51,6 +51,17 @@ public static partial class PgslCommands
             SkyLightDefaults.ClampTint((float)r), SkyLightDefaults.ClampTint((float)g), SkyLightDefaults.ClampTint((float)b));
     }
 
+    [PgslCommand("SkySetAmbientGroundTint", "SkySetAmbientGroundTint(r, g, b)",
+        "A colour multiplier of its own for the hemisphere sky light from below (the lit ground), each 0 to 4: SkySetAmbientTint then tints only the light from above (a warm floor bounce under a cool sky). 0, 0, 0 goes back to the one tint for both",
+        "Lighting")]
+    public static void SkySetAmbientGroundTint(double r, double g, double b)
+    {
+        SceneEnvironment environment = ActiveEnvironment;
+        if (environment == null || !double.IsFinite(r) || !double.IsFinite(g) || !double.IsFinite(b)) return;
+        environment.SkyLightGroundTint = r <= 0 && g <= 0 && b <= 0 ? Vector3.Zero : new Vector3(
+            SkyLightDefaults.ClampTint((float)r), SkyLightDefaults.ClampTint((float)g), SkyLightDefaults.ClampTint((float)b));
+    }
+
     [PgslCommand("SkySetAmbientSaturation", "SkySetAmbientSaturation(saturation)",
         "Colourfulness of the hemisphere sky light, 0 to 2: 1 the sky's own colour, 0 grey; 0.4 by default (a clear day's sunlit ground comes out near neutral)",
         "Lighting")]
@@ -95,4 +106,9 @@ public static partial class PgslCommands
         "Colour multiplier of the hemisphere sky light (as SkySetAmbientTint)", "Engine · Sky",
         Namespace = "Engine.Sky")]
     public static void SkySetAmbientTintNamespaced(float r, float g, float b) => SkySetAmbientTint(r, g, b);
+
+    [PgslCommand("SetAmbientGroundTint", "Engine.Sky.SetAmbientGroundTint",
+        "Colour multiplier of the hemisphere sky light from below, apart from the light from above (as SkySetAmbientGroundTint)", "Engine · Sky",
+        Namespace = "Engine.Sky")]
+    public static void SkySetAmbientGroundTintNamespaced(float r, float g, float b) => SkySetAmbientGroundTint(r, g, b);
 }

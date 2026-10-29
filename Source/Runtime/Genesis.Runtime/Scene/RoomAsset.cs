@@ -285,6 +285,8 @@ public sealed class RoomEnvironment
     [JsonProperty("skyLightStrength")] public float SkyLightStrength { get; set; } = 1f;
     /// <summary>Hemisphere sky light colour multiplier, red, green, blue (white = none).</summary>
     [JsonProperty("skyLightTint")] public float[] SkyLightTint { get; set; } = { 1f, 1f, 1f };
+    /// <summary>Hemisphere sky light: a tint of its own for the light from below (the lit ground); none, the default, uses skyLightTint.</summary>
+    [JsonProperty("skyLightGroundTint", NullValueHandling = NullValueHandling.Ignore)] public float[] SkyLightGroundTint { get; set; }
     /// <summary>Hemisphere sky light colourfulness, 0 to 2: 1 the sky's own colour, 0 grey, 0.4 by default.</summary>
     [JsonProperty("skyLightSaturation")] public float SkyLightSaturation { get; set; } = 0.4f;
     /// <summary>Eye adaptation: the exposure follows the brightness of the scene. Off by default.</summary>

@@ -90,6 +90,9 @@ namespace Genesis.Runtime.Scene
             state.SkyLightStrength = SkyLightDefaults.ClampStrength(env.SkyLightStrength);
             Vector3 tint = env.SkyLightTint;
             state.SkyLightTint = new Vector3(SkyLightDefaults.ClampTint(tint.X), SkyLightDefaults.ClampTint(tint.Y), SkyLightDefaults.ClampTint(tint.Z));
+            Vector3 groundTint = env.SkyLightGroundTint;
+            state.SkyLightGroundTint = groundTint == Vector3.Zero ? Vector3.Zero
+                : new Vector3(SkyLightDefaults.ClampTint(groundTint.X), SkyLightDefaults.ClampTint(groundTint.Y), SkyLightDefaults.ClampTint(groundTint.Z));
             state.SkyLightSaturation = SkyLightDefaults.ClampSaturation(env.SkyLightSaturation);
             state.AutoExposureEnabled = env.AutoExposureEnabled;
             state.AutoExposureKey = AutoExposureDefaults.ClampKey(env.AutoExposureKey);

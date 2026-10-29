@@ -11,7 +11,8 @@ namespace Genesis.Rendering.Primitives
     // composite. Each reads the image so far (t0), scene depth (t1), the forward pass's flag
     // target (t2) and the object images (t3 marks, t4 ids; ForwardRenderer.Outlines), with the
     // same GenesisFrame (b4) and GenesisParameters (b5) the Shader editor's
-    // preview gives a Fullscreen shader, plus GenesisCamera (b6). The look belongs to the project;
+    // preview gives a Fullscreen shader, plus GenesisCamera (b6) and GenesisSky (b7: the sun's
+    // direction and colour, the horizon and zenith colours). The look belongs to the project;
     // the engine only provides the inputs and runs the passes.
     internal sealed partial class ForwardRenderer
     {
@@ -40,6 +41,37 @@ namespace Genesis.Rendering.Primitives
             // onto the screen without inverting InvViewProjection per pixel. After the fields above
             // so shaders written before it keep their layout.
             public Matrix4x4 ViewProjection;
+        }
+
+        /// <summary>
+        /// GenesisSky (b7): the sun and the sky as the room has them this frame, for effects that
+        /// follow them (sun shafts, a lens flare, haze tinted by the horizon). Colours as picked
+        /// (display colours, like the image the effects read).
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PostEffectSkyCB
+        {
+            // xyz towards the sun the sky draws (unit length), w = 1 while it is above the horizon.
+            public Vector4 SunDirection;
+            // rgb the sun's colour, w its brightness (intensity).
+            public Vector4 SunColor;
+            public Vector4 HorizonColor;
+            public Vector4 ZenithColor;
+        }
+
+        private GpuBufferHandle _cbPostSky;
+
+        private PostEffectSkyCB PostEffectSky()
+        {
+            Vector3 sun = _state.AuthoredSkyEnabled ? _state.SkySunDirection : _state.LightDirection;
+            sun = sun.LengthSquared() > 1e-8f ? Vector3.Normalize(sun) : Mesh3DState.GetDefaultSunDirection();
+            return new PostEffectSkyCB
+            {
+                SunDirection = new Vector4(-sun, sun.Y < 0f ? 1f : 0f),
+                SunColor = new Vector4(_state.SunColor, MathF.Max(0f, _state.SunIntensity)),
+                HorizonColor = new Vector4(_state.SkyHorizonColor, 1f),
+                ZenithColor = new Vector4(_state.SkyZenithColor, 1f),
+            };
         }
 
         internal readonly struct PostEffectPass
@@ -192,6 +224,8 @@ namespace Genesis.Rendering.Primitives
                 _cbPostParams = MakeCB<PostEffectParamsCB>("Post effect parameters");
                 _cbPostCamera = MakeCB<PostEffectCameraCB>("Post effect camera");
             }
+            if (!_cbPostSky.IsValid) _cbPostSky = MakeCB<PostEffectSkyCB>("Post effect sky");
+            _gpu.UpdateConstantBuffer(_cbPostSky, PostEffectSky());
 
             _postEffectFrame++;
             _gpu.UpdateConstantBuffer(_cbPostFrame, new PostEffectFrameCB
@@ -242,6 +276,7 @@ namespace Genesis.Rendering.Primitives
                 _pixelB4NotOmni = true;
                 _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 5, _cbPostParams);
                 _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 6, _cbPostCamera);
+                _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 7, _cbPostSky);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 0, _postEffectTextures[source]);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 1, depthTexture);
                 _gpu.SetTexture(GpuShaderStage.Pixel, 2, _fogSkipTexture);

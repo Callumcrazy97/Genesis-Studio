@@ -1494,6 +1494,7 @@ glow the night sky is drawn with.
 | `SkySetAmbientStrength(strength)`, `SkyGetAmbientStrength()` | Brightness, 0 to 16. Also `Engine.Sky.AmbientStrength`. |
 | `SkySetAmbientSaturation(saturation)`, `SkyGetAmbientSaturation()` | Colourfulness, 0 to 2. Also `Engine.Sky.AmbientSaturation`. |
 | `SkySetAmbientTint(r, g, b)` | Colour multipliers, 0 to 4 each. Also `Engine.Sky.SetAmbientTint(r, g, b)`. |
+| `SkySetAmbientGroundTint(r, g, b)` | A tint of its own for the light from below (the lit ground), 0 to 4 each: the tint above then colours only the light from above (a warm floor bounce under a cool sky). 0, 0, 0 goes back to one tint for both. Also `Engine.Sky.SetAmbientGroundTint(r, g, b)` and the room's `skyLightGroundTint`. Since 29 October 2026. |
 
 A script's own ambient colour still wins over the sky's: while one is set, the hemisphere sky light
 is off. Models in a model layer with studio lighting keep the studio's light.

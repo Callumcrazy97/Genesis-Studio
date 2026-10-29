@@ -13,7 +13,7 @@ namespace Genesis.Rendering.Primitives
     internal sealed partial class ForwardRenderer
     {
         private readonly record struct SkyLightKey(
-            SkyDome Dome, float Strength, Vector3 Tint, float Saturation);
+            SkyDome Dome, float Strength, Vector3 Tint, float Saturation, Vector3 GroundTint);
 
         private SkyLightKey _skyLightKey;
         private SkyLightTerms _skyLightTerms;
@@ -41,15 +41,18 @@ namespace Genesis.Rendering.Primitives
             }
 
             Vector3 tint = s.SkyLightTint == Vector3.Zero ? Vector3.One : s.SkyLightTint;
+            // The light from below has its own tint when one is given (a warm floor under a cool sky).
+            Vector3 groundTint = s.SkyLightGroundTint == Vector3.Zero ? tint : s.SkyLightGroundTint;
             var key = new SkyLightKey(
                 SkyDomeFor(s),
                 float.IsFinite(s.SkyLightStrength) ? s.SkyLightStrength : SkyLightDefaults.Strength,
                 tint,
-                float.IsFinite(s.SkyLightSaturation) ? s.SkyLightSaturation : SkyLightDefaults.Saturation);
+                float.IsFinite(s.SkyLightSaturation) ? s.SkyLightSaturation : SkyLightDefaults.Saturation,
+                groundTint);
             if (!_skyLightValid || key != _skyLightKey)
             {
                 long started = Stopwatch.GetTimestamp();
-                _skyLightTerms = SkyLightMath.Compute(key.Dome, key.Strength, key.Tint, key.Saturation);
+                _skyLightTerms = SkyLightMath.Compute(key.Dome, key.Strength, key.Tint, key.Saturation, key.GroundTint);
                 LastSkyLightMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 _skyLightKey = key;
                 _skyLightValid = true;
