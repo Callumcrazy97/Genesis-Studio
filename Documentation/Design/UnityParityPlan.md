@@ -96,7 +96,7 @@ The big gaps are:
 | KF1 | Kinfield grass no longer leans away from the hero; dotted path edges at 0.25 m | Kinfield | S-M | Open (22 Oct) |
 | KF2 | Terrain paint material: ~2.5 s bake with a stand-in ground, then a ~180 ms / 179 MB upload on the game thread | Kinfield (any terrain with image layers) | M | Cache the bake on disk, make mips off the game thread |
 | NV1 | Unlit model materials (glTF `KHR_materials_unlit`) on static meshes; only skinned ones honour it | Nuvema | M | Open (a DS-style game looks grey) |
-| ST1 | Studio's UI editor Inspector lacks Layout, Spacing, Padding, Style, Placeholder, MaxLength | UI toolkit, 22 Oct | S-M | Open |
+| ST1 | Studio's UI editor Inspector lacks Layout, Spacing, Padding, Style, Placeholder, MaxLength | UI toolkit, 22 Oct | S-M | In progress 29 Oct (the test-suite engineer, after the suites merged in 9a9c695) |
 | ST2 | Model editor has no control for `hiddenMaterials` | 22 Oct | S | In progress 29 Oct (the live-painting engineer, after C3) |
 | ST3 | PGSL event locals: what a top-level `var` is (today it belongs to the instance) | 25 Oct | Decision | **Needs Cal's call** |
 | ST4 | Vulkan: distant things black in GenesisCraft; vsync fixed at swap-chain creation | GenesisCraft, 12-15 Oct | M | Not reproduced; waiting for Cal's screenshot and `GENESIS_VULKAN_DEBUG=1` log |
