@@ -20,8 +20,13 @@ public static class ClusteredLightDefaults
     public const int MaxLightsPerCluster = 64;
     /// <summary>Header words (offset, count per cluster) at the front of the packed buffer.</summary>
     public const int HeaderWords = ClusterCount * 2;
-    /// <summary>Packed light-index capacity after the headers.</summary>
-    public const int IndexCapacity = 65536;
+    /// <summary>
+    /// Packed light-index capacity after the headers: room for every cluster to be full (1.5 MB).
+    /// It was 65536, and clusters are packed nearest slice first, so a lamp-lit hall that needed
+    /// more lost every lamp beyond some depth: pure black, cut along a plane square to the view
+    /// (Golden Stag's hall, T2). Only the indices in use are uploaded.
+    /// </summary>
+    public const int IndexCapacity = ClusterCount * MaxLightsPerCluster;
     public const int BufferWords = HeaderWords + IndexCapacity;
 
     /// <summary>Slices per doubling of depth: DepthSlices / log2(FarDepth / NearDepth).</summary>

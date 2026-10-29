@@ -602,13 +602,11 @@ internal static class RenderBackendSuite
                 tight.NearCentreDistance + tight.NearExtent * 0.5f >= tight.NearSplitDistance
                 && tight.FarCentreDistance + tight.FarExtent * 0.5f >= tight.ShadowDistance,
                 "Each cascade's sphere must reach the end of its slice of the view.");
+            // The bias is a share of the cascade's depth range, which grows with it as its texels do:
+            // the same share is the same few texels at any distance (never metres off the casters).
             HeadlessHarness.Assert(
-                CascadeShadowMath.AdaptiveDepthBias(0.0015f, 0.2f)
-                > CascadeShadowMath.AdaptiveDepthBias(0.0015f, 0.05f),
-                "Adaptive bias must grow when world texels get coarser.");
-            HeadlessHarness.Assert(
-                MathF.Abs(CascadeShadowMath.AdaptiveDepthBias(0.0015f, 0.05f) - 0.0015f) < 0.0003f,
-                "Typical 1024² cascade texels must stay near the authored bias floor.");
+                tight.FarDepthBias == wide.FarDepthBias && tight.FarDepthBias >= 0.0015f && tight.FarDepthBias < 0.0015f + 1f / 1024f,
+                $"The far bias must be the authored bias plus half a texel whatever the distance (got {tight.FarDepthBias} and {wide.FarDepthBias}).");
         });
 
         // AF1.1: third cascade extents + ForestLight light-space centre snap stability.
@@ -768,6 +766,27 @@ internal static class RenderBackendSuite
                 && Genesis.Rendering.SilkNet.Vulkan.VulkanGpuFormats.ToCompare(reversed.Nearer).ToString() == "Greater"
                 && Genesis.Rendering.SilkNet.OpenGL.OpenGLGpuFormats.ToCompare(reversed.Nearer).ToString() == "Greater",
                 "Every backend must test reversed depth with greater-than.");
+        });
+
+        // T2: a hall full of lamps used to overflow the packed light lists, and clusters are packed
+        // nearest slice first, so every lamp vanished beyond some depth (black, cut along a plane).
+        HeadlessHarness.RunCase(ctx.Report, "Render.Lights.ClustersNeverLoseEveryLampBeyondADepth", () =>
+        {
+            Matrix4x4 view = Genesis.Rendering.D3dMath.D3dMatrixHelper.CreateLookAtLh(Vector3.Zero, new Vector3(0f, 0f, 1f), Vector3.UnitY);
+            Matrix4x4 projection = Genesis.Rendering.D3dMath.D3dMatrixHelper.CreatePerspectiveLh(MathF.PI / 3f, 16f / 9f, 0.1f, 500f);
+            var lights = new ClusterPointLightGpu[40];
+            for (int i = 0; i < lights.Length; i++)
+                lights[i] = new ClusterPointLightGpu
+                {
+                    PosRadius = new Vector4(-6f + (i % 8) * 1.7f, -1f + (i / 8) * 0.6f, 10f + (i % 5) * 2f, 40f),
+                    ColorIntensity = new Vector4(1f, 0.8f, 0.6f, 1f),
+                };
+            var grid = new ClusteredLightGrid();
+            grid.Build(lights, view * projection, 1280, 720, Vector3.Zero);
+            int far = ClusteredLightGrid.ClusterIndex(8, 8, 14);
+            int listed = grid.ClusterLights(8, 8, 14).Length;
+            HeadlessHarness.Assert(listed == lights.Length && grid.LightsDroppedFromClusters == 0,
+                $"A cluster 30 m away inside forty lamps' reach must list all forty (listed {listed}, dropped {grid.LightsDroppedFromClusters}, cluster {far}).");
         });
 
         // T2/C2: a light probe that captured a dark room or a black background no longer takes every

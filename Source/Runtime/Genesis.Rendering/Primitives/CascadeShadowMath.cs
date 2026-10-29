@@ -93,7 +93,11 @@ public static class CascadeShadowMath
         int size = Math.Max(64, mapSize);
         float nearExtent = nearRadius * 2f, midExtent = midRadius * 2f, farExtent = farRadius * 2f;
         float nearTexel = 2f * nearExtent / size, midTexel = 2f * midExtent / size, farTexel = 2f * farExtent / size;
-        float baseBias = MathF.Max(1e-5f, authoredBias);
+        // The bias is a share of each cascade's depth range, which (as its texels) grows with its
+        // width, so one share is the same number of texels in every cascade: the authored bias
+        // plus half a texel. A bias that also grew with the texel's size in metres, as it did, put
+        // the far cascade's shadows tens of metres off their casters once it reached the view's end.
+        float baseBias = MathF.Max(1e-5f, authoredBias) + 0.5f / (4f * size);
         float fadeShare = float.IsFinite(fade) ? Math.Clamp(fade, 0f, 1f) : DefaultFade;
 
         return new CascadeShadowFrame
@@ -106,9 +110,9 @@ public static class CascadeShadowMath
             FarTexelWorld = farTexel,
             MidTexelWorld = midTexel,
             NearTexelWorld = nearTexel,
-            FarDepthBias = AdaptiveDepthBias(baseBias, farTexel),
-            MidDepthBias = AdaptiveDepthBias(baseBias, midTexel) * 0.75f,
-            NearDepthBias = AdaptiveDepthBias(baseBias, nearTexel) * 0.55f,
+            FarDepthBias = baseBias,
+            MidDepthBias = baseBias * 0.75f,
+            NearDepthBias = baseBias * 0.55f,
             CascadeCount = count,
             ShadowDistance = distance,
             FadeStart = distance * (1f - fadeShare),
@@ -147,19 +151,6 @@ public static class CascadeShadowMath
         if (span <= 1e-4f) return distance < frame.ShadowDistance ? 1f : 0f;
         float t = Math.Clamp((distance - frame.FadeStart) / span, 0f, 1f);
         return 1f - t * t * (3f - 2f * t);
-    }
-
-    /// <summary>
-    /// Scales authored bias gently with cascade texel size. Stays at/near the authored floor for
-    /// typical 1024² maps so goldens do not wash out; grows when texels get coarse.
-    /// </summary>
-    public static float AdaptiveDepthBias(float authoredBias, float texelWorld)
-    {
-        float bias = MathF.Max(1e-5f, authoredBias);
-        float texel = MathF.Max(1e-5f, texelWorld);
-        // ~0.05 world units/texel is common for ortho≈26 on 1024²; only lift above that.
-        float coarseness = Math.Clamp((texel - 0.045f) / 0.12f, 0f, 1f);
-        return bias * (1f + 0.35f * coarseness) + texel * 0.008f * coarseness;
     }
 
     /// <summary>
