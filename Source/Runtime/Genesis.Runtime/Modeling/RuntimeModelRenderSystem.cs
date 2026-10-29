@@ -27,6 +27,14 @@ namespace Genesis.Runtime.Modeling
         /// </summary>
         public static bool BackgroundTextures { get; set; }
 
+        /// <summary>
+        /// An editor's own pixels for a material's colour image, asked for by material index: the Model
+        /// editor's texture painting shows each stroke while the mouse moves, before the image is saved.
+        /// Returns a texture of that renderer's, or an invalid handle to draw the material's own image.
+        /// Null (the default, and every game) draws every material's own image.
+        /// </summary>
+        public Func<IRenderController, int, TextureHandle> MaterialAlbedoOverride { get; set; }
+
         private sealed class CachedTexture
         {
             /// <summary>True while a worker is still reading the texture: ask again next frame.</summary>
@@ -384,6 +392,9 @@ namespace Genesis.Runtime.Modeling
                         projectPath,
                         hasOverride ? materialOverride : OwnTexture(ownTextures, MaterialTextureSlots.Albedo, material?.AlbedoTexture),
                         TextureColorSpace.Srgb, background, ref texturesPending);
+                    if (MaterialAlbedoOverride != null && !animation.IgnoreTextures && !hasOverride
+                        && MaterialAlbedoOverride(renderer, mesh.MaterialIndex) is { IsValid: true } live)
+                        texture = live;
                     if (!animation.IgnoreTextures && !hasOverride && material is not null)
                     {
                         normalMap = LoadMaterialTexture(renderer, projectPath, OwnTexture(ownTextures, MaterialTextureSlots.Normal, material.NormalTexture), TextureColorSpace.Linear, background, ref texturesPending);
