@@ -1800,6 +1800,11 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: true);
                 Suites.TerrainLayersGrassSuite.Run(ctx);
                 break;
+            case "terrain-grass":
+                // Only the grass around the camera, its shader, templates, paths and pushers (no layer renders).
+                PrepareFocusedProject(ctx, requireStudioServices: true);
+                Suites.TerrainLayersGrassSuite.RunGrass(ctx);
+                break;
             case "export-pgsl":
                 Suites.PgslExportSuite.Run(ctx);
                 break;

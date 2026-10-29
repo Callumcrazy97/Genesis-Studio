@@ -525,6 +525,13 @@ internal static class PgslEngineApiChecks
         Engine.Terrain.Collision.Distance = 1000;
         Engine.Terrain.Detail.Distance = 300;
         reach = Engine.Terrain.Collision.Distance;
+        gustsBefore = Engine.Terrain.Grass.Wind.Gusts;
+        tipBefore = Engine.Terrain.Grass.Color.Tip;
+        Engine.Terrain.Grass.Wind.Gusts = 0.5;
+        Engine.Terrain.Grass.Color.Tip = "#c8b450";
+        Engine.Terrain.Grass.Pushers.Set(4, 0, 0, 0, 1.5);
+        pushers = Engine.Terrain.Grass.Pushers.Count;
+        tipAfter = Engine.Terrain.Grass.Color.Tip;
         """;
 
     private static void TerrainLook(ProjectSession project, Action<string, string, string, string> row)
@@ -568,6 +575,7 @@ internal static class PgslEngineApiChecks
             using (host.UseEventSources(new Dictionary<string, string> { ["Create"] = TerrainLookScript })) host.Attach(scene.World, entity, "LookProbe");
             var vars = host.Instances.OfType<PgslBehavior>().Single(behavior => behavior.Entity == entity).GetVariablesSnapshot();
             double Number(string name) => vars.TryGetValue(name, out object? value) && value is not (string or null) ? Convert.ToDouble(value, CultureInfo.InvariantCulture) : double.NaN;
+            string Text(string name) => vars.TryGetValue(name, out object? value) && value is string text ? text : "";
             var after = terrains.LookNow().Single();
             double expectedSlope = Math.Atan(0.5) * 180 / Math.PI;
             bool pass = Math.Abs(Number("slope") - expectedSlope) < 0.5 && Math.Abs(Number("up") - Math.Cos(Math.Atan(0.5))) < 0.01 && Number("across") < -0.4
@@ -575,7 +583,10 @@ internal static class PgslEngineApiChecks
                 && Number("dGrass") == 1 && Number("dReach") == 24 && Number("reach") == 500
                 && !terrains.GroundDrawn && Math.Abs(after.Grass.Spacing - authoredSpacing / MathF.Sqrt(2)) < 1e-3 && Math.Abs(after.Grass.MaximumScale - before.Grass.MaximumScale * 1.5f) < 1e-3
                 && after.Scatter.Single().DensityPerHectare == 100 && Math.Abs(after.ScatterNear - authoredNear * 0.5f) < 1e-3 && after.ScatterShadow == 0
-                && terrains.TerrainDistance == 300;
+                && terrains.TerrainDistance == 300
+                // The grass shader and pushers: each terrain's own until set, then the game's.
+                && Number("gustsBefore") == 0 && Text("tipBefore") == "#4f9c36" && Text("tipAfter") == "#c8b450"
+                && terrains.GameGrassLook.WindGusts == 0.5f && Number("pushers") == 1 && terrains.GrassPusherCount == 1;
             string detail = $"slope {Number("slope"):0.##}° ({expectedSlope:0.##}), facing up {Number("up"):0.###} and across {Number("across"):0.###}; layer {Number("patch")} on the patch (3), {Number("plain")} elsewhere (1), {Number("offGround")} off it; " +
                 $"{Number("wide")} by {Number("deep")} m; ground drawn {terrains.GroundDrawn}; grass spacing {authoredSpacing:0.###} to {after.Grass.Spacing:0.###}, height {before.Grass.MaximumScale:0.##} to {after.Grass.MaximumScale:0.##}; " +
                 $"stones {after.Scatter.Single().DensityPerHectare}/ha (100), near {authoredNear} to {after.ScatterNear}, shadows to {after.ScatterShadow}; collision {Number("dReach")} to {Number("reach")} m (kept to 500); distance {terrains.TerrainDistance}";
