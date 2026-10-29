@@ -155,6 +155,12 @@ namespace Genesis.Shared.Interfaces
         Normals    = 1,
         SceneDepth = 2,
         ShadowMap  = 3,
+        /// <summary>Each surface's own colour (albedo, tints and vertex colour), unlit.</summary>
+        Albedo     = 4,
+        /// <summary>The indirect light alone: sky and ground ambient, the light probe and reflections, after occlusion.</summary>
+        AmbientLight = 5,
+        /// <summary>The direct light alone: the sun (with its shadows) and the lamps.</summary>
+        DirectLight = 6,
     }
 
     // Per-draw flags controlling VS/PS path and depth state.

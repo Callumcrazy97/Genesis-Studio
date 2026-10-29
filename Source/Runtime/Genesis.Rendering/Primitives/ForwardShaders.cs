@@ -1166,7 +1166,7 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         float debugDepth = pow(saturate(1.0 - cameraDepth), 0.25);
         return MakeOut(float4(debugDepth, debugDepth, debugDepth, 1.0), 0.0);
     }
-    if (debugMode > 2.5)
+    if (debugMode > 2.5 && debugMode < 3.5)
     {
         float3 proj = IN.ShadowPos.xyz / max(IN.ShadowPos.w, 0.0001);
         proj.x = proj.x * 0.5 + 0.5;
@@ -1307,6 +1307,14 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         float3 litFoliage = base * (foliageAmbient + SunColorIntensity.rgb * SunColorIntensity.w * foliageDiffuse * foliageShadow)
             + ComputePointLights(IN.WorldPos, foliageNormal, base, IN.SvPos);
         float foliageLighting = saturate(LightDirEnabled.w) * (1.0 - MaterialParams.y);
+        if (debugMode > 3.5)
+        {
+            float3 foliageIndirect = base * foliageAmbient * foliageLighting;
+            float3 foliageTerm = debugMode < 4.5 ? base
+                : debugMode < 5.5 ? foliageIndirect
+                : (litFoliage - base * foliageAmbient) * foliageLighting;
+            return MakeOut(float4(max(foliageTerm, 0.0), 1.0), 1.0, float3(0.0, 0.0, 0.0), 1.0);
+        }
         float3 col = lerp(base * 1.05, litFoliage, foliageLighting);
         float selfFogApplied = 0.0;
         // Match opaque draws: when screen-space FogPost is active, let it own volumetric fog
@@ -1481,8 +1489,21 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     }
 
     // Point lights obey the same global lighting master switch as sun/ambient lighting.
-    color += ComputePointLightsPbr(IN.WorldPos, n, base, IN.SvPos, viewToCam, roughness, metallic, 1.0)
+    float3 lampLight = ComputePointLightsPbr(IN.WorldPos, n, base, IN.SvPos, viewToCam, roughness, metallic, 1.0)
         * (1.0 - MaterialParams.y) * saturate(LightDirEnabled.w);
+    color += lampLight;
+
+    // Lighting term views (RenderDebugView 4-6): the surface's own colour, the indirect light it
+    // takes (sky and ground, the light probe, reflections, after occlusion), or the direct light
+    // (sun and lamps), each alone. Not fogged, so a term at zero reads black.
+    if (debugMode > 3.5)
+    {
+        float3 indirect = ambient * lightingOn;
+        float3 term = debugMode < 4.5 ? base
+            : debugMode < 5.5 ? indirect
+            : (lit - lerp(base, indirect, lightingOn)) + lampLight;
+        return MakeOut(float4(max(term, 0.0), 1.0), 1.0, float3(0.0, 0.0, 0.0));
+    }
 
     // Self-apply ray-marched fog when: fog is on, this material doesn't opt out (NoFog), and
     // either (a) the screen-space post-process isn't running this frame (EffectParams.z < 0.5 —

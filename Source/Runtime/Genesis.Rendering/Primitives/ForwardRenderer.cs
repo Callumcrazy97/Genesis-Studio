@@ -4418,11 +4418,32 @@ namespace Genesis.Rendering.Primitives
             return counterClockwise ? _rsShadowCw : _rsShadow;
         }
 
+        /// <summary>
+        /// The debug view the frame draws: the state's (Engine.DebugView, the F6 selector), else a
+        /// diagnosis run's GENESIS_RENDER_VIEW.
+        /// </summary>
+        private RenderDebugView EffectiveDebugView =>
+            _state.DebugView != RenderDebugView.Shaded ? _state.DebugView : RenderDiagnosticsOff.View;
+
+        private static bool IsLightingTermView(RenderDebugView view) =>
+            view is RenderDebugView.Albedo or RenderDebugView.AmbientLight or RenderDebugView.DirectLight;
+
         private GpuShaderProgramHandle CurrentForwardProgram(bool skinned, RuntimeShaderHandle runtimeShader = default, bool editorReference = false)
         {
             // Diagnostic views must use the diagnostic pixel shader, including authored materials
             // and the Shader Editor's preview override. Restore those programs in Shaded mode.
-            if (_state.DebugView != RenderDebugView.Shaded || editorReference) return skinned ? _skinnedProgram : _program;
+            RenderDebugView view = EffectiveDebugView;
+            if (IsLightingTermView(view) && !editorReference)
+            {
+                // A surface shader is the engine's pixel shader around the project's Surface
+                // function, so it shows the lighting terms of its own material; a project's other
+                // pixel shaders cannot, and the engine's draws the surface instead.
+                if (runtimeShader.IsValid && _runtimeEngineLit.Contains(runtimeShader.Id)
+                    && _runtimePrograms.TryGetValue(runtimeShader.Id, out var surfacePrograms))
+                    return skinned ? surfacePrograms.Skinned : surfacePrograms.Static;
+                return skinned ? _skinnedProgram : _program;
+            }
+            if (view != RenderDebugView.Shaded || editorReference) return skinned ? _skinnedProgram : _program;
             if (skinned && _overrideSkinnedProgram.IsValid) return _overrideSkinnedProgram;
             if (!skinned && _overrideProgram.IsValid) return _overrideProgram;
             if (runtimeShader.IsValid && _runtimePrograms.TryGetValue(runtimeShader.Id, out var programs))
@@ -6245,7 +6266,7 @@ namespace Genesis.Rendering.Primitives
                     s.ShadowHighQuality ? 1f : 0f),
                 EffectParams = new Vector4(
                     s.EmissiveIntensity,
-                    (float)(int)s.DebugView,
+                    (float)(int)EffectiveDebugView,
                     _screenFogActiveThisFrame ? 1f : 0f,
                     s.FogNoiseStrength),
                 VolumetricParams = new Vector4(
