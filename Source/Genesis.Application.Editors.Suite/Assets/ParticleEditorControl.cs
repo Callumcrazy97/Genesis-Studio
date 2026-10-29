@@ -444,6 +444,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         _dimensionToggle.Sync(enabled);
         if (changed) RebuildEmitterPreview();
         CommitParticleEdit("Change particle preview dimension");
+        SyncModuleStack();
         _viewport.Invalidate(true);
         UpdateStatus();
     }
@@ -982,6 +983,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         {
             _syncing = false;
         }
+        SyncModuleStack();
     }
 
     private void SetNumeric(string key, double value)
@@ -1086,6 +1088,7 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         _timelineLabel.Text = _previewClock.Seeking ? $"Seeking {_timelineSeconds:0.00}s" : $"{display:0.00} / {duration:0.00}s";
         _playPauseButton.Text = _timelinePlaying ? "Pause" : "Play";
         if (_topPlayButton is not null) _topPlayButton.Text = _timelinePlaying ? "Pause" : "Play";
+        UpdateModuleTransport();
     }
 
     private void EnsureSpriteCapacity()
@@ -1134,6 +1137,11 @@ public sealed partial class ParticleEditorControl : EditorSurfaceControl, IResou
         config.SpeedOverLifetime ??= new ParticleBezierCurve();
         config.AlphaOverLifetime ??= new ParticleBezierCurve();
         config.VelocityOverLifetime ??= new ParticleBezierCurve();
+        config.SizeOverLifetime.NormaliseKeys();
+        config.SpeedOverLifetime.NormaliseKeys();
+        config.AlphaOverLifetime.NormaliseKeys();
+        config.VelocityOverLifetime.NormaliseKeys();
+        config.Modules?.RemoveAll(module => module is null);
         config.GradientStops ??= [];
         config.GradientStops.RemoveAll(stop => stop is null);
         foreach (ParticleGradientStop stop in config.GradientStops)

@@ -9,6 +9,8 @@ public sealed partial class ParticleEditorControl
 {
     private sealed record ParticleEditState(ParticleConfig Effect, int Selected, string Preset, string Content);
     private ParticleEditState? _committedParticleState;
+    /// <summary>The Undo label of the next journalled change (the module stack names its edits).</summary>
+    private string? _nextEditLabel;
     private string _savedParticleContent = string.Empty;
     private bool _restoringParticleState;
     private bool _particleGesture;
@@ -46,6 +48,7 @@ public sealed partial class ParticleEditorControl
 
     private void CommitParticleEdit(string label = "Edit particle properties")
     {
+        if (_nextEditLabel is not null && !_particleGesture) { label = _nextEditLabel; _nextEditLabel = null; }
         if (_restoringParticleState || _committedParticleState is null) return;
         if (_particleGesture) { if (!IsDirty) MarkDirty(); return; }
         ParticleEditState next = CaptureParticleState();
@@ -133,6 +136,7 @@ public sealed partial class ParticleEditorControl
         }
         _inspectorTabs.Enabled = !_codeDraftDirty;
         if (_curveEditor is not null) _curveEditor.Enabled = !_codeDraftDirty;
+        if (_moduleStackList is not null) _moduleStackList.Enabled = !_codeDraftDirty;
         if (_applyDraftButton is not null) _applyDraftButton.Enabled = _codeDraftDirty;
         if (_revertDraftButton is not null) _revertDraftButton.Enabled = _codeDraftDirty;
     }
@@ -231,6 +235,10 @@ public sealed partial class ParticleEditorControl
                 || curve.X1 is < 0 or > 1 || curve.X2 is < 0 or > 1 || curve.X1 > curve.X2
                 || Math.Abs(curve.Y1) > 16 || Math.Abs(curve.Y2) > 16))
                 throw new FormatException("Curve X coordinates must be ordered within 0–1; Y values must be finite and within -16–16.");
+        foreach (ParticleBezierCurve? curve in new[] { config.SizeOverLifetime, config.SpeedOverLifetime, config.AlphaOverLifetime, config.VelocityOverLifetime })
+            if (curve?.Keys is { } keys && (keys.Count > ParticleModuleCurves.MaximumKeys || keys.Any(key => key is null
+                || !double.IsFinite(key.Time) || !double.IsFinite(key.Value) || key.Time is < 0 or > 1 || Math.Abs(key.Value) > 16)))
+                throw new FormatException($"Curve points need a time within 0–1 and a value within -16–16, at most {ParticleModuleCurves.MaximumKeys} a curve.");
         IEnumerable<ParticleColor?> colours = new ParticleColor?[] { config.StartColor, config.MidColor, config.EndColor }
             .Concat((config.GradientStops ?? []).Select(stop => stop?.Color));
         foreach (ParticleColor? colour in colours)

@@ -44,10 +44,14 @@ public sealed partial class ParticleEditorControl
         toolbar.Items.Add(_topPlayButton);
         toolbar.Items.Add(EditorChrome.ToolButton("Restart", "Restart with the same preview seed", Restart));
         toolbar.Items.Add(EditorChrome.ToolButton("Use in game", "Create an Object that plays this saved effect, or see the gameplay code", ShowParticleGameGuide));
+        toolbar.Items.Add(EditorChrome.ToolButton("Modules", "Edit the selected emitter as Spawn, Initialise, Update and Render modules", ShowModuleStack));
         ToolStripDropDownButton options = new("Options") { AccessibleName = "Particle advanced options" };
         _advancedPropertiesMenu = new ToolStripMenuItem("Advanced properties") { CheckOnClick = true };
         _advancedPropertiesMenu.CheckedChanged += (_, _) => ShowAdvancedParticleProperties(_advancedPropertiesMenu.Checked);
         options.DropDownItems.Add(_advancedPropertiesMenu);
+        _moduleStackMenu = new ToolStripMenuItem("Module stack");
+        _moduleStackMenu.Click += (_, _) => { if (ModuleStackVisible) ShowParticleQuickSetup(); else ShowModuleStack(); };
+        options.DropDownItems.Add(_moduleStackMenu);
         _editDefinitionMenu = new ToolStripMenuItem("Edit emitter definition");
         _editDefinitionMenu.Click += (_, _) => SetAuthoringMode(_authoringMode == ParticleAuthoringMode.Code
             ? ParticleAuthoringMode.Properties : ParticleAuthoringMode.Code);
@@ -225,6 +229,8 @@ public sealed partial class ParticleEditorControl
     protected override void OnChromeChanged()
     {
         base.OnChromeChanged(); _applyWorkbenchLayout?.Invoke();
+        // The module cards take the theme's colours and fonts when they are built.
+        _moduleStackSignature = string.Empty; SyncModuleStack();
         if (IsHandleCreated) BeginInvoke(() => { if (!IsDisposed) SizeParticleInspector(); });
     }
 
