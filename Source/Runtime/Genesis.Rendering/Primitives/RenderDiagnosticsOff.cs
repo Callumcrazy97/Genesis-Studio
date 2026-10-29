@@ -42,6 +42,21 @@ public static class RenderDiagnosticsOff
     /// <summary>Lighting: every surface shows its own colour, as an unlit material does.</summary>
     public static bool Lighting { get; } = Parts.Contains("lighting");
 
+    /// <summary>GENESIS_RENDER_HIDE: models whose name contains any of these (a comma list) are not drawn.</summary>
+    public const string HideEnvironmentVariable = "GENESIS_RENDER_HIDE";
+
+    private static readonly string[] HiddenModels =
+        [.. Read(Environment.GetEnvironmentVariable(HideEnvironmentVariable))];
+
+    /// <summary>True when a diagnosis run leaves this model out (GENESIS_RENDER_HIDE), to see what is behind it.</summary>
+    public static bool HidesModel(string modelName)
+    {
+        if (HiddenModels.Length == 0 || string.IsNullOrEmpty(modelName)) return false;
+        foreach (string part in HiddenModels)
+            if (modelName.Contains(part, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
     internal static HashSet<string> Read(string value)
     {
         var parts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

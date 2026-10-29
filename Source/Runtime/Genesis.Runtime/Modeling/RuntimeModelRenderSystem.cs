@@ -165,6 +165,7 @@ namespace Genesis.Runtime.Modeling
         {
             if (queue == null || renderer == null || string.IsNullOrWhiteSpace(modelName))
                 return false;
+            if (Genesis.Rendering.Primitives.RenderDiagnosticsOff.HidesModel(modelName)) return false;
 
             GModelAsset asset = LoadModel(projectPath, modelName);
             return EnqueueAsset(queue, asset, projectPath, materialOverride, world, draw3d,
@@ -191,6 +192,7 @@ namespace Genesis.Runtime.Modeling
             List<ModelGpuCache.CachedMesh> drawn = null)
         {
             if (queue == null || renderer == null || string.IsNullOrWhiteSpace(modelName)) return false;
+            if (Genesis.Rendering.Primitives.RenderDiagnosticsOff.HidesModel(modelName)) return false;
             GModelAsset asset = LoadModel(projectPath, modelName);
             return EnqueueAsset(queue, asset, projectPath, string.Empty, Matrix4x4.Identity,
                 new Draw3DComponent { Visible = true, CastShadows = castShadows, ReceiveShadows = true },
