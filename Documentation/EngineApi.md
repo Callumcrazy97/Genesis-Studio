@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1757 names: 478 properties (406 can be set), 1279 commands.
+1821 names: 507 properties (430 can be set), 1314 commands.
 
 ## Engine.Alarm
 
@@ -219,6 +219,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `GetRightX` | command | Get camera right strafe vector X |
 | `GetRightY` | command | Get camera right strafe vector Y |
 | `GetRightZ` | command | Get camera right strafe vector Z |
+| `GetRigPathPosition` | command | Where a dolly rig is along its path, 0 to 1 |
 | `GetRoll` | command | The 3D camera's own roll, in degrees |
 | `GetX` | command | Get play camera X position |
 | `GetY` | command | Get play camera Y position |
@@ -237,9 +238,18 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `OrbitPitch` | property | Sets (CameraSetOrbitPitch): Set orbit pitch in degrees, clamped -25 to 75 |
 | `OrbitYaw` | property | Sets (CameraSetOrbitYaw): Set orbit yaw in degrees |
 | `Pitch` | property | Reads (GetCameraPitch) and sets (SetCameraPitch): Get play camera Pitch |
+| `RigActive` | command | The name of the camera rig driving the camera ("" when none is) |
+| `RigBlending` | command | Whether the camera is blending from one rig to another |
+| `RigBlendTo` | command | Make a camera rig the one driving the camera, blending its position, rotation and field of view from where the camera is over the seconds given; curve is "linear", "easein", "easeout", "easeinout" or "cut". "" hands the camera back at once. False when no rig has the name yet (one made with it takes over then) |
+| `RigCreate` | command | Make a camera rig: "fixed", "follow", "orbit", "shoulder", "lookat" or "dolly", in place of any of that name; a fixed or look-at rig starts where the camera is. It drives the camera once made active (CameraRigBlendTo, Engine.Camera.Rigs.Active). False for an unknown kind or an empty name |
+| `RigCut` | command | Make a camera rig the one driving the camera at once, with no blend; "" hands the camera back |
+| `RigExists` | command | Whether this room has a camera rig of that name |
 | `RightX` | read only | Reads (GetCameraRightX): Get camera right strafe vector X |
 | `RightY` | read only | Reads (GetCameraRightY): Get camera right strafe vector Y |
 | `RightZ` | read only | Reads (GetCameraRightZ): Get camera right strafe vector Z |
+| `RigPathAdd` | command | Add a world point to the end of a dolly rig's path; gives how many points it has |
+| `RigPathClear` | command | Take every point off a dolly rig's path |
+| `RigRemove` | command | Remove a camera rig; when it was the active one the camera is handed back at once. False when there was none of that name |
 | `Roll` | property | Reads (GetCameraRoll) and sets (SetCameraRoll): The 3D camera's own roll, in degrees |
 | `SetCollisionEnabled` | command | Enable camera occlusion avoidance |
 | `SetFarPlane` | command | Override play camera far clipping plane |
@@ -253,6 +263,21 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SetOrbitYaw` | command | Set orbit yaw in degrees |
 | `SetPitch` | command | Set play camera Pitch |
 | `SetPosition` | command | Set the play camera position |
+| `SetRigAngles` | command | Degrees: the way a fixed rig faces, or round its target an orbit looks (yaw 0 along -z, 90 along +x), and how far it looks down (negative up) |
+| `SetRigCollision` | command | Whether an orbit or shoulder rig moves in front of walls between it and its target (on unless set) |
+| `SetRigDamping` | command | How long a camera rig takes to catch up with where it should be, 0 (rigid) to 10 seconds |
+| `SetRigDistance` | command | How far an orbit or shoulder rig sits from its target, 0.05 to 1000 |
+| `SetRigFov` | command | A camera rig's vertical field of view, 1 to 179 degrees; 0 keeps the camera's own |
+| `SetRigLookOffset` | command | Added to a camera rig's target before it is looked at (a head above the feet) |
+| `SetRigMouseLook` | command | Whether moving the mouse turns an orbit or shoulder rig while it drives the camera (on for those unless set) |
+| `SetRigOffset` | command | Fixed and look-at rigs: where the camera stands. Follow: where it stands from its target. Orbit and shoulder: the arm's pivot from the target (x to the side, y up, z ahead). Dolly: added to the path |
+| `SetRigPath` | command | Give a dolly rig a Pathing resource's route as its path: its waypoints, curved where they are marked to curve, closed when it loops. False when the resource cannot be read |
+| `SetRigPathLoop` | command | Whether a dolly rig's path closes back to its first point and riding it goes round and round |
+| `SetRigPathPosition` | command | Where a dolly rig is along its path, 0 (its first point) to 1 (its end), by distance |
+| `SetRigPathSmooth` | command | Whether a dolly rig's path curves smoothly through its points instead of running straight between them |
+| `SetRigPathSpeed` | command | How fast a dolly rig rides its path while it is in use, -1000 to 1000 metres a second; negative rides back |
+| `SetRigTarget` | command | The instance a camera rig follows, circles or looks at (0 for none); once it is gone the rig keeps to where it was last |
+| `SetRigTargetPoint` | command | A world point a camera rig follows, circles or looks at, in place of an instance |
 | `SetRoll` | command | Roll the 3D camera about its direction of view: positive leans it to the right. It stays until set again; a shake's tilt adds to it |
 | `SetShoulderOffset` | command | Set horizontal shoulder, height and forward offsets |
 | `SetTarget` | command | Set play camera look-at target |
@@ -292,6 +317,60 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Pitch` | property | How far the orbit camera looks down on this instance, -25 to 75 degrees (15 unless set) |
 | `Sensitivity` | property | Degrees the orbit camera turns for each pixel the mouse moves, 0.01 to 2 (0.15 unless set) |
 | `Yaw` | property | Which way round this instance the orbit camera looks (0 unless set) |
+
+## Engine.Camera.Rig
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Collision` | property | Whether an orbit or shoulder rig moves in front of walls between it and its target (on unless set) |
+| `Damping` | property | How long the rig takes to catch up with where it should be, 0 (rigid) to 10 seconds: 0.3 is a soft follow |
+| `Distance` | property | How far an orbit or shoulder rig sits from its target, 0.05 to 1000 |
+| `Fov` | property | The rig's vertical field of view, 1 to 179 degrees; 0 keeps the camera's own |
+| `Kind` | property | What the rig does: "fixed", "follow", "orbit", "shoulder", "lookat" or "dolly"; changing it keeps the rig's values |
+| `LookOffsetX` | property | Added across to the target before the rig looks at it |
+| `LookOffsetY` | property | Added up to the target before the rig looks at it (a head above the feet) |
+| `LookOffsetZ` | property | Added along z to the target before the rig looks at it |
+| `MouseLook` | property | Whether moving the mouse turns an orbit or shoulder rig while it drives the camera (on for those unless set) |
+| `Name` | property | The camera rig Engine.Camera.Rig's values belong to: the last one made, or the one named here |
+| `OffsetX` | property | Across: where a fixed or look-at rig stands, a follow rig from its target, an orbit's pivot to the side, or a dolly's path moved |
+| `OffsetY` | property | Up: the height of a fixed or look-at rig, a follow rig above its target, an orbit's pivot, or a dolly's path moved |
+| `OffsetZ` | property | Along z: where a fixed or look-at rig stands, a follow rig from its target, an orbit's pivot ahead, or a dolly's path moved |
+| `Pitch` | property | How far the rig looks down, -89 to 89 degrees (negative looks up) |
+| `SetTargetPoint` | command | A world point the rig follows, circles or looks at, in place of an instance |
+| `Target` | property | The instance the rig follows, circles or looks at (0 for none) |
+| `Yaw` | property | The way a fixed rig faces, or round its target an orbit or shoulder rig looks: 0 along -z, 90 along +x |
+
+## Engine.Camera.Rig.Path
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Add` | command | Add a world point to the end of the path; gives how many points it has |
+| `Clear` | command | Take every point off the path |
+| `Count` | read only | How many points the path has (read) |
+| `Length` | read only | How long the path is, in metres (read) |
+| `Loop` | property | Whether the path closes back to its first point and riding it goes round and round |
+| `Position` | property | Where the dolly rig is along its path, 0 (its first point) to 1 (its end), by distance |
+| `Smooth` | property | Whether the path curves smoothly through its points instead of running straight between them |
+| `Speed` | property | How fast the dolly rig rides its path while it is in use, -1000 to 1000 metres a second; negative rides back |
+| `Use` | command | Take the path from a Pathing resource's route: its waypoints, curved where they are marked to curve, closed when it loops; false when it cannot be read |
+
+## Engine.Camera.Rigs
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Active` | property | The camera rig driving the 3D camera ("" unless set): setting it blends there over BlendTime along BlendCurve, "" hands the camera back at once; a name no rig has yet takes over when a rig of that name is made |
+| `BlendCurve` | property | How a blend set going by Active moves: "cut", "linear", "easein", "easeout" or "easeinout" ("easeinout" unless set) |
+| `Blending` | read only | Whether the camera is blending from one rig to another (read) |
+| `BlendTime` | property | How long setting Active takes to blend from one camera rig to the next, 0 to 60 seconds (1 unless set); 0 cuts |
+| `BlendTo` | command | Make a camera rig the active one, blending over the seconds given along the curve ("linear", "easein", "easeout", "easeinout", "cut") |
+| `Clear` | command | Remove every camera rig of this room and hand the camera back |
+| `Count` | read only | How many camera rigs this room has (read) |
+| `Create` | command | Make a camera rig ("fixed", "follow", "orbit", "shoulder", "lookat" or "dolly") and choose it for Engine.Camera.Rig's values; false for an unknown kind |
+| `Cut` | command | Make a camera rig the active one at once, with no blend |
+| `Enabled` | property | Whether the active camera rig drives the 3D camera (true unless set); false hands the camera back as it is without a rig and keeps the rigs |
+| `Exists` | command | Whether this room has a camera rig of that name |
+| `Progress` | read only | How far the blend into the active rig has gone, 0 to 1; 1 when none is under way (read) |
+| `Remove` | command | Remove a camera rig; when it was the active one the camera is handed back at once |
 
 ## Engine.Camera.Shake
 
@@ -1013,7 +1092,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Find` | command | 0-based position of a number, -1 when absent |
 | `Get` | command | Read as a number; 0 when out of range |
 | `GetString` | command | Read as text; empty when out of range |
-| `Insert` | command | Insert a number at a 0-based position |
+| `Insert` | command | Insert a number or a string at a 0-based position |
 | `IsList` | command | Whether a value is a list |
 | `Reserve` | command | Make room for this many entries (up to 1 000 000), so adding them grows nothing: a list a mesh is built from, filled again for every chunk |
 | `Set` | command | Overwrite a number at a 0-based position |
