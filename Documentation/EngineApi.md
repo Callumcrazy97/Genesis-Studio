@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-2050 names: 636 properties (548 can be set), 1414 commands.
+2079 names: 647 properties (554 can be set), 1432 commands.
 
 ## Engine.Alarm
 
@@ -611,7 +611,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Enabled` | property | The frame drawn in a diagnostic way while the debug screen is open (false unless set), as Engine.Debug.View.Mode says |
-| `Mode` | property | The diagnostic view ("lod" unless set): "lod" (models in their level of detail's colour), "overdraw", "depth", "normals", "shadows" (the sun's shadow coverage), "cascades", "reflections", "lights"; setting one turns the view on, "off" turns it off |
+| `Mode` | property | The diagnostic view ("lod" unless set): "lod" (models in their level of detail's colour), "overdraw", "depth", "normals", "shadows" (the sun's shadow coverage), "albedo", "ambient" and "direct" (one term of the lighting alone), "cascades", "reflections", "lights" (these three are not drawn yet); setting one turns the view on, "off" turns it off |
 
 ## Engine.Decal
 
@@ -1305,6 +1305,30 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Radius` | property | What lies within this distance of a capture is drawn into it wherever the camera looks, 10 to 2000 metres (80 unless set) |
 | `Recapture` | command | Captures what is around the camera again at the next frame, for reflections and bounced light: after a big change to the scene, such as a door opening or a building placed |
 
+## Engine.Lighting.Probes
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Active` | command | Whether the probe of this name takes part (true unless SetActive turned it off; false for a name the room has no probe of) |
+| `Blend` | command | How far inside its edge the probe of this name fades in, in metres (0 for a hard edge or a name the room has no probe of) |
+| `Blending` | read only | How many placed probes reach the camera now, so blend there (read; 0 where only the probe at the camera lights) |
+| `Captured` | read only | How many of the room's probes have been captured where they are now (read): all of them a frame after the last, from the room's start |
+| `Count` | read only | How many probes the room placed and uses (16 at most; read) |
+| `Enabled` | property | The Light Probes and Reflection Probes placed in the room: what is inside one takes its bounced light or reflections from it, blended with its neighbours and fading out at its edge; off leaves only the probe at the camera. On in each room unless turned off |
+| `Exists` | command | Whether the room placed a probe of this name |
+| `Kind` | command | "light" for a Light Probe (bounced light), "reflection" for a Reflection Probe; "" for a name the room has no probe of |
+| `Name` | command | The name of the room's placed probe at this place in its list, from 0; "" past the last |
+| `Radius` | command | How far a sphere probe of this name reaches, in metres (its box's half width for a box; 0 for a name the room has no probe of) |
+| `Recapture` | command | Captures every placed probe again, one a frame, keeping the old captures in use meanwhile: after a lamp is lit or a door opens. A probe moved with SetPosition is captured again by itself |
+| `SetActive` | command | Turns one placed probe off or on again (a room whose lights go out can turn off its daylight probes); its capture is kept. False for a name the room has no probe of |
+| `SetBlend` | command | How far inside its edge a placed probe fades in, 0 (a hard edge) to 1000 metres. False for a name the room has no probe of |
+| `SetPosition` | command | Moves a placed probe and its volume (a lift's probe riding with it); it is captured again where it now is. False for a name the room has no probe of |
+| `SetRadius` | command | How far a sphere probe reaches, 0.1 to 1000 metres; a box keeps its own size. False for a name the room has no probe of or a box |
+| `Weight` | command | The probe's share at the camera, 0 to 1: 1 well inside it, falling to 0 over its blend distance at its edge (0 until it is captured, or while it is off) |
+| `X` | command | Where the probe of this name is across, in metres (0 for a name the room has no probe of) |
+| `Y` | command | Where the probe of this name is up, in metres (0 for a name the room has no probe of) |
+| `Z` | command | Where the probe of this name is along, in metres (0 for a name the room has no probe of) |
+
 ## Engine.Lighting.Reflections
 
 | Name | Kind | What it is |
@@ -1655,6 +1679,8 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `CopyId` | command | The instance id of a copy, counting from 0 up to NetCopyCount(); 0 when there is none |
 | `CopyObject` | command | The Object a shared instance or copy was made from |
 | `CopyOwner` | command | The player a shared instance or copy belongs to, as the host numbers its players; 0 when it is the host's own |
+| `DirectCount` | command | How many players met through a relay this machine reaches directly now |
+| `DirectPath` | command | The path to a player met through a relay (a player: -1, the host): "direct" or "relay"; "" for any other id. Engine.Network.Direct has the rest |
 | `Disconnect` | command | Leave and stop hosting |
 | `Discover` | command | Look for games of this title hosted on this port on the local network and this computer, asking again every second until NetDiscover(0), NetHost or NetConnect. List them with NetFoundCount |
 | `Forget` | command | Stop sharing an instance; its copies on other machines are removed |
@@ -1692,6 +1718,17 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SessionCode` | command | The code players join this online game with (NetHostOnline); empty until the relay has given it |
 | `SetNumber` | command | Give a shared instance a named number every machine can read from its copy. Only the machine that controls the instance can set it |
 | `SetText` | command | Give a shared instance a named piece of text every machine can read from its copy |
+
+## Engine.Network.Direct
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Active` | read only | The path game messages take: "direct" when every player is reached directly, "relay" when any goes through the relay; "" when this game is not playing through a relay (read) |
+| `Attempts` | property | How many tries players who meet through a relay get to reach each other directly, 1 to 10 (3 unless set): one when they meet, and another ten seconds after a try fails or a direct path is lost |
+| `Count` | read only | How many players this machine reaches directly now, not through the relay (read) |
+| `Enabled` | property | Whether players who meet through a relay try to reach each other directly, so their messages skip the relay's distance (true unless set); false keeps every message on the relay and never gives this machine's address to the others |
+| `Path` | command | The path to one player (a player: -1, the host): "direct" or "relay"; "" for an id that is not a player met through a relay |
+| `Timeout` | property | How long one try sends packets both ways before it gives up and the players stay on the relay, 0.5 to 60 seconds (5 unless set) |
 
 ## Engine.Network.Replication
 
