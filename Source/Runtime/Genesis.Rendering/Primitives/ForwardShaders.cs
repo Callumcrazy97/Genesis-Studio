@@ -292,6 +292,11 @@ VSOut VS(VSIn IN, uint instanceId : SV_InstanceID)
         localPos.xz += sway * bend * windStrength;
     }
 
+#if defined(GENESIS_SURFACE_VERTEX)
+    // A surface shader's Vertex function (MeshSurfaceShaders.VertexApi) moves the vertex here.
+    GenesisRunVertex(localPos, IN.Normal, IN.UV, IN.Color, world);
+#endif
+
     float4 worldPos  = mul(float4(localPos, 1.0), world);
     float3 worldNrm  = normalize(mul(float4(IN.Normal, 0.0), world).xyz);
 
@@ -373,6 +378,10 @@ VSOut VS_Skinned(VSInSkinned IN, uint instanceId : SV_InstanceID)
         localPos += skinnedLocalNrm * height * MaterialSurface.y;
     }
 
+#if defined(GENESIS_SURFACE_VERTEX)
+    GenesisRunVertex(localPos, skinnedLocalNrm, IN.UV, IN.Color, world);
+#endif
+
     float4 worldPos  = mul(float4(localPos, 1.0), world);
     float3 worldNrm  = normalize(mul(float4(skinnedLocalNrm, 0.0), world).xyz);
     float3 shadowSamplePos = worldPos.xyz + worldNrm * 0.08;
@@ -413,6 +422,9 @@ float4 VS_Shadow(VSIn IN, uint instanceId : SV_InstanceID) : SV_Position
     {
         world = WorldMatrix;
     }
+#if defined(GENESIS_SURFACE_VERTEX)
+    GenesisRunVertex(IN.Position, IN.Normal, IN.UV, IN.Color, world);
+#endif
     float4 worldPos = mul(float4(IN.Position, 1.0), world);
     return PancakeShadowDepth(mul(worldPos, LightViewProjection), LightViewProjection);
 }
@@ -429,6 +441,9 @@ float4 VS_ShadowMid(VSIn IN, uint instanceId : SV_InstanceID) : SV_Position
     {
         world = WorldMatrix;
     }
+#if defined(GENESIS_SURFACE_VERTEX)
+    GenesisRunVertex(IN.Position, IN.Normal, IN.UV, IN.Color, world);
+#endif
     float4 worldPos = mul(float4(IN.Position, 1.0), world);
     return PancakeShadowDepth(mul(worldPos, LightViewProjectionMid), LightViewProjectionMid);
 }
@@ -445,6 +460,9 @@ float4 VS_ShadowNear(VSIn IN, uint instanceId : SV_InstanceID) : SV_Position
     {
         world = WorldMatrix;
     }
+#if defined(GENESIS_SURFACE_VERTEX)
+    GenesisRunVertex(IN.Position, IN.Normal, IN.UV, IN.Color, world);
+#endif
     float4 worldPos = mul(float4(IN.Position, 1.0), world);
     return PancakeShadowDepth(mul(worldPos, LightViewProjectionNear), LightViewProjectionNear);
 }
@@ -463,6 +481,9 @@ float4 SkinnedShadowWorld(VSInSkinned IN)
     float3 localPos;
     float3 localNrm;
     SkinLocal(IN, localPos, localNrm);
+#if defined(GENESIS_SURFACE_VERTEX)
+    GenesisRunVertex(localPos, localNrm, IN.UV, IN.Color, WorldMatrix);
+#endif
     return mul(float4(localPos, 1.0), WorldMatrix);
 }
 

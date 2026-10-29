@@ -429,6 +429,9 @@ public sealed partial class ShaderEditorControl
         string entry = string.Equals(stage, "Vertex", StringComparison.OrdinalIgnoreCase)
             ? _vertexEntryBox.Text.Trim()
             : _entryBox.Text.Trim();
+        // A surface shader's vertex stage is its Vertex function, run by the engine's vertex shaders.
+        if (string.IsNullOrWhiteSpace(entry) && string.Equals(stage, "Vertex", StringComparison.OrdinalIgnoreCase) && ShowSurfaceVertexStage())
+            return;
         if (string.IsNullOrWhiteSpace(entry))
         {
             _statusLabel.Text = "Engine vertex stage active. Enter a function name to author and compile a custom vertex stage.";

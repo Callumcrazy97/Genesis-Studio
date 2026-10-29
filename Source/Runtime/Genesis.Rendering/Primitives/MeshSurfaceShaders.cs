@@ -39,11 +39,33 @@ namespace Genesis.Rendering.Primitives
             @"\bvoid\s+Surface\s*\(",
             RegexOptions.Compiled);
 
+        private static readonly Regex VertexFunction = new(
+            @"\bvoid\s+Vertex\s*\(",
+            RegexOptions.Compiled);
+
+        /// <summary>
+        /// The vertex entry points a surface shader with a vertex stage (<see cref="HasVertexStage"/>) is
+        /// compiled with: the engine's own vertex shaders, which then call the project's Vertex function.
+        /// </summary>
+        public const string VertexEntry = "VS";
+
+        /// <summary>The skinned twin of <see cref="VertexEntry"/>.</summary>
+        public const string SkinnedVertexEntry = "VS_Skinned";
+
         /// <summary>True when <paramref name="source"/> includes <see cref="IncludeName"/>.</summary>
         public static bool IsSurfaceSource(string source) =>
             !string.IsNullOrEmpty(source)
             && source.Contains(IncludeName, StringComparison.OrdinalIgnoreCase)
             && IncludeLine.IsMatch(source);
+
+        /// <summary>
+        /// True when a surface shader also defines <c>void Vertex(GenesisVertexInput i, inout GenesisVertex v)</c>:
+        /// its draws then use the engine's vertex shaders compiled with that function (<see cref="VertexEntry"/>,
+        /// <see cref="SkinnedVertexEntry"/>). A surface shader without one keeps the engine's built-in vertex shaders.
+        /// </summary>
+        public static bool HasVertexStage(string source) =>
+            IsSurfaceSource(source)
+            && VertexFunction.IsMatch(ShaderSourceText.WithoutComments(IncludeLine.Replace(source, string.Empty)));
 
         /// <summary>
         /// The complete HLSL compiled for a surface shader: the engine's declarations, the surface
@@ -66,16 +88,32 @@ namespace Genesis.Rendering.Primitives
             int split = engine.IndexOf(PixelSectionMarker, StringComparison.Ordinal);
             if (split < 0)
                 throw new InvalidOperationException("The forward shader no longer has the section a surface shader is placed before.");
+            bool vertexStage = VertexFunction.IsMatch(ShaderSourceText.WithoutComments(project));
+            int vertexSplit = vertexStage ? engine.IndexOf(VertexSectionMarker, StringComparison.Ordinal) : -1;
+            if (vertexStage && (vertexSplit < 0 || vertexSplit > split))
+                throw new InvalidOperationException("The forward shader no longer has the vertex shaders a surface shader's Vertex function is placed before.");
 
             // Only the file's name: a #line naming a folder would put the folder into the cache key,
             // and a game's shaders cooked in the project's folder would not be found where it is installed.
             string name = string.IsNullOrWhiteSpace(sourceName) ? "surface" : Path.GetFileName(sourceName);
             name = name.Replace('"', '\'');
 
-            var composed = new StringBuilder(engine.Length + Api.Length + Epilogue.Length + project.Length + 256);
+            var composed = new StringBuilder(engine.Length + Api.Length + VertexApi.Length + Epilogue.Length + project.Length + 256);
             composed.Append("#define GENESIS_SURFACE 1\n");
             composed.Append("#define GENESIS_SURFACE_VERSION ").Append(Version).Append('\n');
-            composed.Append(engine, 0, split);
+            if (vertexStage)
+            {
+                // The engine's vertex shaders call the project's Vertex function (their
+                // GENESIS_SURFACE_VERTEX blocks); without one they are exactly what they were.
+                composed.Append("#define GENESIS_SURFACE_VERTEX 1\n");
+                composed.Append(engine, 0, vertexSplit);
+                composed.Append(VertexApi);
+                composed.Append(engine, vertexSplit, split - vertexSplit);
+            }
+            else
+            {
+                composed.Append(engine, 0, split);
+            }
             composed.Append(Api);
             composed.Append("\n#line 1 \"").Append(name).Append("\"\n");
             composed.Append(project);
@@ -87,6 +125,67 @@ namespace Genesis.Rendering.Primitives
 
         /// <summary>The forward shader's text the project's code is placed before.</summary>
         internal const string PixelSectionMarker = "struct PSOut";
+
+        /// <summary>The forward shader's first vertex shader, which <see cref="VertexApi"/> is placed before.</summary>
+        internal const string VertexSectionMarker = "VSOut VS(VSIn IN";
+
+        /// <summary>
+        /// The vertex stage's contract, before the engine's vertex shaders, for a surface shader that
+        /// defines a Vertex function: its input and vertex, the function's declaration (the project
+        /// defines it later) and the call the vertex shaders make after skinning and the material's
+        /// height displacement, before the world transform. The shadow casters' vertex shaders make the
+        /// same call when they are compiled from the composed source.
+        /// </summary>
+        internal const string VertexApi = @"
+// ── GenesisSurface.hlsl vertex stage (contract version 1) ─────────────────────
+// Documentation/MeshShaders.md. Vertex(i, v) moves one vertex of the mesh in object space, after
+// skinning and before the world transform; the engine normalises the normal after it.
+
+struct GenesisVertexInput
+{
+    float  Time;            // seconds since the game started (the surface's Time)
+    float3 ObjectPosition;  // where the drawn object (this copy, when instanced) stands in the world
+    float3 WorldPosition;   // this vertex in the world, before Vertex moves it
+    float3 CameraPosition;  // world space
+    float2 Wind;            // the weather's wind over the ground, world x and z in metres a second; 0 without weather
+    float2 ObjectWind;      // the same wind along the object's own x and z (turned and scaled with it)
+};
+
+struct GenesisVertex
+{
+    float3 Position;        // object space, after skinning
+    float3 Normal;          // object space
+    float2 UV;              // the mesh's texture coordinates
+    float4 Color;           // the vertex colour as stored, and its alpha
+};
+
+void Vertex(GenesisVertexInput i, inout GenesisVertex v);
+
+void GenesisRunVertex(inout float3 position, inout float3 normal, inout float2 uv, inout float4 color, float4x4 world)
+{
+    GenesisVertexInput i;
+    i.Time = CameraPosTime.w;
+    i.ObjectPosition = world[3].xyz;
+    i.WorldPosition = mul(float4(position, 1.0), world).xyz;
+    i.CameraPosition = CameraPosTime.xyz;
+    i.Wind = WeatherWindRain.w > 0.5 ? WeatherWindRain.xy : float2(0.0, 0.0);
+    // The world's rows are the object's axes: a world vector along each, over the axis's length squared.
+    float3 wind = float3(i.Wind.x, 0.0, i.Wind.y);
+    i.ObjectWind = float2(dot(world[0].xyz, wind) / max(dot(world[0].xyz, world[0].xyz), 1e-8),
+                          dot(world[2].xyz, wind) / max(dot(world[2].xyz, world[2].xyz), 1e-8));
+    GenesisVertex v;
+    v.Position = position;
+    v.Normal = normal;
+    v.UV = uv;
+    v.Color = color;
+    Vertex(i, v);
+    position = v.Position;
+    normal = v.Normal;
+    uv = v.UV;
+    color = v.Color;
+}
+
+";
 
         /// <summary>
         /// The contract, after the engine's own declarations (so a surface can call SrgbToLinear3,

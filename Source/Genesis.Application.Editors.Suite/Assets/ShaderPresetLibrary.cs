@@ -179,6 +179,54 @@ public static class ShaderPresetLibrary
         }
         """;
 
+    // Surface shaders with a vertex stage (Documentation/MeshShaders.md): the engine lights them, and
+    // their Vertex function moves the mesh before it is drawn.
+    private const string WindSwaySource = """
+        #include "GenesisSurface.hlsl"
+
+        // Sways a plant, a tree or a banner in the wind: the higher above the model's base, the more it
+        // bends. It follows the weather's wind when there is one, and a gentle breeze when not.
+        cbuffer GenesisParameters : register(b5) { float Strength; float Speed; float Height; };
+
+        void Vertex(GenesisVertexInput i, inout GenesisVertex v)
+        {
+            float bend = saturate(v.Position.y / max(Height, 0.01));
+            bend *= bend;
+            float2 wind = length(i.ObjectWind) > 0.01 ? normalize(i.ObjectWind) : float2(1.0, 0.0);
+            float gust = max(length(i.Wind) / 6.0, 0.5);
+            float phase = i.Time * max(Speed, 0.01) + dot(i.ObjectPosition.xz, float2(0.37, 0.29));
+            float sway = sin(phase) + 0.35 * sin(phase * 2.3 + 1.7);
+            v.Position.xz += wind * sway * bend * Strength * gust;
+        }
+
+        void Surface(GenesisSurfaceInput i, inout GenesisSurface s) { }
+        """;
+
+    private const string WaveSource = """
+        #include "GenesisSurface.hlsl"
+
+        // Rolls waves across a mesh (a water plane, a flag, a jelly): the surface rises and falls
+        // along x and z, and its normal tilts with the slope so the light follows the waves.
+        cbuffer GenesisParameters : register(b5) { float Amplitude; float Wavelength; float Speed; };
+
+        void Vertex(GenesisVertexInput i, inout GenesisVertex v)
+        {
+            float k = 6.28318 / max(Wavelength, 0.05);
+            float phase = i.Time * Speed;
+            float along = v.Position.x * k + phase;
+            float across = v.Position.z * k * 0.8 - phase * 1.3;
+            v.Position.y += (sin(along) + sin(across)) * 0.5 * Amplitude;
+            float slopeX = cos(along) * k * 0.5 * Amplitude;
+            float slopeZ = cos(across) * k * 0.4 * Amplitude;
+            v.Normal = normalize(v.Normal + float3(-slopeX, 0.0, -slopeZ));
+        }
+
+        void Surface(GenesisSurfaceInput i, inout GenesisSurface s) { }
+        """;
+
+    private static ShaderParameterValue[] Values(params (string Name, float Value)[] values) =>
+        values.Select(value => new ShaderParameterValue { Name = value.Name, Type = "float", Value = [value.Value] }).ToArray();
+
     private static string StylizedMesh(int effect) =>
         StylizedMeshTemplate.Replace("__EFFECT__", effect.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
 
@@ -200,6 +248,10 @@ public static class ShaderPresetLibrary
         new("Lava", "Flowing emissive lava bands over a mesh surface.", ShaderTargetType.Model, StylizedMesh(6), true),
         new("Toon", "Quantized directional lighting for stylized models.", ShaderTargetType.Model, StylizedMesh(7), true),
         new("Glitch", "Animated scan-line displacement and channel shifts.", ShaderTargetType.Model, StylizedMesh(8), true),
+        new("Wind Sway", "Plants and banners bend in the wind, more the higher they reach (a vertex stage; lit by the engine).",
+            ShaderTargetType.Model, WindSwaySource, true, Parameters: Values(("Strength", 0.12f), ("Speed", 1.6f), ("Height", 1f))),
+        new("Wave", "Waves roll across a water plane or a flag, and the light follows them (a vertex stage; lit by the engine).",
+            ShaderTargetType.Model, WaveSource, true, Parameters: Values(("Amplitude", 0.08f), ("Wavelength", 1.2f), ("Speed", 1.5f))),
         new("Image Rainbow", "Animated rainbow sweep for an Image resource.", ShaderTargetType.Image, SpriteRainbowSource, true),
         new("Model Rainbow", "Animated surface colour for a Model resource.", ShaderTargetType.Model, MeshRainbowSource, true),
         new("Particle Pulse", "Pulsing intensity for a Particle resource.", ShaderTargetType.Particle, ParticlePulseSource, true),
