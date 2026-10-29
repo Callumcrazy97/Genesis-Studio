@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1757 names: 478 properties (406 can be set), 1279 commands.
+1775 names: 493 properties (420 can be set), 1282 commands.
 
 ## Engine.Alarm
 
@@ -2100,6 +2100,44 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Distance` | property | How far from the camera grass grows, 0.1 to 10 times each terrain's own (1 unless set) |
 | `Enabled` | property | Grass grown round the camera on every terrain, or none (each terrain's own rule unless set): off for a burnt field |
 | `Height` | property | How tall the grass grows, 0.1 to 4 times each terrain's own (1 unless set): long grass after rain, cut grass in a garden |
+| `Texture` | property | An Image resource drawn on each grass blade, tinted by the blade colours, its see-through parts cutting the blade (each terrain's own unless set; "" for plain blades) |
+
+## Engine.Terrain.Grass.Color
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Base` | property | The grass blades' colour at the root, as "#rrggbb" (each terrain's own unless set; a dark meadow green for new grass): darker for a shaded wood, browner for late summer |
+| `Curve` | property | How the colour runs up a blade, 0.1 to 8 (each terrain's own unless set; 1 evenly): below 1 the tip colour reaches further down, above 1 it keeps to the tips |
+| `Enabled` | property | Whether the grass's blades are coloured from the base colour at the root to the tip colour at the tip (each terrain's own rule unless set; on for new grass); off, each tuft keeps its own colours |
+| `Tip` | property | The grass blades' colour at the tip, as "#rrggbb" (each terrain's own unless set; a sunlit meadow green for new grass): straw for dry grass, frosted white in winter |
+
+## Engine.Terrain.Grass.Paths
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Whether grass keeps off the terrains' paths, thinning in at their edges (each terrain's own rule unless set; on for new grass); changing it grows the grass again |
+
+## Engine.Terrain.Grass.Pushers
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Characters` | property | Whether every animated character (a model playing an animation) near the camera parts the grass round its feet by itself (true unless set) |
+| `Clear` | command | Removes every pusher scripts have set |
+| `Count` | property | How many pushers scripts have set (read; animated characters are not counted) |
+| `Enabled` | property | Whether grass and small scattered plants bend away from animated characters and from the pushers a script sets (true unless set) |
+| `Remove` | command | Removes pusher `key`; the grass it bent springs back. False when there was none |
+| `Set` | command | Sets or moves pusher `key` (any number: an instance's id, say) to world x, y, z (its feet); grass within radius metres bends away until it is moved, removed or the room changes, and springs back behind it |
+| `SpringBack` | property | Seconds trodden grass takes to stand up again, 0 to 10 (each terrain's own rule unless set; 0.8 for new grass) |
+| `Strength` | property | How far pushed grass bends, 0 to 1 (each terrain's own rule unless set; 0.8 for new grass, 1 lays it nearly flat) |
+
+## Engine.Terrain.Grass.Wind
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | Whether the grass sways in the wind (each terrain's own rule unless set; on for new grass); off holds every blade still |
+| `Gusts` | property | Gusts rolling across the grass, 0 (none) to 1 (strong), leaning it as they pass (each terrain's own unless set; 0 for new grass): a storm coming in |
+| `Speed` | property | How fast the grass sways, 0 to 4 (each terrain's own unless set; 1 unless set) |
+| `Strength` | property | How far the grass sways, 0 to 4 (each terrain's own unless set; 1 a breeze); the weather's wind still scales it when the room has weather |
 
 ## Engine.Terrain.Scatter
 
