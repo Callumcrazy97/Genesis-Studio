@@ -99,8 +99,10 @@ internal static class GlowingBeamSuite
                 string where = backend.ShortName + ": ";
                 // The beam's colour (255, 200, 80), unlit: orange, and bright whatever the light.
                 if (!(full.R > 200 && full.G > 130 && full.G < full.R && full.B < full.G && full.B > 20)) failures.Add(where + "the full beam is not orange: " + full);
-                // About half as strong, never the same.
-                if (!(half.R > 50 && half.R < full.R - 40 && half.G < full.G - 25)) failures.Add($"{where}the half-strength beam is {half}, the full one {full}");
+                // Half of the colour added once over the dark background: about (132, 108, 60) on every backend, the
+                // Software one included (it used to weight the colour by alpha twice and read 67).
+                if (!(Math.Abs(half.R - 132) <= 20 && Math.Abs(half.G - 108) <= 20 && half.R < full.R - 40 && half.G < full.G - 25))
+                    failures.Add($"{where}the half-strength beam is {half}, not about (132, 108, 60); the full one is {full}");
                 // The pixels between the beams are the dark background.
                 if (!(beside.R < 40 && beside.G < 40)) failures.Add(where + "the scene beside the beams is not dark: " + beside);
                 // Two half-strength beams crossing add up, and are brighter than either alone.

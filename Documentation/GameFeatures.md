@@ -937,6 +937,13 @@ cubes that reads as a row of beads. The colour is the draw colour (`DrawSetColor
 strength the draw alpha (`DrawSetAlpha`, 0 to 1). Like every `Draw*3D` command it is called each
 frame it should show, from a Draw event. C#: `IPgslDrawSurface.QueueBeam3D`.
 
+**On the Software renderer (29 October 2026).** An additive mesh draw that carries its fade in its
+own colour (a beam, a glowing model drawn at `DrawSetAlpha` below 1, an additive mesh particle) now
+adds that colour as it is, as Direct3D 11 and 12, Vulkan and OpenGL do. The Software renderer used
+to weight it by alpha a second time, so a half-strength beam read half as bright as on the others
+(67 where they read 132). Sprites and particles drawn as sprites use a source-alpha additive blend
+and are unchanged.
+
 ## Particles: a burst that cleans up after itself
 
 `Game.PlayParticleBurst(asset, position, scale, emitSeconds)` (events: `ParticleBurstAt`) plays a
