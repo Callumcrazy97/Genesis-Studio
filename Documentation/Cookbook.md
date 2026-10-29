@@ -43,6 +43,7 @@ rate. A new project already has a room called Start, so give yours another name.
 | Trees and rocks | `model.create` from primitives (Cylinder trunk, Cone or Sphere crowns), then `terrain.addScatterLayer` with density, spacing, height, slope, clumps, `collisionRadius` for trunks. |
 | A lake, a river, the sea | `terrain.addWater` (`Lake` with `sizeX`, `sizeZ`, `surfaceHeight`; `River` along points; `Ocean`). |
 | Dust in the light, fire, rain | `particle.create` from a preset (`DustMotes`, `Fire`, `Smoke`, `Snow`, `Rain`, `Magic`...), on an Object with `object.setComponent` `ParticleComponent`. |
+| An effect of your own | Start from the nearest preset, then shape it module by module with `particle.module`: `list` shows the stack; `set` `spawn.rate` `rate`, `update.colour` `gradient`, `update.size` `curve` (points over the particle's life); `add` `render.trail` or `update.collision`; `off` what you do not want. The Particle editor's **Modules** shows the same stack. |
 | Wind, birdsong, footsteps | `audio.synth` with a preset (`Wind`, `Birdsong`, `Footstep Grass`, `Footstep Path`), or the Audio editor's Make a sound; then the room's `windAudio` and `wildlifeAudio`: the engine plays them. |
 
 ## A 2D level

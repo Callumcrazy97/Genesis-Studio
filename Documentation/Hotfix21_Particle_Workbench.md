@@ -83,6 +83,63 @@ An invalid pending draft blocks emitter switching, conflicting property edits, m
 
 This Advanced pane edits emitter configuration, not a new PGSL runtime and not the root effect envelope. Existing particle script fields are preserved, but H21 does not implement missing particle-specific script events.
 
+## Module stack (29 October 2026)
+
+**Modules** on the toolbar (also **Options › Module stack**, and **Module stack…** in Quick setup)
+shows the selected emitter as a stack of modules in four groups, the shape of Unity's Particle
+System and VFX Graph blocks:
+
+| Group | Modules |
+|---|---|
+| Spawn | Emitter (most alive, world or Object space; preview length, marked *preview only*), Spawn rate, Burst |
+| Initialise | Lifetime, Start speed, Direction, Start size, Start colour, Rotation, Shape (point, cone, sphere, circle, ring, box, mesh surface) |
+| Update | Gravity, Drag, Turbulence, Wind, Colour over life, Size over life, Speed over life, Velocity over life, Floor collision |
+| Render | Sprite (blend, brightness, facing), Image, Flipbook, Stretch by velocity, Mesh particles, Trail, Ribbon, Beam |
+
+Each card has a switch, its fields, **Reset** (its first values back) and **×** (out of the stack);
+**Add *group* module…** lists the modules not yet in the stack. Lifetime, Direction, Start size,
+Start colour, Shape, Emitter and Sprite are always on: every emitter has them. Above the stack,
+**Restart**, **Pause/Play** and a scrub bar drive the preview, which follows every change at once.
+Every change is one Undo step; a curve or gradient drag is one step and Escape cancels it.
+
+**The stack is a view over the runtime settings, not a second effect.** A module that is on writes
+its values into the emitter's ordinary settings (`emitRate`, `gravity`, `gradientStops`...). Switched
+off, it writes the values that make it do nothing (gravity 0, the gradient held at the start colour,
+the end size equal to the start size, the renderer back to sprites) and keeps its own values in the
+emitter's `modules` list to give them back when it is switched on again. A game reads only the
+settings, so it plays exactly what the preview shows, with nothing new at run time. An effect saved
+before the stack, or never edited in it, opens with the modules its settings use (Fire: Spawn rate,
+Start speed, Gravity, Drag, Turbulence, Colour over life, Size over life...), and its file gains no
+`modules` list until the stack is edited. Settings changed elsewhere (Advanced properties, the
+emitter definition) win: a module whose settings are in use shows as on.
+
+Where the runtime plays one thing at a time the stack says so: Spawn rate and Burst exclude each
+other (a looping emitter has no start burst), as do Trail, Ribbon and Beam, and Stretch by velocity
+and Mesh particles; switching one on switches the other off.
+
+**Ranges and curves.** Lifetime and Start speed are a constant, or *Random between two values*
+(the runtime's centre ± variance). Size over life, the opacity timing of Colour over life, Speed over
+life and Velocity over life are curves over the particle's life: Linear, Ease in, Ease out, Smooth
+step, or **Points**. The small curve editor, the same in every module, draws what the runtime
+samples: drag a point; double-click to add one, or to make a point's join smooth or straight;
+right-click to remove one. Smooth joins never overshoot their points. A curve made in the old
+Curves panel (a two-handle Bezier) is offered as *Bezier* until it is changed. Points are saved as
+`keys` on the curve (`sizeOverLifetime.keys: [{ time, value, smooth }]`); when there are any they
+replace that curve's Bezier everywhere it is sampled (the GPU curve table, the CPU simulation and 2D
+room effects), and an effect without them is unchanged.
+
+**Not in the stack**, because the runtime has no such setting (Cal's honest-UI rule): soft
+particles, sorting, attraction to a point, a rate that changes over the effect's time, and random
+start sizes. There are no drag handles: the GPU simulation applies forces in one fixed order, so
+the order of modules in a group changes nothing. Effect light, bounds, follow-camera and emitter
+events stay in Advanced properties.
+
+Automation: `particle.module` lists, adds, removes, switches, resets and sets the same modules on a
+saved effect ([Automation.md](Automation.md)). Code: `ParticleModuleCatalog`, `ParticleModuleStack`
+and `ParticleModuleCurves` in `Genesis.Application.Core.Editing.Particles` (UI-independent); the
+view is `Assets\ParticleModules\` in the Suite. Tests: `.\Build.bat --test particle-modules` (also
+part of `particle-workbench`).
+
 ## Deliberate remaining limits
 
 This delivery does not claim GPU compute particles, trails/ribbons, subemitters, particle event scripting, universal emitter transform gizmos, arbitrary triangle collision, cross-backend visual parity or AAA particle budgets. The inherited model preview is a visual target; height-plane/terrain collision does not become full model-surface physics. Effect-light preview is a 3D facility. The preview's spatial settings and seed must be held constant for a meaningful deterministic comparison.
