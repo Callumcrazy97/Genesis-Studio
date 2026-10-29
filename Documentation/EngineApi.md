@@ -1096,6 +1096,30 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Radius` | property | What lies within this distance of a capture is drawn into it wherever the camera looks, 10 to 2000 metres (80 unless set) |
 | `Recapture` | command | Captures what is around the camera again at the next frame, for reflections and bounced light: after a big change to the scene, such as a door opening or a building placed |
 
+## Engine.Lighting.Probes
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Active` | command | Whether the probe of this name takes part (true unless SetActive turned it off; false for a name the room has no probe of) |
+| `Blend` | command | How far inside its edge the probe of this name fades in, in metres (0 for a hard edge or a name the room has no probe of) |
+| `Blending` | property | How many placed probes reach the camera now, so blend there (read; 0 where only the probe at the camera lights) |
+| `Captured` | property | How many of the room's probes have been captured where they are now (read): all of them a frame after the last, from the room's start |
+| `Count` | property | How many probes the room placed and uses (16 at most; read) |
+| `Enabled` | property | The Light Probes and Reflection Probes placed in the room: what is inside one takes its bounced light or reflections from it, blended with its neighbours and fading out at its edge; off leaves only the probe at the camera. On in each room unless turned off |
+| `Exists` | command | Whether the room placed a probe of this name |
+| `Kind` | command | "light" for a Light Probe (bounced light), "reflection" for a Reflection Probe; "" for a name the room has no probe of |
+| `Name` | command | The name of the room's placed probe at this place in its list, from 0; "" past the last |
+| `Radius` | command | How far a sphere probe of this name reaches, in metres (its box's half width for a box; 0 for a name the room has no probe of) |
+| `Recapture` | command | Captures every placed probe again, one a frame, keeping the old captures in use meanwhile: after a lamp is lit or a door opens. A probe moved with SetPosition is captured again by itself |
+| `SetActive` | command | Turns one placed probe off or on again (a room whose lights go out can turn off its daylight probes); its capture is kept. False for a name the room has no probe of |
+| `SetBlend` | command | How far inside its edge a placed probe fades in, 0 (a hard edge) to 1000 metres. False for a name the room has no probe of |
+| `SetPosition` | command | Moves a placed probe and its volume (a lift's probe riding with it); it is captured again where it now is. False for a name the room has no probe of |
+| `SetRadius` | command | How far a sphere probe reaches, 0.1 to 1000 metres; a box keeps its own size. False for a name the room has no probe of or a box |
+| `Weight` | command | The probe's share at the camera, 0 to 1: 1 well inside it, falling to 0 over its blend distance at its edge (0 until it is captured, or while it is off) |
+| `X` | command | Where the probe of this name is across, in metres (0 for a name the room has no probe of) |
+| `Y` | command | Where the probe of this name is up, in metres (0 for a name the room has no probe of) |
+| `Z` | command | Where the probe of this name is along, in metres (0 for a name the room has no probe of) |
+
 ## Engine.Lighting.Reflections
 
 | Name | Kind | What it is |

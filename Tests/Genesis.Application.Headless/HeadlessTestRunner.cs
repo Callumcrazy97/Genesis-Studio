@@ -1824,9 +1824,17 @@ internal static class HeadlessTestRunner
                 Suites.DecalSuite.Run(ctx);
                 break;
             case "light-probes":
-                // Automatic reflections and bounced light (Engine.Lighting.*), on every renderer.
+                // Automatic reflections and bounced light (Engine.Lighting.*), on every renderer,
+                // and the probes placed in a room (Engine.Lighting.Probes).
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.LightProbeSuite.Run(ctx);
+                Suites.PlacedProbeSuite.Run(ctx);
+                break;
+            case "placed-probes":
+                // Light and Reflection Probes placed in a room: blended by position on every renderer,
+                // unchanged pictures without them, their capture cost, the Room editor's probes.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.PlacedProbeSuite.Run(ctx);
                 break;
             case "sky-light-exposure":
             case "sky-light":

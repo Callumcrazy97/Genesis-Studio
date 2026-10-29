@@ -168,11 +168,76 @@ public sealed partial class RoomEditorControl
         }
     }
 
-    private void SetProbeValue<T>(RoomNode node, string what, Func<RoomProbeData, T> read, Action<RoomProbeData, T> write, T value)
+    private bool SetProbeValue<T>(RoomNode node, string what, Func<RoomProbeData, T> read, Action<RoomProbeData, T> write, T value)
     {
-        if (node.Probe is not { } data) return;
-        SetNodeValue(node, $"Set '{node.Name}' {what}", () => read(data), next => { write(data, next); data.Normalize(); }, value);
+        if (node.Probe is not { } data) return false;
+        bool changed = SetNodeValue(node, $"Set '{node.Name}' {what}", () => read(data), next => { write(data, next); data.Normalize(); }, value);
         _viewport.Invalidate();
+        return changed;
+    }
+
+    private const string ProbeInspectorPrefix = "Selection.Probe.";
+
+    /// <summary>
+    /// The Inspector's Probe group for a selected probe (its type, volume and blend), in place of
+    /// the rotation and scale a probe does not use.
+    /// </summary>
+    private void AddContextProbeValues(List<ResourceInspectorLiveValue> values, RoomProbeData probe, bool readOnly)
+    {
+        values.RemoveAll(value => value.PropertyPath.StartsWith(ContextSelectionPrefix + "Transform.Rotation", StringComparison.OrdinalIgnoreCase)
+            || value.PropertyPath.StartsWith(ContextSelectionPrefix + "Transform.Scale", StringComparison.OrdinalIgnoreCase)
+            || value.PropertyPath.Equals(ContextSelectionPrefix + "Transform.UniformScale", StringComparison.OrdinalIgnoreCase));
+        values.Add(new("Probe", ProbeInspectorPrefix + "Type", "Type", probe.IsReflection ? "Reflection" : "Light",
+            ReadOnly: readOnly, Choices: ["Light", "Reflection"],
+            Description: "Light: what is inside takes its bounced light from here. Reflection: smooth surfaces inside mirror what is seen from here."));
+        if (probe.IsReflection)
+            values.Add(new("Probe", ProbeInspectorPrefix + "Shape", "Shape", probe.IsBox ? "Box" : "Sphere",
+                ReadOnly: readOnly, Choices: ["Box", "Sphere"], Description: "A box for a room or corridor, a sphere for an open place."));
+        if (probe.IsBox)
+        {
+            values.Add(SimpleNumber("Probe", ProbeInspectorPrefix + "SizeX", "Width (m)", probe.SizeAxis(0), 0.5m, 2, readOnly));
+            values.Add(SimpleNumber("Probe", ProbeInspectorPrefix + "SizeY", "Height (m)", probe.SizeAxis(1), 0.5m, 2, readOnly));
+            values.Add(SimpleNumber("Probe", ProbeInspectorPrefix + "SizeZ", "Depth (m)", probe.SizeAxis(2), 0.5m, 2, readOnly));
+            values.Add(new("Probe", ProbeInspectorPrefix + "BoxProjection", "Box projection", probe.BoxProjection, ReadOnly: readOnly,
+                Description: "Mirror the box's walls where they are, so a floor reflects the room it is in (best with a box the size of the room)."));
+        }
+        else
+        {
+            values.Add(SimpleNumber("Probe", ProbeInspectorPrefix + "Radius", "Radius (m)", probe.Radius, 0.5m, 2, readOnly));
+        }
+        values.Add(new("Probe", ProbeInspectorPrefix + "BlendDistance", "Blend distance (m)", probe.BlendDistance, ReadOnly: readOnly,
+            Increment: 0.25m, DecimalPlaces: 2,
+            Description: "How far inside its edge the probe fades in; neighbouring probes blend over it (0 = a hard edge)."));
+    }
+
+    private bool TryApplyProbeValue(RoomNode node, string path, object? value)
+    {
+        if (!path.StartsWith(ProbeInspectorPrefix, StringComparison.OrdinalIgnoreCase)) return false;
+        string field = path[ProbeInspectorPrefix.Length..];
+        float Number() => Convert.ToSingle(value, System.Globalization.CultureInfo.InvariantCulture);
+        string text = InspectorText(value);
+        return field.ToUpperInvariant() switch
+        {
+            "TYPE" => SetProbeValue(node, "type", data => data.IsReflection ? ProbeType.Reflection : ProbeType.Light,
+                (data, next) =>
+                {
+                    data.Type = next == ProbeType.Reflection ? RoomProbeData.ReflectionType : RoomProbeData.LightType;
+                    // A new reflection probe is a box, as Add reflection probe makes it.
+                    if (next == ProbeType.Reflection) data.Shape = RoomProbeData.BoxShape;
+                },
+                text.Equals("Reflection", StringComparison.OrdinalIgnoreCase) ? ProbeType.Reflection : ProbeType.Light),
+            "SHAPE" => SetProbeValue(node, "shape", data => data.IsBox ? ProbeShape.Box : ProbeShape.Sphere,
+                (data, next) => data.Shape = next == ProbeShape.Box ? RoomProbeData.BoxShape : RoomProbeData.SphereShape,
+                text.Equals("Box", StringComparison.OrdinalIgnoreCase) ? ProbeShape.Box : ProbeShape.Sphere),
+            "RADIUS" => SetProbeValue(node, "radius", data => data.Radius, (data, next) => data.Radius = next, Number()),
+            "SIZEX" => SetProbeValue(node, "size", data => data.SizeAxis(0), (data, next) => data.Size[0] = next, Number()),
+            "SIZEY" => SetProbeValue(node, "size", data => data.SizeAxis(1), (data, next) => data.Size[1] = next, Number()),
+            "SIZEZ" => SetProbeValue(node, "size", data => data.SizeAxis(2), (data, next) => data.Size[2] = next, Number()),
+            "BLENDDISTANCE" => SetProbeValue(node, "blend distance", data => data.BlendDistance, (data, next) => data.BlendDistance = next, Number()),
+            "BOXPROJECTION" => SetProbeValue(node, "box projection", data => data.BoxProjection, (data, next) => data.BoxProjection = next,
+                Convert.ToBoolean(value, System.Globalization.CultureInfo.InvariantCulture)),
+            _ => false,
+        };
     }
 
     /// <summary>The Inspector's fields for a placed Light Probe or Reflection Probe.</summary>

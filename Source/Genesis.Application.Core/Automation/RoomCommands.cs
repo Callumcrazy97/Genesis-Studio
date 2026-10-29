@@ -14,7 +14,7 @@ namespace Genesis.Application.Core.Automation;
 public static class RoomCommands
 {
     public static IEnumerable<IAutomationCommand> All() =>
-        [new RoomCreate(), new RoomNodes(), new RoomAddInstance(), new RoomMoveInstance(), new RoomRemoveInstance(), new RoomSetEnvironment(), new RoomAddTerrain(), new RoomMakeStart()];
+        [new RoomCreate(), new RoomNodes(), new RoomAddInstance(), new RoomMoveInstance(), new RoomRemoveInstance(), new RoomSetEnvironment(), new RoomAddTerrain(), new RoomAddProbe(), new RoomMakeStart()];
 
     private static string ScenePresetList => string.Join(", ", RoomScenePresets.All.Select(preset => preset.Id));
 
@@ -110,6 +110,66 @@ public static class RoomCommands
             };
             room.Nodes.Add(node);
             return Save(context, full, room, $"Put {name} in the room.", Describe(node));
+        }
+    }
+
+    public sealed class AddProbeInput
+    {
+        [Description("The Room resource, project-relative (a 3D room)."), RequiredInput] public string Room { get; set; } = string.Empty;
+        [Description("light (bounced light from what is around it, a sphere) or reflection (what smooth surfaces inside mirror; a box unless Shape says sphere)."), RequiredInput]
+        public string Type { get; set; } = string.Empty;
+        [Description("Where it is captured from and the centre of its volume, x.")] public float X { get; set; }
+        [Description("Position y.")] public float Y { get; set; }
+        [Description("Position z.")] public float Z { get; set; }
+        [Description("A reflection probe's volume: box (default) or sphere.")] public string? Shape { get; set; }
+        [Description("A sphere's radius in metres (default 6).")] public float? Radius { get; set; }
+        [Description("A box's size [width, height, depth] in metres (default [10, 5, 10]).")] public float[]? Size { get; set; }
+        [Description("How far inside its edge it fades in, metres (default 1.5; 0 a hard edge).")] public float? Blend { get; set; }
+        [Description("A reflection box mirrors its walls where they are (default false).")] public bool? BoxProjection { get; set; }
+        [Description("The probe's name (default Light Probe 1, Reflection Probe 1...).")] public string? Name { get; set; }
+    }
+
+    public sealed class RoomAddProbe : AutomationCommand<AddProbeInput>
+    {
+        public override string Name => "room.addProbe";
+        public override string Description => "Places a Light Probe or Reflection Probe in a 3D room, as the Room editor's Edit › Add light probe / Add reflection probe do: " +
+            "the game captures it there when the room starts and blends it with its neighbours by position (Engine.Lighting.Probes).";
+
+        protected override AutomationResult Execute(AutomationContext context, AddProbeInput input)
+        {
+            string full = Room(context, input.Room);
+            bool reflection = (input.Type ?? "").Trim().ToLowerInvariant() switch
+            {
+                RoomProbeData.LightType => false,
+                RoomProbeData.ReflectionType => true,
+                _ => throw new AutomationException($"'{input.Type}' is not a probe type: light or reflection."),
+            };
+            string shape = string.IsNullOrWhiteSpace(input.Shape) ? (reflection ? RoomProbeData.BoxShape : RoomProbeData.SphereShape) : input.Shape.Trim().ToLowerInvariant();
+            if (shape is not (RoomProbeData.BoxShape or RoomProbeData.SphereShape)) throw new AutomationException($"'{input.Shape}' is not a probe shape: box or sphere.");
+            if (!reflection && shape == RoomProbeData.BoxShape) throw new AutomationException("A light probe is a sphere; a box is for a reflection probe.");
+            if (input.Size is { Length: not 3 }) throw new AutomationException("Size is three numbers: width, height and depth.");
+            RoomAsset room = RoomAssetLoader.Parse(full);
+            if (room.Dimension != RoomDimension.ThreeD) throw new AutomationException("Probes light 3D rooms.");
+            var data = new RoomProbeData
+            {
+                Type = reflection ? RoomProbeData.ReflectionType : RoomProbeData.LightType,
+                Shape = shape,
+                BoxProjection = input.BoxProjection ?? false,
+            };
+            if (input.Radius is float radius) data.Radius = radius;
+            if (input.Size is { } size) data.Size = [size[0], size[1], size[2]];
+            if (input.Blend is float blend) data.BlendDistance = blend;
+            var node = new RoomNode
+            {
+                Name = string.IsNullOrWhiteSpace(input.Name) ? UnusedName(room, reflection ? "Reflection Probe" : "Light Probe") : input.Name,
+                Kind = RoomNodeKind.Probe,
+                LayerId = room.Layers.FirstOrDefault()?.Id ?? string.Empty,
+                EnabledIn2D = false,
+                Transform = new RoomTransform { Position = [input.X, input.Y, input.Z] },
+                Probe = data,
+            };
+            room.Nodes.Add(node);
+            return Save(context, full, room, $"Placed {node.Name}.", Describe(node));
         }
     }
 

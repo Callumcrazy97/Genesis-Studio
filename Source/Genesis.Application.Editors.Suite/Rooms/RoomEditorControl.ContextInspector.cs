@@ -250,6 +250,8 @@ public sealed partial class RoomEditorControl
                 ReadOnly: readOnly, AssetKind: ResourceKind.Image));
             values.Add(SimpleNumber("Terrain", "Selection.Terrain.UvScale", "UV scale", terrain.UvScale, 0.05m, 3, readOnly));
         }
+
+        if (node.Probe is { } probe) AddContextProbeValues(values, probe, readOnly);
     }
 
     private void AddInheritedComponentValues(List<ResourceInspectorLiveValue> values, RoomNode node, bool readOnly)

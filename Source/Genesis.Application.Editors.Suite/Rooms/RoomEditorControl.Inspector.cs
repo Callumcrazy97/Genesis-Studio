@@ -247,6 +247,10 @@ public sealed partial class RoomEditorControl
             values.Add(new(group, "Selection.Terrain.Albedo", "Albedo", terrain.Albedo, AssetKind: ResourceKind.Image));
             values.Add(Number(group, "Selection.Terrain.UvScale", "UV scale", terrain.UvScale, 0.01m, 10_000, 0.05m, 3));
         }
+        else if (node.Probe is { } probe)
+        {
+            AddContextProbeValues(values, probe, readOnly: false);
+        }
     }
 
     private void AddComponentOverrides(List<ResourceInspectorLiveValue> values, RoomNode node)
@@ -506,6 +510,7 @@ public sealed partial class RoomEditorControl
             if (path.Equals("Selection.Terrain.Albedo", StringComparison.OrdinalIgnoreCase)) return SetNodeValue(node, "Terrain albedo", () => terrain.Albedo, next => terrain.Albedo = next, text);
             if (path.Equals("Selection.Terrain.UvScale", StringComparison.OrdinalIgnoreCase)) return SetNodeValue(node, "Terrain UV scale", () => terrain.UvScale, next => terrain.UvScale = next, Math.Clamp(Convert.ToSingle(value, CultureInfo.InvariantCulture), 0.01f, 10_000f));
         }
+        if (node.Probe is not null) return TryApplyProbeValue(node, path, value);
         return false;
     }
 
