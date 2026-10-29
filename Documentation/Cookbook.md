@@ -29,6 +29,12 @@ A quick game is good because it is looked at many times. Keep each round short:
 plays it by the clock: `steps` and `shots` both count seconds of play from that frame, at any frame
 rate. A new project already has a room called Start, so give yours another name.
 
+To see why something looks wrong in those pictures, start the run with `GENESIS_DEBUG_SCREEN` set:
+`Engine.Debug.Overlay.Colliders.Enabled=true` draws the colliders, `Engine.Debug.View.Mode=lod` colours
+models by level of detail, `panel=Object` opens a tab of the F6 screen, and `report=4` writes one line
+per placed instance to the game's log after four seconds (drawn, or why not). Separate them with `;`.
+GameFeatures.md, "The debug screen", says what each shows.
+
 ## A 3D place
 
 | Want | Do |

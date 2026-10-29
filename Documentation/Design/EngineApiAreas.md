@@ -396,12 +396,23 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 
 | Part | Values |
 |---|---|
-| Engine.Debug | + Enabled (F6 screen), ✓ Log(...), ✓ Watch(name, value), ✓ TestCheck |
+| Engine.Debug | ✓ Enabled (F6 screen; 29 Oct), ✓ Log(...), ✓ Watch(name, value), ✓ TestCheck |
 | Engine.Debug.Keys | ✓ Enabled [KeysSetEnabled] |
 | Engine.Debug.Budget | ✓ Enabled [FrameBudgetEnable], ✓ Set, ✓ SetFrame, ✓ PartMs, ✓ Report, ✓ Reset |
 | Engine.Debug.Gpu | ✓ Enable("Shadows"...) [EnableGPUFunction], ✓ Disable(...) |
 | Engine.Debug.Screenshot | ✓ Save, ✓ Pending, ✓ LastPath |
-| Engine.Debug.Overlay | + Fps.Enabled, + Colliders.Enabled, + Navigation.Enabled, + Probe.Enabled (show the light probe), + Wireframe.Enabled |
+| Engine.Debug.Overlay | ✓ Enabled (everything drawn over the frame, as a group), + Fps.Enabled, + Navigation.Enabled, + Probe.Enabled (show the light probe), ✓ Wireframe.Enabled |
+| Engine.Debug.Overlay.Colliders | ✓ Enabled (colliders and hitboxes drawn), ✓ Bodies, ✓ Characters, ✓ Triggers, ✓ Tiles, ✓ Hitboxes (which kinds; all true unless set) |
+| Engine.Debug.Overlay.Gui | ✓ Enabled (each GUI layer's area outlined with its owner), ✓ Report (read: the last frame's layers, one a line) |
+| Engine.Debug.Inspect | ✓ Enabled (the object report; click to pick), ✓ Instance (id), ✓ Report (read: what it is and why it is or is not drawn), ✓ Next(), ✓ Previous() |
+| Engine.Debug.View | ✓ Enabled, ✓ Mode ("lod", "overdraw", "depth", "normals", "shadows", "cascades", "reflections", "lights"; setting one turns the view on) |
+
+All Engine.Debug values (29 October) are off unless set, are world settings in the Inspector, and
+follow the Enabled rule up to the screen: `Engine.Debug.Overlay.Colliders.Enabled = true` turns on
+`Engine.Debug.Overlay.Enabled` and `Engine.Debug.Enabled` (the screen opens). Closing the screen
+(F6) hides everything it draws; it comes back as it was when the screen opens again. "cascades",
+"reflections" and "lights" are named in `RenderDebugView` for the renderer but have no forward
+shader branch yet, so they draw the frame as shaded and the legend says so.
 
 ## Engine.Recording
 
