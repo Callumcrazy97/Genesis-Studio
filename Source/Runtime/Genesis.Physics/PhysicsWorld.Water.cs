@@ -11,6 +11,9 @@ public sealed partial class PhysicsWorld
     /// <summary>Whether bodies float in and are slowed by the room's water (Engine.Water.Enabled; true unless set).</summary>
     public bool WaterEnabled { get; set; } = true;
 
+    /// <summary>Whether water acts on bodies' swimming at all (Engine.Water.Swimming.Enabled; true unless set); off, it neither lifts nor slows them and the scales wait.</summary>
+    public bool WaterSwimmingEnabled { get; set; } = true;
+
     /// <summary>How strongly water lifts bodies, times each water's own (Engine.Water.Swimming.Buoyancy; 1 unless set).</summary>
     public float WaterBuoyancyScale { get; set; } = 1f;
 
@@ -20,10 +23,10 @@ public sealed partial class PhysicsWorld
     /// <summary>Applies authored buoyancy, drag and flow to all registered dynamic ECS bodies.</summary>
     public void ApplyWater(IEcsWorld world, IReadOnlyList<PhysicsWaterVolume> volumes, float dt)
     {
-        if (!WaterEnabled || world == null || volumes == null || volumes.Count == 0 || dt <= 0f)
+        if (!WaterEnabled || !WaterSwimmingEnabled || world == null || volumes == null || volumes.Count == 0 || dt <= 0f)
             return;
         float lift = MathF.Max(0f, WaterBuoyancyScale), slow = MathF.Max(0f, WaterDragScale);
-        Vector3 gravity = GetGravityAcceleration();
+        Vector3 gravity = GetActiveGravityAcceleration();
         foreach ((int _, BodyBinding binding) in EnumerateDynamicBindings())
         {
             if (binding.DynamicHandle is not BepuPhysics.BodyHandle handle || !binding.Enabled ||

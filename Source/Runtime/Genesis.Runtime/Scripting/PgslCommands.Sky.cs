@@ -219,17 +219,17 @@ public static partial class PgslCommands
         }
     }
 
-    [PgslCommand("SetCloudCoverage", "Engine.Sky.SetCloudCoverage",
+    [PgslCommand("SetCloudCoverage", "Engine.Sky.SetCloudCoverage(coverage)",
         "Set cloud coverage scale (alias Coverage)", "Engine · Sky",
         Namespace = "Engine.Sky")]
     public static void SetCloudCoverage(float coverage) => SkyCoverage = coverage;
 
-    [PgslCommand("SetLatitude", "Engine.Sky.SetLatitude",
+    [PgslCommand("SetLatitude", "Engine.Sky.SetLatitude(latitudeDegrees)",
         "Set observer latitude in degrees (alias Latitude)", "Engine · Sky",
         Namespace = "Engine.Sky")]
     public static void SetLatitude(float latitudeDegrees) => SkyLatitude = latitudeDegrees;
 
-    [PgslCommand("SetTimeOfDay", "Engine.Sky.SetTimeOfDay",
+    [PgslCommand("SetTimeOfDay", "Engine.Sky.SetTimeOfDay(hours)",
         "Set time of day in hours (alias TimeOfDay)", "Engine · Sky",
         Namespace = "Engine.Sky")]
     public static void SetTimeOfDay(float hours) => SkyTimeOfDay = hours;
@@ -286,11 +286,11 @@ public static partial class PgslCommands
         }
     }
 
-    [PgslCommand("SetHaze", "Engine.Sky.SetHaze", "Set the atmospheric haze, 0 to 1 (alias Haze)", "Engine · Sky",
+    [PgslCommand("SetHaze", "Engine.Sky.SetHaze(amount)", "Set the atmospheric haze, 0 to 1 (alias Haze)", "Engine · Sky",
         Namespace = "Engine.Sky")]
     public static void SetHaze(float amount) => SkyHaze = amount;
 
-    [PgslCommand("SetAtmospherePreset", "Engine.Sky.SetAtmospherePreset",
+    [PgslCommand("SetAtmospherePreset", "Engine.Sky.SetAtmospherePreset(preset) -> bool",
         "Switch the room's atmosphere: Natural, ClearDay, GoldenHour, Overcast, Storm, Night or Alien. False for an unknown name",
         "Engine · Sky", Namespace = "Engine.Sky")]
     public static bool SetAtmospherePreset(string preset)

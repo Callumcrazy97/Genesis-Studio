@@ -51,6 +51,15 @@ namespace Genesis.Runtime.Scene
         /// step events; 0 runs every object every frame.
         /// </summary>
         public float SimulationDistance { get; set; }
+        /// <summary>Whether <see cref="SimulationDistance"/> is kept (Engine.Instance.Update.Enabled; true unless set): off, every object steps however far away.</summary>
+        public bool SimulationDistanceEnabled { get; set; } = true;
+        /// <summary>
+        /// Parts of the room's lighting a script has switched off (Engine.Lighting.Sun / Ambient / Glow .Enabled = false): the frame
+        /// is lit without the sun's light, the ambient light or the surfaces' own glow, and their values wait for them to come back.
+        /// </summary>
+        public bool SunLightEnabled { get; set; } = true;
+        public bool AmbientLightEnabled { get; set; } = true;
+        public bool GlowEnabled { get; set; } = true;
         /// <summary>Distance within which plain scenery objects exist; 0 creates them all with the room.</summary>
         public float SceneryDistance { get; set; }
         /// <summary>AF1.2 half-res GTAO (optional, default off).</summary>

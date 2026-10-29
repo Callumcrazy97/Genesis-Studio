@@ -40,7 +40,7 @@ public static class DebugScreenSettings
 {
     private static bool _overlay, _colliders, _gui, _inspect, _view;
     private static DebugViewMode _viewMode = DebugViewMode.Lod;
-    private static bool _screenPending;
+    private static bool _screenPending, _wireframePending;
 
     /// <summary>The F6 screen is open (Engine.Debug.Enabled).</summary>
     public static bool Screen
@@ -69,6 +69,21 @@ public static class DebugScreenSettings
 
     /// <summary>Each GUI layer's bounds outlined over the frame (Engine.Debug.Overlay.Gui.Enabled).</summary>
     public static bool GuiBounds { get => _gui; set { _gui = value; if (value) Overlay = true; Refresh(); } }
+
+    /// <summary>
+    /// The 3D scene drawn as wireframe (Engine.Debug.Overlay.Wireframe.Enabled): the screen's own toggle once it exists,
+    /// and what was asked for before it did until then.
+    /// </summary>
+    public static bool Wireframe
+    {
+        get => DebugOverlay.Current?.ShowWireframe ?? _wireframePending;
+        set
+        {
+            if (DebugOverlay.Current is { } overlay) overlay.ShowWireframe = value;
+            else _wireframePending = value;
+            if (value) Overlay = true;
+        }
+    }
 
     /// <summary>The object report (Engine.Debug.Inspect.Enabled): pick under the mouse or step through the list.</summary>
     public static bool Inspect { get => _inspect; set { _inspect = value; if (value) Screen = true; Refresh(); } }
@@ -108,7 +123,7 @@ public static class DebugScreenSettings
     {
         _overlay = _colliders = _gui = _inspect = _view = false;
         _viewMode = DebugViewMode.Lod;
-        _screenPending = false;
+        _screenPending = _wireframePending = false;
         ColliderBodies = ColliderCharacters = ColliderTriggers = ColliderTiles = ColliderHitboxes = true;
         InspectInstance = 0;
         Refresh();
@@ -119,6 +134,14 @@ public static class DebugScreenSettings
     {
         bool pending = _screenPending;
         _screenPending = false;
+        return pending;
+    }
+
+    /// <summary>A screen made after wireframe was asked for takes it now.</summary>
+    internal static bool TakePendingWireframe()
+    {
+        bool pending = _wireframePending;
+        _wireframePending = false;
         return pending;
     }
 

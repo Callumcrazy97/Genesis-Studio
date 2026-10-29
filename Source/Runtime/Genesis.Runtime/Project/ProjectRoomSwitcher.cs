@@ -68,7 +68,7 @@ namespace Genesis.Runtime.Project
         /// </summary>
         public const double CoverTextureUploadMilliseconds = 24;
 
-        private double Budget => Math.Max(0, RoomChangeScreen.FrameBudgetMilliseconds ?? FrameBudgetMilliseconds);
+        private double Budget => RoomChangeScreen.Enabled ? Math.Max(0, RoomChangeScreen.FrameBudgetMilliseconds ?? FrameBudgetMilliseconds) : 0;
 
         public ProjectRoomSwitcher(
             string projectPath,

@@ -49,6 +49,18 @@ public static partial class PgslCommands
         return true;
     }
 
+    [PgslCommand("SpriteGetDirection", "SpriteGetDirection() -> number",
+        "The angle in degrees (0 = right, counter-clockwise, 0 to 360) this instance's directional sprite faces: the centre of the direction its current frame belongs to; 0 for an Image without directions", "Sprites")]
+    public static double SpriteGetDirection()
+    {
+        PgslContext ctx = GetContext();
+        if (ctx is null || !TryResolveDirectionalImage(ctx.SpriteIndex, out SpriteRuntimeDirections directions) || directions.Count <= 1) return 0;
+        double frame = double.IsFinite(ctx.ImageIndex) ? Math.Max(0, Math.Floor(ctx.ImageIndex)) : 0;
+        int direction = (int)(frame / Math.Max(1, directions.FramesPerDirection)) % directions.Count;
+        double angle = (directions.StartAngleDegrees + direction * 360.0 / directions.Count) % 360.0;
+        return angle < 0 ? angle + 360.0 : angle;
+    }
+
     private static bool TryResolveDirectionalImage(string image, out SpriteRuntimeDirections directions)
     {
         directions = null;

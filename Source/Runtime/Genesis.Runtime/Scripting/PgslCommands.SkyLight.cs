@@ -102,12 +102,12 @@ public static partial class PgslCommands
         set => SkySetAmbientSaturation(value);
     }
 
-    [PgslCommand("SetAmbientTint", "Engine.Sky.SetAmbientTint",
+    [PgslCommand("SetAmbientTint", "Engine.Sky.SetAmbientTint(r, g, b)",
         "Colour multiplier of the hemisphere sky light (as SkySetAmbientTint)", "Engine · Sky",
         Namespace = "Engine.Sky")]
     public static void SkySetAmbientTintNamespaced(float r, float g, float b) => SkySetAmbientTint(r, g, b);
 
-    [PgslCommand("SetAmbientGroundTint", "Engine.Sky.SetAmbientGroundTint",
+    [PgslCommand("SetAmbientGroundTint", "Engine.Sky.SetAmbientGroundTint(r, g, b)",
         "Colour multiplier of the hemisphere sky light from below, apart from the light from above (as SkySetAmbientGroundTint)", "Engine · Sky",
         Namespace = "Engine.Sky")]
     public static void SkySetAmbientGroundTintNamespaced(float r, float g, float b) => SkySetAmbientGroundTint(r, g, b);

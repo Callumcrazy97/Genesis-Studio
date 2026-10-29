@@ -61,6 +61,8 @@ public readonly record struct WeatherState(
 /// </summary>
 public sealed class WeatherOverrides
 {
+    /// <summary>Whether the weather acts at all (Engine.Weather.Enabled; true unless set): off, there is no wind, rain, snow or lightning, and each part keeps its own setting for when it is switched on.</summary>
+    public bool Active { get; set; } = true;
     public bool WindEnabled { get; set; } = true;
     public float? WindSpeed { get; set; }
     /// <summary>The way the wind blows towards, in degrees: 0 along +Z, 90 along +X.</summary>
@@ -76,7 +78,7 @@ public sealed class WeatherOverrides
     /// <summary>Every value follows the weather again.</summary>
     public void Clear()
     {
-        WindEnabled = RainEnabled = SnowEnabled = LightningEnabled = true;
+        Active = WindEnabled = RainEnabled = SnowEnabled = LightningEnabled = true;
         WindSpeed = WindDirectionDegrees = Rain = Snow = Lightning = TemperatureC = null;
     }
 
@@ -91,10 +93,10 @@ public sealed class WeatherOverrides
         return weather with
         {
             WindDirection = direction,
-            WindSpeed = WindEnabled ? WindSpeed ?? weather.WindSpeed : 0f,
-            Rain = RainEnabled ? Rain ?? weather.Rain : 0f,
-            Snow = SnowEnabled ? Snow ?? weather.Snow : 0f,
-            Lightning = LightningEnabled ? Lightning ?? weather.Lightning : 0f,
+            WindSpeed = Active && WindEnabled ? WindSpeed ?? weather.WindSpeed : 0f,
+            Rain = Active && RainEnabled ? Rain ?? weather.Rain : 0f,
+            Snow = Active && SnowEnabled ? Snow ?? weather.Snow : 0f,
+            Lightning = Active && LightningEnabled ? Lightning ?? weather.Lightning : 0f,
             TemperatureC = TemperatureC ?? weather.TemperatureC,
         };
     }

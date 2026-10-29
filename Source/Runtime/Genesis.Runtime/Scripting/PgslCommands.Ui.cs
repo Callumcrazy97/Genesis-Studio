@@ -249,7 +249,7 @@ public static partial class PgslCommands
     /// </summary>
     private static (UiLayoutCache Layout, float ScaleX, float ScaleY) UiPlaced(UiAssetDocument document, SizeF target)
     {
-        float scale = _uiScale;
+        float scale = _uiScaleOn ? _uiScale : 1f;
         float fitX = _uiScaleAuto ? target.Width / Math.Max(1, document.DesignWidth) : 1f;
         float fitY = _uiScaleAuto ? target.Height / Math.Max(1, document.DesignHeight) : 1f;
         SizeF root = scale == 1f && _uiScaleAuto ? default

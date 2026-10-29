@@ -25,6 +25,13 @@ namespace Genesis.Runtime.Project
         public static double? FrameBudgetMilliseconds { get; set; }
 
         /// <summary>
+        /// Whether a room change is spread over frames behind a cover at all (Engine.Room.Change.Enabled; true unless set):
+        /// off, it changes room in one step with no cover and no loading screen, as a frame budget of 0 does, and the
+        /// budget, fade and words wait for it to come back.
+        /// </summary>
+        public static bool Enabled { get; set; } = true;
+
+        /// <summary>
         /// A 2D room that is ready within this many milliseconds simply appears, with no cover:
         /// a platformer stepping from screen to screen, or restarting its level, is not
         /// interrupted by a loading screen. A quarter of a second, so that a change which is
@@ -66,6 +73,7 @@ namespace Genesis.Runtime.Project
         public static void Reset()
         {
             FrameBudgetMilliseconds = null;
+            Enabled = true;
             GraceMilliseconds = 250;
             ShowProgress = true;
             Text = "Loading";

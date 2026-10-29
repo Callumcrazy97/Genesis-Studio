@@ -20,22 +20,55 @@ namespace Genesis.Application.Headless.Suites;
 /// </summary>
 internal static class EngineApiSuite
 {
-    // The standard gives every area and every part an Enabled. These have values a script can set and
-    // no Enabled yet (listed here on 29 Oct 2026, from the registry): the check fails for any other
-    // area or part that lacks one, and says which of these now have one.
-    private static readonly HashSet<string> ScopesWithoutEnabled = new(StringComparer.Ordinal)
+    // The standard gives every area and every part an Enabled. These can be switched and have no Enabled
+    // yet: the check fails for any other area or part that lacks one (and is not one of the exceptions
+    // below), and says which of these now have one. Of the 59 the coverage pass found on 29 Oct 2026, 28
+    // got an Enabled that day (PgslCommands.PartSwitches.cs and beside their values), 17 are exceptions,
+    // and these are left.
+    private static readonly Dictionary<string, string> ScopesWithoutEnabled = new(StringComparer.Ordinal)
     {
-        // Areas.
-        "Animation", "Camera", "Decal", "Display", "Draw", "Game", "Image", "Input", "Language", "Mesh", "Model",
-        "Rendering", "Room", "Shader", "Sky", "View", "Weather",
-        // Parts.
-        "Audio.Listener", "Camera.Shoulder", "Display.Monitor", "Display.Resolution", "Display.Window", "Game.Scripts",
-        "Input.Gamepad", "Input.Mouse", "Instance.Update", "Lighting.Ambient", "Lighting.Glow", "Lighting.Probe",
-        "Lighting.Sun", "Mesh.Upload", "Model.Glow", "Model.Shadows", "Navigation.Avoidance", "Navigation.Mesh",
-        "Network.Replication", "Physics.Character", "Physics.Gravity", "Physics.World", "Rendering.AntiAliasing",
-        "Rendering.Culling", "Rendering.Exposure", "Rendering.Grading", "Rendering.Models", "Rendering.MotionBlur",
-        "Room.Change", "Room.Streaming", "Sky.Moon", "Sky.Sun", "Sky.Time", "Terrain.Collision", "Terrain.Detail",
-        "Terrain.Water", "Ui.Scale", "View.Camera", "Water.Surface", "Water.Swimming", "Weather.Temperature",
+        // Another engineer's areas: Engine.Network is being worked on (NAT punch-through), as is Engine.Lighting.Probes.
+        ["Network.Replication"] = "left alone while the Engine.Network area is being changed",
+        ["Lighting.Probe"] = "left alone while placed light probes (Engine.Lighting.Probes) are being added",
+        // One instance's own look, drawn from its components: each needs a per-instance flag read in the model, sprite and shader draw paths.
+        ["Animation"] = "per-instance: needs a flag the animation update reads",
+        ["Image"] = "per-instance: needs a flag the sprite draw reads",
+        ["Model"] = "per-instance: needs a flag the model draw reads",
+        ["Model.Glow"] = "per-instance: needs flags the model draw reads",
+        ["Model.Shadows"] = "per-instance: needs a flag the model draw reads (Cast and Receive stay as set)",
+        ["Shader"] = "per-instance: needs a flag the object draw pass reads",
+        // Every reader of the input state (cameras, input actions, scripts, replay) would have to follow.
+        ["Input"] = "the keyboard, mouse and controller readers all need to follow it",
+        ["Input.Gamepad"] = "the controller readers (buttons, sticks, actions, emulation) need to follow it",
+        ["Input.Mouse"] = "the mouse readers (buttons, position, look, wheel) need to follow it",
+        // The renderer's sky and the water surface's look are drawn by passes that have no switch to read yet.
+        ["Sky"] = "the sky composite has no switch to read yet",
+        ["Terrain.Detail"] = "the streaming and level-of-detail distances have no 'off' to fall back to yet",
+        ["Water.Surface"] = "the water bodies' look has no 'off' to fall back to yet (Engine.Water.Enabled hides the water)",
+    };
+
+    // Areas and parts that have values and are not switches, each with the reason: a pure reading, a
+    // configuration, or something the game cannot run without. The standard gives every area and part an
+    // Enabled where it can honestly be switched (it does something when false and is on by default).
+    private static readonly Dictionary<string, string> ScopesWithoutEnabledByDesign = new(StringComparer.Ordinal)
+    {
+        ["Camera"] = "the camera is how the game is seen; its parts have their own Enabled (Rigs, FreeFly, Orbit, Shoulder, Collision, Focus) and Engine.Camera.Rigs.Enabled hands the camera back",
+        ["Camera.Rig"] = "the values of the camera rig being set up (the last made, or the one named), a configuration and not a system that acts; Engine.Camera.Rigs.Enabled switches whether the rigs drive the camera",
+        ["Camera.Rig.Path"] = "the dolly rig's track, a configuration of that rig; Engine.Camera.Rigs.Enabled switches whether the rigs drive the camera",
+        ["Display"] = "the window is the game's only output; hiding it would end the game for the player (its parts: Cursor, Resolution and the window's attributes)",
+        ["Display.Monitor"] = "which monitor the window is on, and readings about it (its size, rate and count); there is nothing of it to switch",
+        ["Display.Window"] = "the window's own attributes (place, Resizable, AlwaysOnTop, Maximized, Minimized): what it has, not a system that acts",
+        ["Game.Scripts"] = "switching every script off would stop the script that switches them back on; Engine.Game.Enabled (Paused) stops the game's time",
+        ["Language"] = "the current language and its texts, a setting and not a system",
+        ["Navigation.Mesh"] = "the settings of the next bake (agent size, slope, step height, cell size), a configuration; Engine.Navigation.Enabled switches the agents",
+        ["Physics.Character"] = "a character controller exists or not (CharacterCreate, CharacterDestroy); its values are step height and slope limit",
+        ["Rendering"] = "the 3D picture itself, with a switch on each of its parts (Shadows, Fog, Ao, Bloom, Grading, Exposure, AntiAliasing...)",
+        ["Rendering.Models"] = "KeepPreviousTransform is a policy for how a model keeps its transform when it changes, not a part that acts",
+        ["Room"] = "a room is always there; its values describe it (name, size, grid), and its parts Change and Streaming have their own Enabled",
+        ["Terrain.Collision"] = "everything would fall through; Engine.Terrain.Enabled hides the ground instead (EngineApiAreas.md)",
+        ["Terrain.Water"] = "the leak tool's settings (radius, shape, discharge, angle) for punching holes, a scratchpad for authoring; Engine.Water.Enabled switches the water",
+        ["View"] = "chooses which of the room's viewports the View commands address; each viewport has its own Enabled (Engine.View.Camera.Enabled)",
+        ["Weather.Temperature"] = "the air's temperature follows the weather until a script sets it; Engine.Weather.Release() hands it back",
     };
 
     // Values the blind sweep leaves alone, each for a reason.
@@ -46,38 +79,50 @@ internal static class EngineApiSuite
         ["Engine.Draw.Color"] = "a colour value, not a number, text or flag",
     };
 
-    // Values that read their default whatever is set in the probe room (listed on 29 Oct 2026). Every
-    // other value must read back what is set, so a value that stops doing so fails its case; one that
-    // starts to is noted and can leave the list.
-    //  - Needs a window, the monitor or the mouse: nothing in a headless run holds it.
-    //  - Has a setter and no getter: the old SetX command made a property that reads 0 or its default
-    //    whatever was set (an engine gap against "a getter and a setter for everything").
-    //  - Needs a character controller, a network, a 2D room's tile layers, or a game started to be worked on.
-    private static readonly HashSet<string> KnownSilent = new(StringComparer.OrdinalIgnoreCase)
+    // Values that read their default whatever is set in the probe room, each with the reason (listed on
+    // 29 Oct 2026). Every other value must read back what is set, so a value that stops doing so fails its
+    // case; one that starts to is noted and can leave the list. The values that once read 0 because they
+    // had a setter and no getter (Camera.Orbit*, Lighting.Intensity, Draw.Font...) have getters now.
+    private static readonly Dictionary<string, string> KnownSilent = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Engine.Display.CursorVisible", "Engine.Display.Fullscreen", "Engine.Display.Height", "Engine.Display.MaxFps",
-        "Engine.Display.Monitor.Index", "Engine.Display.VSync", "Engine.Display.Width", "Engine.Display.Window.AlwaysOnTop",
-        "Engine.Display.Window.Maximized", "Engine.Display.Window.Minimized", "Engine.Display.Window.Resizable",
-        "Engine.Display.Window.X", "Engine.Display.Window.Y", "Engine.Input.Mouse.Captured", "Engine.Input.MouseCaptured",
-        "Engine.Debug.Keys.Enabled", "Engine.Tile.Enabled", "Engine.Network.Replication.Rate",
-        "Engine.Network.Direct.Enabled", "Engine.Network.Direct.Attempts", "Engine.Network.Direct.Timeout",
-        "Engine.Physics.Character.SlopeLimit", "Engine.Physics.Character.StepHeight",
-        // A setter and no getter.
-        "Engine.Animation.Loop", "Engine.Camera.CollisionEnabled", "Engine.Camera.FreeFly", "Engine.Camera.OrbitDistance",
-        "Engine.Camera.OrbitEnabled", "Engine.Camera.OrbitMouseLook", "Engine.Camera.OrbitPitch", "Engine.Camera.OrbitYaw",
-        "Engine.Decal.Limit", "Engine.Draw.FontSize", "Engine.Draw.TextTracking", "Engine.Image.Direction",
-        "Engine.Lighting.ColorCount", "Engine.Lighting.Falloff", "Engine.Lighting.Intensity", "Engine.Lighting.Radius",
-        "Engine.Mesh.UploadBudget", "Engine.Rendering.AutoExposureMetering", "Engine.Room.Speed",
+        // Needs a window or the monitor: nothing in a headless run holds it.
+        ["Engine.Display.Fullscreen"] = "the window's mode; needs a window",
+        ["Engine.Display.Height"] = "the window's height; needs a window",
+        ["Engine.Display.Width"] = "the window's width; needs a window",
+        ["Engine.Display.MaxFps"] = "the window's frame-rate cap; needs a window",
+        ["Engine.Display.VSync"] = "the window's vertical sync; needs a window",
+        ["Engine.Display.Monitor.Index"] = "which monitor the window is on; needs a window",
+        ["Engine.Display.Window.AlwaysOnTop"] = "a window's attribute; needs a window",
+        ["Engine.Display.Window.Maximized"] = "a window's attribute; needs a window",
+        ["Engine.Display.Window.Minimized"] = "a window's attribute; needs a window",
+        ["Engine.Display.Window.Resizable"] = "a window's attribute; needs a window",
+        ["Engine.Display.Window.X"] = "the window's place on the desktop; needs a window",
+        ["Engine.Display.Window.Y"] = "the window's place on the desktop; needs a window",
+        ["Engine.Room.Speed"] = "the game window's target frame rate (it has a getter); needs a window",
+        ["Engine.Input.Mouse.Captured"] = "the game window captures the mouse (it has a getter); needs a window",
+        ["Engine.Input.MouseCaptured"] = "the game window captures the mouse (it has a getter); needs a window",
+        // Needs something the probe room does not have.
+        ["Engine.Debug.Keys.Enabled"] = "the debug keys act only in a game started to be worked on",
+        ["Engine.Tile.Enabled"] = "a 2D room's tile layers",
+        ["Engine.Network.Replication.Rate"] = "a network session with replication",
+        ["Engine.Physics.Character.SlopeLimit"] = "a character controller on the instance",
+        ["Engine.Physics.Character.StepHeight"] = "a character controller on the instance",
+        ["Engine.Image.Direction"] = "a directional Image on the instance (the getter reads the facing of the frame shown; ModelSpriteConversionSuite checks it)",
+        ["Engine.Audio.Snapshot.Enabled"] = "true only while a blend moves; only false can be set (it holds the blend) and the probe room has no blend to hold",
+        // Needs a relay session: the direct-path settings act only once players meet through the relay.
+        ["Engine.Network.Direct.Enabled"] = "a network session through the relay",
+        ["Engine.Network.Direct.Attempts"] = "a network session through the relay",
+        ["Engine.Network.Direct.Timeout"] = "a network session through the relay",
     };
 
-    // Engine defects the sweep found on 29 Oct 2026 and does not fix (the tests own no engine code):
-    // each is listed in the page the sweep writes, and the case says so when one reads right again.
-    private static readonly Dictionary<string, string> KnownDefects = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Engine.Draw.Font"] = "set with a font's name, read as a number",
-        ["Engine.Draw.TextAlign"] = "set with text, read as a number",
-        ["Engine.Shader.Name"] = "set with a Shader's name, read as a number",
-    };
+    // Values a camera rig, made by a script, is set up with: EngineSettings leaves them out because a
+    // resource has no rig to give them to, so the Inspector's round trip does not apply to them.
+    private static bool NotInspectorSetting(string name) => name.StartsWith("Engine.Camera.Rig.", StringComparison.OrdinalIgnoreCase);
+
+    // Engine defects the sweep found and does not fix: each is listed in the page the sweep writes, and the
+    // case says so when one reads right again. None is open now: Draw.Font, Draw.TextAlign and Shader.Name,
+    // which were set with text and read as numbers, read back the text they were set with.
+    private static readonly Dictionary<string, string> KnownDefects = new(StringComparer.OrdinalIgnoreCase);
 
     // What turning a part or area off and on changes, where the harness can see it without a renderer.
     private static readonly Dictionary<string, Func<EngineApiGame, bool>> Effects = new(StringComparer.Ordinal)
@@ -91,7 +136,28 @@ internal static class EngineApiSuite
         ["Camera.FreeFly"] = game => game.Scene.FreeFlyCamera == true,
         ["Display.Resolution.Dynamic"] = _ => Genesis.Shared.Rendering.RenderScale.Dynamic,
         ["Rendering.Detail"] = _ => Genesis.Runtime.Modeling.ModelLodView.Enabled,
+        // The parts switched on 29 Oct 2026 whose effect is a state the engine keeps and a frame is made from.
+        ["Rendering.Culling"] = _ => Genesis.Shared.Rendering.RenderAutoState.FrustumCulling,
+        ["Display.Resolution"] = _ => Genesis.Shared.Rendering.RenderScale.Enabled,
+        ["Physics.Gravity"] = game => game.Scene.Physics!.GetActiveGravityAcceleration().LengthSquared() > 0f,
+        ["Physics.World"] = game => game.Scene.Physics!.SimulationEnabled,
+        ["Instance.Update"] = game => game.Environment.SimulationDistanceEnabled,
+        ["Weather"] = game =>
+        {
+            Genesis.Runtime.Climate.WeatherState acting = game.Scene.Climate.Overrides.Apply(new Genesis.Runtime.Climate.WeatherState { Rain = 0.5f, WindSpeed = 5f, Snow = 0.5f, Lightning = 0.5f });
+            return acting.Rain > 0f || acting.WindSpeed > 0f || acting.Snow > 0f || acting.Lightning > 0f;
+        },
+        ["Lighting.Sun"] = game => FrameAfterPartSwitches(game, new Genesis.Shared.Interfaces.Mesh3DState { SunIntensity = 1.1f }).SunIntensity > 0f,
+        ["Lighting.Ambient"] = game => FrameAfterPartSwitches(game, new Genesis.Shared.Interfaces.Mesh3DState { AmbientColor = new System.Numerics.Vector3(0.3f), SkyLightStrength = 1f }).AmbientColor != System.Numerics.Vector3.Zero,
+        ["Lighting.Glow"] = game => FrameAfterPartSwitches(game, new Genesis.Shared.Interfaces.Mesh3DState { EmissiveIntensity = 1f }).EmissiveIntensity > 0f,
     };
+
+    // A frame state after the room's lighting parts a script switched off are taken out of it.
+    private static Genesis.Shared.Interfaces.Mesh3DState FrameAfterPartSwitches(EngineApiGame game, Genesis.Shared.Interfaces.Mesh3DState frame)
+    {
+        Genesis.Runtime.Scene.EnvironmentMapper.ApplyPartSwitches(ref frame, game.Environment);
+        return frame;
+    }
 
     private enum Kind
     {
@@ -137,6 +203,16 @@ internal static class EngineApiSuite
             });
             if (created is not EngineApiGame game) return;
 
+            // Engine.Camera.Rig's values are the rig being set up: a script makes one first, as a game would.
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Api.Game.TheProbeRoomHasACameraRigToSetUp", () =>
+            {
+                EngineApiRun made = game.Run("ok = Engine.Camera.Rigs.Create(\"probe\", \"dolly\"); name = Engine.Camera.Rig.Name;");
+                HeadlessHarness.Assert(!made.Failed && made.Number("ok") == 1 && made.Text("name") == "probe", "The probe room could not make a camera rig: " + made.Errors);
+            });
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Api.Getters.DrawFontTextAlignAndShaderNameReadBackTheTextSet", () => TextValuesReadBackAsText(game));
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Api.Switches.PostProcessingPartsAreDrawnNeutralWhileSwitchedOffAndKeepTheirValues", () => PostProcessingPartsSwitchOff(game));
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Api.Switches.CullingOffDrawsEverythingAndKeepsFrustumAndOcclusionForWhenItIsOn", () => CullingSwitchesOff(game));
+
             foreach (string area in EngineApiModel.Areas)
             {
                 // Areas of commands only (Math, List) have no value to sweep.
@@ -152,6 +228,92 @@ internal static class EngineApiSuite
         finally
         {
             created?.Dispose();
+        }
+    }
+
+    // Engine.Draw.Font, Engine.Draw.TextAlign and Engine.Shader.Name are set with text and once read back as numbers:
+    // each gives the text now (a text align by its canonical name), and an instance with no Shader reads "".
+    private static void TextValuesReadBackAsText(EngineApiGame game)
+    {
+        EngineApiRun run = game.Run(
+            "Engine.Draw.Font = \"Courier New\"; fontSet = Engine.Draw.Font; Engine.Draw.Font = \"Arial\"; fontReset = Engine.Draw.Font;\n"
+            + "Engine.Draw.TextAlign = \"centre\"; alignCentre = Engine.Draw.TextAlign; Engine.Draw.TextAlign = \"END\"; alignRight = Engine.Draw.TextAlign; Engine.Draw.TextAlign = \"left\"; alignLeft = Engine.Draw.TextAlign;\n"
+            + "shaderBefore = Engine.Shader.Name; Engine.Shader.Name = \"Camo\"; shaderSet = Engine.Shader.Name; Engine.Shader.Name = \"\"; shaderAfter = Engine.Shader.Name;");
+        HeadlessHarness.Assert(!run.Failed, "The script failed: " + run.Errors);
+        string[] names = ["fontSet", "fontReset", "alignCentre", "alignRight", "alignLeft", "shaderBefore", "shaderSet", "shaderAfter"];
+        string[] got = names.Select(name => run.Variables.TryGetValue(name, out object? value) && value is string text ? text : "<" + (value?.GetType().Name ?? "nothing") + ">").ToArray();
+        string[] want = ["Courier New", "Arial", "center", "right", "left", "", "Camo", ""];
+        HeadlessHarness.Assert(got.SequenceEqual(want, StringComparer.Ordinal),
+            $"Font, text align and shader name read back {string.Join(" | ", got)}; expected {string.Join(" | ", want)}.");
+    }
+
+    // Grading, Exposure, MotionBlur and AntiAliasing off: the frame state the renderer is given has them neutral, and
+    // has them as set again when they are back on (the sweep only sees that Enabled reads back).
+    private static void PostProcessingPartsSwitchOff(EngineApiGame game)
+    {
+        // Variable names that are not the engine's own (a script's contrast = ... would be the engine's Contrast).
+        EngineApiRun original = game.Run("wasContrast = Engine.Rendering.Grading.Contrast; wasSaturation = Engine.Rendering.Grading.Saturation; wasVignette = Engine.Rendering.Grading.Vignette; "
+            + "wasExposure = Engine.Rendering.Exposure.Value; wasBlur = Engine.Rendering.MotionBlur.Strength; wasSmoothing = Engine.Rendering.AntiAliasing.Mode;");
+        HeadlessHarness.Assert(!original.Failed, "The script failed: " + original.Errors);
+        Genesis.Shared.Interfaces.Mesh3DState Frame()
+        {
+            var state = new Genesis.Shared.Interfaces.Mesh3DState();
+            Genesis.Shared.Interfaces.MeshLightingDefaults.Apply(ref state);
+            return state;
+        }
+        const string Switches = "Engine.Rendering.Grading.Enabled = {0}; Engine.Rendering.Exposure.Enabled = {0}; Engine.Rendering.MotionBlur.Enabled = {0}; Engine.Rendering.AntiAliasing.Enabled = {0};";
+        try
+        {
+            game.Run("Engine.Rendering.Grading.Contrast = 1.5; Engine.Rendering.Grading.Saturation = 0.5; Engine.Rendering.Grading.Vignette = 0.4; "
+                + "Engine.Rendering.Exposure.Value = 2; Engine.Rendering.MotionBlur.Strength = 0.5; Engine.Rendering.AntiAliasing.Mode = \"fxaa\";");
+            Genesis.Shared.Interfaces.Mesh3DState on = Frame();
+            HeadlessHarness.Assert(on.Contrast == 1.5f && on.Saturation == 0.5f && Math.Abs(on.VignetteStrength - 0.4f) < 1e-4f && on.Exposure == 2f
+                && Math.Abs(on.MotionBlur - 0.5f) < 1e-4f && on.AntiAliasing != Genesis.Shared.Interfaces.AntiAliasingMode.Off,
+                $"With the parts on the frame has contrast {on.Contrast}, saturation {on.Saturation}, vignette {on.VignetteStrength}, exposure {on.Exposure}, blur {on.MotionBlur}, smoothing {on.AntiAliasing}.");
+            HeadlessHarness.Assert(!game.Run(string.Format(Switches, "false")).Failed, "Switching the parts off failed.");
+            Genesis.Shared.Interfaces.Mesh3DState off = Frame();
+            HeadlessHarness.Assert(off.Contrast == 1f && off.Saturation == 1f && off.VignetteStrength == 0f && off.Exposure == 1f && off.MotionBlur == 0f
+                && off.AntiAliasing == Genesis.Shared.Interfaces.AntiAliasingMode.Off,
+                $"With the parts off the frame has contrast {off.Contrast}, saturation {off.Saturation}, vignette {off.VignetteStrength}, exposure {off.Exposure}, blur {off.MotionBlur}, smoothing {off.AntiAliasing}.");
+            EngineApiRun kept = game.Run("keptContrast = Engine.Rendering.Grading.Contrast; keptExposure = Engine.Rendering.Exposure.Value; keptSmoothing = Engine.Rendering.AntiAliasing.Mode;");
+            HeadlessHarness.Assert(kept.Number("keptContrast") == 1.5 && kept.Number("keptExposure") == 2 && kept.Text("keptSmoothing") == "fxaa",
+                $"The values of parts switched off must be kept: contrast {kept.Number("keptContrast")}, exposure {kept.Number("keptExposure")}, smoothing {kept.Text("keptSmoothing")}.");
+            game.Run(string.Format(Switches, "true"));
+            Genesis.Shared.Interfaces.Mesh3DState back = Frame();
+            HeadlessHarness.Assert(back.Contrast == 1.5f && back.Exposure == 2f && back.AntiAliasing != Genesis.Shared.Interfaces.AntiAliasingMode.Off,
+                "Switched on again, the parts must come back as they were set.");
+        }
+        finally
+        {
+            game.Run(string.Format(Switches, "true")
+                + $" Engine.Rendering.Grading.Contrast = {EngineApiGame.Literal(original.Variables["wasContrast"])}; Engine.Rendering.Grading.Saturation = {EngineApiGame.Literal(original.Variables["wasSaturation"])};"
+                + $" Engine.Rendering.Grading.Vignette = {EngineApiGame.Literal(original.Variables["wasVignette"])}; Engine.Rendering.Exposure.Value = {EngineApiGame.Literal(original.Variables["wasExposure"])};"
+                + $" Engine.Rendering.MotionBlur.Strength = {EngineApiGame.Literal(original.Variables["wasBlur"])}; Engine.Rendering.AntiAliasing.Mode = {EngineApiGame.Literal(original.Variables["wasSmoothing"])};");
+        }
+    }
+
+    // Culling off clears the engine's four culling switches; Frustum and Occlusion read and take what is set meanwhile,
+    // and come back as they are when it is on again.
+    private static void CullingSwitchesOff(EngineApiGame game)
+    {
+        try
+        {
+            game.Run("Engine.Rendering.Culling.Frustum = true; Engine.Rendering.Culling.Occlusion = true; Engine.Rendering.Culling.Enabled = false;");
+            HeadlessHarness.Assert(!Genesis.Shared.Rendering.RenderAutoState.FrustumCulling && !Genesis.Shared.Rendering.RenderAutoState.OcclusionCulling
+                && !Genesis.Shared.Rendering.RenderAutoState.DistanceCulling && !Genesis.Shared.Rendering.RenderAutoState.SubPixelCulling,
+                "With culling off nothing may be culled.");
+            EngineApiRun meanwhile = game.Run("keptFrustum = Engine.Rendering.Culling.Frustum; keptOcclusion = Engine.Rendering.Culling.Occlusion; Engine.Rendering.Culling.Occlusion = false; occlusionAfterSet = Engine.Rendering.Culling.Occlusion;");
+            HeadlessHarness.Assert(meanwhile.Number("keptFrustum") == 1 && meanwhile.Number("keptOcclusion") == 1 && meanwhile.Number("occlusionAfterSet") == 0,
+                "Frustum and Occlusion must read as they are kept while culling is off, and take what is set.");
+            HeadlessHarness.Assert(!Genesis.Shared.Rendering.RenderAutoState.OcclusionCulling, "Setting Occlusion while culling is off must not turn it on.");
+            game.Run("Engine.Rendering.Culling.Enabled = true;");
+            HeadlessHarness.Assert(Genesis.Shared.Rendering.RenderAutoState.FrustumCulling && !Genesis.Shared.Rendering.RenderAutoState.OcclusionCulling
+                && Genesis.Shared.Rendering.RenderAutoState.DistanceCulling && Genesis.Shared.Rendering.RenderAutoState.SubPixelCulling,
+                "Switched on again, culling must be as it was kept: frustum on, occlusion as last set (off), distance and size on.");
+        }
+        finally
+        {
+            game.Run("Engine.Rendering.Culling.Enabled = true; Engine.Rendering.Culling.Frustum = true; Engine.Rendering.Culling.Occlusion = false;");
         }
     }
 
@@ -184,7 +346,7 @@ internal static class EngineApiSuite
         {
             var problems = new List<string>();
             int checkedCount = 0;
-            foreach (EngineApiMember member in EngineApiModel.Members.Where(member => member.IsProperty && member.CanSet))
+            foreach (EngineApiMember member in EngineApiModel.Members.Where(member => member.IsProperty && member.CanSet && !NotInspectorSetting(member.Name)))
             {
                 checkedCount++;
                 Type? type = PgslApi.ValueType(member.Name);
@@ -207,10 +369,11 @@ internal static class EngineApiSuite
                 if (EngineApiModel.SettableIn(scope).Count == 0 || EngineApiModel.HasEnabled(scope)) continue;
                 lacking.Add(scope);
             }
-            string[] unexpected = lacking.Where(scope => !ScopesWithoutEnabled.Contains(scope)).ToArray();
-            string[] nowHaveOne = ScopesWithoutEnabled.Where(scope => !lacking.Contains(scope)).OrderBy(scope => scope, StringComparer.Ordinal).ToArray();
-            Console.WriteLine($"Engine API: {lacking.Count} of {EngineApiModel.Areas.Count + EngineApiModel.Parts.Count} areas and parts have values and no Enabled yet"
-                + (nowHaveOne.Length == 0 ? "." : $"; these now have one and can leave the list: {string.Join(", ", nowHaveOne)}."));
+            string[] unexpected = lacking.Where(scope => !ScopesWithoutEnabled.ContainsKey(scope) && !ScopesWithoutEnabledByDesign.ContainsKey(scope)).ToArray();
+            string[] nowHaveOne = ScopesWithoutEnabled.Keys.Concat(ScopesWithoutEnabledByDesign.Keys).Where(scope => !lacking.Contains(scope)).OrderBy(scope => scope, StringComparer.Ordinal).ToArray();
+            Console.WriteLine($"Engine API: {lacking.Count} of {EngineApiModel.Areas.Count + EngineApiModel.Parts.Count} areas and parts have values and no Enabled "
+                + $"({lacking.Count(scope => ScopesWithoutEnabledByDesign.ContainsKey(scope))} by design, {lacking.Count(scope => ScopesWithoutEnabled.ContainsKey(scope))} left for later)"
+                + (nowHaveOne.Length == 0 ? "." : $"; these now have one and can leave the lists: {string.Join(", ", nowHaveOne)}."));
             HeadlessHarness.Assert(unexpected.Length == 0,
                 $"New area or part without an Enabled (the standard gives every one an Enabled): {string.Join(", ", unexpected)}.");
         });
@@ -245,6 +408,11 @@ internal static class EngineApiSuite
             // A command written like a value (Engine.Sky.SetHaze) shows no argument list in the dialog: noted, not failed.
             if (noArgumentList.Count > 0)
                 Console.WriteLine($"Engine API: {noArgumentList.Count} commands have a signature with no argument list: {string.Join(", ", noArgumentList)}.");
+            // The ten the coverage pass found now list their arguments, and stay that way.
+            string[] described = ["Engine.Rendering.AutoExposure", "Engine.Sky.SetAmbientTint", "Engine.Sky.SetAmbientGroundTint", "Engine.Sky.SetAtmospherePreset", "Engine.Sky.SetCloudCoverage",
+                "Engine.Sky.SetHaze", "Engine.Sky.SetLatitude", "Engine.Sky.SetTimeOfDay", "Engine.Terrain.Water.ClearHoles", "Engine.Terrain.Water.PunchHole"];
+            string[] stillBare = described.Where(name => noArgumentList.Contains(name, StringComparer.OrdinalIgnoreCase) || catalogue.All(command => !string.Equals(command.QualifiedName, name, StringComparison.OrdinalIgnoreCase))).ToArray();
+            HeadlessHarness.Assert(stillBare.Length == 0, "These commands show no argument list in their signature (or are missing): " + string.Join(", ", stillBare));
             HeadlessHarness.Assert(problems.Count == 0, $"{problems.Count} PGSL commands are missing something the Commands dialog shows: " + string.Join("; ", problems.Take(8)));
         });
 
@@ -304,7 +472,7 @@ internal static class EngineApiSuite
             PropertyResult result = Probe(game, member);
             properties.Add(result);
             if (result.Detail.StartsWith("FAIL ", StringComparison.Ordinal)) failures.Add(member.Name + ": " + result.Detail[5..]);
-            else if (result.Kind == Kind.Silent && !KnownSilent.Contains(member.Name))
+            else if (result.Kind == Kind.Silent && !KnownSilent.ContainsKey(member.Name))
                 failures.Add($"{member.Name} reads its default whatever is set ({result.Detail}); the room it is swept in should hold it, or it is listed in KnownSilent with the reason");
         }
 
@@ -386,6 +554,8 @@ internal static class EngineApiSuite
                 $"{EngineApiGame.Literal(candidate)} reads {(run.Variables.TryGetValue($"r{i}", out object? back) ? EngineApiGame.Literal(back) : "nothing")}"));
             return new PropertyResult(name, kept > 0 ? Kind.Kept : Kind.Silent, $"default {EngineApiGame.Literal(defaultValue)}; set {tried}");
         }
+
+        if (NotInspectorSetting(name)) return new PropertyResult(name, Kind.RoundTrip, "");
 
         // The Inspector and the debug screen set it as text, through the same bridge.
         string text = EngineSettings.Format(roundTripped);
@@ -508,7 +678,7 @@ internal static class EngineApiSuite
         page.AppendLine("## Values that read their default whatever is set");
         page.AppendLine();
         foreach (PropertyResult silent in Results.SelectMany(scope => scope.Properties).Where(property => property.Kind == Kind.Silent).OrderBy(property => property.Name, StringComparer.Ordinal))
-            page.AppendLine($"- {silent.Name}: {silent.Detail}");
+            page.AppendLine($"- {silent.Name}: {silent.Detail}" + (KnownSilent.TryGetValue(silent.Name, out string? reason) ? $" (known: {reason})" : ""));
         page.AppendLine();
         page.AppendLine("## Engine defects found by the sweep");
         page.AppendLine();
@@ -519,7 +689,7 @@ internal static class EngineApiSuite
         page.AppendLine();
         foreach (PropertyResult skipped in Results.SelectMany(scope => scope.Properties).Where(property => property.Kind == Kind.Skipped))
             page.AppendLine($"- {skipped.Name}: {skipped.Detail}");
-        string[] nowObservable = KnownSilent.Where(name => Results.SelectMany(scope => scope.Properties).Any(property => property.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && property.Kind != Kind.Silent))
+        string[] nowObservable = KnownSilent.Keys.Where(name => Results.SelectMany(scope => scope.Properties).Any(property => property.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && property.Kind != Kind.Silent))
             .OrderBy(name => name, StringComparer.Ordinal).ToArray();
         if (nowObservable.Length > 0)
         {

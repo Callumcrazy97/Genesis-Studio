@@ -45,14 +45,21 @@ Attempts, Timeout, Count, Path()); 29 October: Engine.Audio.Music and Engine.Aud
 (Filter, Eq, Reverb, Compressor: each with Enabled; Level), Engine.Audio.Snapshot (Enabled, Name, Progress,
 Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Current, Dynamic.Enabled, Dynamic.TargetFps, Dynamic.MinimumScale), Engine.Room.Streaming (Remember, Forget(), Remembered, Save(), Load(text)), Engine.Rendering (Backend, DrawCalls, Triangles, GpuMs, Instances.Drawn, Instances.Culled; read), Engine.Instance.Update.Distance, Engine.Tile.Layer (Visible, SetVisible, Alpha, SetAlpha, OffsetX, OffsetY, SetOffset by name), Engine.Physics.Joint limits (PhysicsJointHinge, PhysicsJointLimitSwing, PhysicsJointLimitTwist); 29 October: Engine.Camera.Rigs (Enabled, Active, BlendTime, BlendCurve, Blending, Progress, Count, Create(), BlendTo(), Cut(), Remove(), Exists(), Clear()), Engine.Camera.Rig (Name, Kind, Target, SetTargetPoint(), OffsetX/Y/Z, LookOffsetX/Y/Z, Fov, Damping, Yaw, Pitch, Distance, MouseLook, Collision) and Engine.Camera.Rig.Path (Position, Speed, Loop, Smooth, Count, Length, Add(), Clear(), Use()); Engine.Animation.LookAt (Enabled, Bone, Target, TargetBone, Height, X/Y/Z, Weight, BlendTime, YawLimit, PitchLimit, Amount, At(), Follow(), Stop(), SetForward()) and Engine.Animation.Reach (the same without the limits). Colours are "#rrggbb" text.
 
+**29 October, the coverage pass** (`Tests\Genesis.Application.Headless\Documentation\PgslAndEngineApiCoverage.md`):
+- Getters: every value that had a setter and no getter now reads what it sets. Draw.Font, Draw.TextAlign and Shader.Name read back text (they read 0); Camera.Orbit* / CollisionEnabled / FreeFly, Animation.Loop, Draw.FontSize / TextTracking, Lighting.Intensity / Radius / Falloff / ColorCount, Mesh.UploadBudget, Rendering.AutoExposureMetering, Display.CursorVisible, Input.MouseCaptured and Image.Direction (the angle of the direction of the frame shown) each have a `...Get...` command beside the `...Set...` one. What a headless probe cannot hold (the window, a character controller, a network, a directional Image) is listed with its reason in `KnownSilent` in `EngineApiSuite.cs`.
+- Enabled added (all on unless set, each off switches off what the part does and keeps its values): Engine.Game (= not Paused), Draw (the drawing commands draw nothing), Mesh (script meshes are not drawn), Mesh.Upload (no upload budget), Weather (no wind, rain, snow or lightning), Display.Resolution (drawn at the window's size), Rendering.Grading / Exposure / AntiAliasing / MotionBlur (drawn neutral), Rendering.Culling (everything drawn), Lighting.Sun / Ambient / Glow (the sun's light, the ambient light, the glow of surfaces' own colours), Instance.Update (every instance steps), Camera.Shoulder (the orbit camera circles the instance), Navigation.Avoidance, View.Camera (the active view), Sky.Time (= not Paused), Sky.Sun / Sky.Moon (= Visible), Physics.World (no simulation step), Physics.Gravity, Water.Swimming (water does not lift or slow bodies), Audio.Listener (= FollowCamera), Room.Change (one step, no cover), Room.Streaming (= Remember), Ui.Scale (the value is not applied).
+- Not switches, with the reason (the list `ScopesWithoutEnabledByDesign` in `EngineApiSuite.cs`): Camera, Camera.Rig, Camera.Rig.Path, Display, Display.Monitor, Display.Window, Game.Scripts, Language, Navigation.Mesh, Physics.Character, Rendering, Rendering.Models, Room, Terrain.Collision, Terrain.Water, View, Weather.Temperature.
+- Still without an Enabled (can be switched, not done yet; `ScopesWithoutEnabled` in the suite): Animation, Image, Model, Model.Glow, Model.Shadows, Shader (per instance: a flag the draw paths must read), Input, Input.Gamepad, Input.Mouse (every reader of the input state), Sky, Terrain.Detail, Water.Surface; and, left alone while other work is under way there, Network.Replication and Lighting.Probe.
+- Ten commands written like values now show their arguments (Engine.Sky.SetHaze(amount), Engine.Terrain.Water.PunchHole(x, y, z, nx, ny, nz), ...).
+
 ---
 
 ## Engine.Game
 
 | Part | Values |
 |---|---|
-| Engine.Game | + Enabled (paused when false), ✓ Speed, ✓ Threads, ✓ TimeMs (read), + Time (read: seconds since start), + FrameCount (read), + DeltaTime (read), + Paused, ✓ Quit(), ✓ End(), ✓ Print(...), ✓ EventUser(n) |
-| Engine.Game.Scripts | + Enabled, ✓ InstructionLimit [ScriptInstructionLimit], + Compiled (read: functions running compiled), ✓ Profile.Enabled [ScriptProfileEnable], ✓ Profile.Report(), ✓ Profile.Reset() |
+| Engine.Game | ✓ Enabled (29 Oct: paused when false), ✓ Speed, ✓ Threads, ✓ TimeMs (read), + Time (read: seconds since start), + FrameCount (read), + DeltaTime (read), + Paused, ✓ Quit(), ✓ End(), ✓ Print(...), ✓ EventUser(n) |
+| Engine.Game.Scripts | – Enabled (switching every script off would stop the one that switches them back on; Engine.Game.Enabled stops the game's time), ✓ InstructionLimit [ScriptInstructionLimit], + Compiled (read: functions running compiled), ✓ Profile.Enabled [ScriptProfileEnable], ✓ Profile.Report(), ✓ Profile.Reset() |
 | Engine.Game.Jobs | + Enabled, ✓ Threads (= Engine.Game.Threads), + Running (read), + Queued (read) |
 | Engine.Game.Time | + Scale (= Speed), + FixedStep (physics step seconds), + MaxDeltaTime (largest step a slow frame may take) |
 
@@ -60,12 +67,12 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 
 | Part | Values |
 |---|---|
-| Engine.Display | + Enabled (window shown), ✓ Width, ✓ Height, ✓ Mode ("windowed", "borderless", "fullscreen"), ✓ Fullscreen, ✓ VSync, ✓ MaxFps, ✓ Fps (read) [GetFps], ✓ Title, ✓ HasFocus (read), ✓ IsMinimized (read), + IsMaximized (read), ✓ SetSize(w, h) |
+| Engine.Display | – Enabled (the window is the game's only output), ✓ Width, ✓ Height, ✓ Mode ("windowed", "borderless", "fullscreen"), ✓ Fullscreen, ✓ VSync, ✓ MaxFps, ✓ Fps (read) [GetFps], ✓ Title, ✓ HasFocus (read), ✓ IsMinimized (read), + IsMaximized (read), ✓ SetSize(w, h) |
 | Engine.Display.Window | + X, + Y (position on the desktop), + Resizable, + Borderless, + AlwaysOnTop, + MinWidth, + MinHeight, + AspectLock, + Opacity, + Icon ("Image"), + Minimize(), + Maximize(), + Restore(), + Focus(), + Flash() (taskbar attention), + Centre() |
 | Engine.Display.Monitor | + Index (which monitor), + Count (read), + Width (read), + Height (read), + RefreshRate (read), + DpiScale (read) |
 | Engine.Display.Cursor | + Enabled (= ✓ CursorVisible), + Image ("Image"), + HotspotX, + HotspotY, + Locked (= Engine.Input.Mouse.Captured), + Confined (kept inside the window) |
 | Engine.Display.Gui | ✓ Width (read) [GetGuiWidth], ✓ Height (read), ✓ Scale (read) [GetGuiScale], ✓ X, ✓ Y (read), + ScaleMode ("fit", "stretch", "pixel-perfect"), + DesignWidth, + DesignHeight |
-| Engine.Display.Resolution | ✓ Scale (render scale 0.25-2, stretched and sharpened), ✓ Sharpness, ✓ Current (read), ✓ Dynamic.Enabled (lower the scale to hold the frame rate), ✓ Dynamic.TargetFps, ✓ Dynamic.MinimumScale |
+| Engine.Display.Resolution | ✓ Enabled (29 Oct: off draws at the window's own size), ✓ Scale (render scale 0.25-2, stretched and sharpened), ✓ Sharpness, ✓ Current (read), ✓ Dynamic.Enabled (lower the scale to hold the frame rate), ✓ Dynamic.TargetFps, ✓ Dynamic.MinimumScale |
 | Engine.Display.Frame | ✓ UseRoomFps, ✓ FpsTarget, ✓ FpsVsync, + Limiter.Enabled, + Limiter.Fps |
 
 ## Engine.Camera (3D)
@@ -76,7 +83,7 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Engine.Camera.Target | + Enabled (look at a point or instance), + X, + Y, + Z, + Instance (id), + Smoothing |
 | Engine.Camera.Follow | + Enabled, + Instance (id), + OffsetX, + OffsetY, + OffsetZ, + Lag (seconds), + Smoothing, + KeepUpright |
 | Engine.Camera.Orbit | ✓ Enabled [OrbitEnabled], ✓ Distance, ✓ Yaw, ✓ Pitch, ✓ MouseLook, + MinDistance, + MaxDistance, + MinPitch, + MaxPitch, + ZoomSpeed, + TurnSpeed, + Smoothing |
-| Engine.Camera.Shoulder | + Enabled, + OffsetX, + OffsetY [SetShoulderOffset], + Side (-1 left, 1 right), + SwitchSpeed |
+| Engine.Camera.Shoulder | ✓ Enabled (29 Oct), + OffsetX, + OffsetY [SetShoulderOffset], + Side (-1 left, 1 right), + SwitchSpeed |
 | Engine.Camera.FreeFly | ✓ Enabled [FreeFly], + Speed, + Boost, + MouseSensitivity |
 | Engine.Camera.Collision | ✓ Enabled [CollisionEnabled], + Radius, + Layers (mask), + PullInSpeed |
 | Engine.Camera.Shake | + Enabled, + Strength, + Duration, + Frequency, + Roll, ✓ Shake(strength, seconds) [Shake3D], ✓ ShakeRoll(...) [ShakeRoll3D], + Stop() |
@@ -102,8 +109,8 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Part | Values |
 |---|---|
 | Engine.Lighting | ✓ Enabled, + Sun.Enabled, + Ambient.Enabled |
-| Engine.Lighting.Sun | + Enabled, + Yaw, + Pitch, + Intensity, + ColorR/G/B (or Color "#rrggbb"), + DirectionX/Y/Z, + Shadows (= Engine.Rendering.Shadows.Enabled for the sun) |
-| Engine.Lighting.Ambient | + Enabled, + SkyR/G/B, + GroundR/G/B, + Strength, + Mode ("zenith", "hemisphere") [Engine.Sky.AmbientMode], + Saturation [Engine.Sky.AmbientSaturation], + Tint |
+| Engine.Lighting.Sun | ✓ Enabled (29 Oct: no sun light), + Yaw, + Pitch, + Intensity, + ColorR/G/B (or Color "#rrggbb"), + DirectionX/Y/Z, + Shadows (= Engine.Rendering.Shadows.Enabled for the sun) |
+| Engine.Lighting.Ambient | ✓ Enabled (29 Oct: no ambient light), + SkyR/G/B, + GroundR/G/B, + Strength, + Mode ("zenith", "hemisphere") [Engine.Sky.AmbientMode], + Saturation [Engine.Sky.AmbientSaturation], + Tint |
 | Engine.Lighting.Bounce | ✓ Enabled, ✓ Strength, ✓ Floor (29 Oct: the least share of the room's ambient a dark probe leaves, 0.35), + Saturation, + Tint |
 | Engine.Lighting.Reflections | ✓ Enabled, ✓ Strength, + Roughness (a floor for every surface), + Sky.Enabled (mirror the sky only, no probe) |
 | Engine.Lighting.Probe | ✓ Quality, ✓ Distance, ✓ Radius, ✓ Recapture(), + Captures (read), + X/Y/Z (read: where it was captured), + Follow (false: fixed where captured) |
@@ -113,16 +120,16 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Engine.Lighting.Flash | + Enabled, ✓ Flash(x, y, z, ...), ✓ Move, ✓ Remove, ✓ Clear, ✓ Count, ✓ Exists, + Limit |
 | Engine.Lighting.Light2D | + Enabled, ✓ Ambient (darkness) [Light2DAmbient], ✓ Point(...), ✓ Cone(...), ✓ Blocker(...), ✓ Remove, ✓ LineClear, ✓ ContactShadow [Shadow2DContact], + Shadows.Enabled, + Shadows.Softness |
 | Engine.Lighting.Toon (stylized) | + Enabled, + Steps, + Wrap, + Specular, + Rim, + Saturation |
-| Engine.Lighting.Glow (global emission) | + Enabled, + Strength |
+| Engine.Lighting.Glow (global emission) | ✓ Enabled (29 Oct), ✓ Strength |
 
 ## Engine.Sky
 
 | Part | Values |
 |---|---|
 | Engine.Sky | + Enabled, ✓ Quality, ✓ AtmospherePreset, ✓ Haze, ✓ Visibility, + ZenithColor, + HorizonColor |
-| Engine.Sky.Time | + Enabled (time of day runs), ✓ TimeOfDay, ✓ DayOfYear, ✓ Latitude, + Speed (in-game hours per real minute), + Paused |
-| Engine.Sky.Sun | ✓ DiscVisible [SunDiscVisible], ✓ Size [SunSize], + Brightness |
-| Engine.Sky.Moon | ✓ DiscVisible [MoonDiscVisible], + Phase, + Brightness |
+| Engine.Sky.Time | ✓ Enabled (29 Oct: time of day runs), ✓ TimeOfDay, ✓ DayOfYear, ✓ Latitude, + Speed (in-game hours per real minute), + Paused |
+| Engine.Sky.Sun | ✓ Enabled (29 Oct: = Visible), ✓ DiscVisible [SunDiscVisible], ✓ Size [SunSize], + Brightness |
+| Engine.Sky.Moon | ✓ Enabled (29 Oct: = Visible), ✓ DiscVisible [MoonDiscVisible], + Phase, + Brightness |
 | Engine.Sky.Stars | + Enabled [CelestialExtrasEnabled], + Brightness, + Rotation |
 | Engine.Sky.Clouds | + Enabled [RaymarchedCloudsEnabled], ✓ Coverage, ✓ Density, ✓ Thickness, ✓ Altitude, + Speed, + DirectionX/Z, + Quality [Engine.Rendering.CloudQuality], + Temporal.Enabled [CloudTemporalEnabled] |
 | Engine.Sky.Ambient | ✓ Mode, ✓ Strength, ✓ Saturation, ✓ Scale, ✓ Tint [SetAmbientTint] |
@@ -133,12 +140,12 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 
 | Part | Values |
 |---|---|
-| Engine.Weather | + Enabled, ✓ Preset ("clear", "rain", "thunderstorm", "snow", "fog"...), ✓ Transition (seconds), ✓ Auto, ✓ Release() |
+| Engine.Weather | ✓ Enabled (29 Oct: no wind, rain, snow or lightning), ✓ Preset ("clear", "rain", "thunderstorm", "snow", "fog"...), ✓ Transition (seconds), ✓ Auto, ✓ Release() |
 | Engine.Weather.Wind | ✓ Enabled, ✓ Strength, ✓ Direction (degrees), + Gusts |
 | Engine.Weather.Rain | ✓ Enabled, ✓ Amount, ✓ Wetness (surfaces), + Splashes.Enabled, + Sound.Enabled |
 | Engine.Weather.Snow | ✓ Enabled, ✓ Amount, ✓ Cover (snow on surfaces) |
 | Engine.Weather.Lightning | ✓ Enabled, ✓ Amount (how often), ✓ Strike(x, z) [StrikeLightning], ✓ Flash() [LightningFlash], ✓ Strikes (read) |
-| Engine.Weather.Temperature | ✓ Celsius |
+| Engine.Weather.Temperature | – Enabled (the temperature follows the weather until set; Engine.Weather.Release() hands it back), ✓ Celsius |
 
 ## Engine.Water
 
@@ -148,7 +155,7 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Engine.Water.Reflections | ✓ Enabled [Reflections], ✓ Resolution, ✓ Distortion |
 | Engine.Water.Surface | ✓ Waves, ✓ WaveSpeed, ✓ Foam.Enabled, ✓ FoamWidth, ✓ ShallowColor, ✓ DeepColor, ✓ Clarity |
 | Engine.Water.Holes (terrain water) | ✓ Radius, ✓ Shape, ✓ AngleBias, ✓ DischargeCoefficient [Engine.Terrain.Water.Hole*], ✓ Punch(x, z), ✓ Clear() |
-| Engine.Water.Swimming | ✓ Buoyancy, ✓ Drag |
+| Engine.Water.Swimming | ✓ Enabled (29 Oct: water neither lifts nor slows bodies), ✓ Buoyancy, ✓ Drag |
 
 ## Engine.Terrain
 
@@ -175,11 +182,11 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Engine.Rendering.Fog | + Enabled, + Start, + End, + Density, + ColorR/G/B, + HeightBase, + HeightFalloff, + Noise, + Volumetric.Enabled, ✓ Volumetric.Quality [VolumetricFogQuality], ✓ Shafts.Anisotropy/Floor/Softness [FogShaft*], ✓ Local.Enabled [LocalVolumetricsEnabled], ✓ Local.Budget [LocalVolumetricLightBudget], ✓ Smoke.Enabled [SmokeExtinctionEnabled] |
 | Engine.Rendering.Ao | ✓ Enabled [GtaoEnabled], + Strength, + Radius |
 | Engine.Rendering.Bloom | ✓ Enabled [BloomEnabled], + Strength, + Threshold |
-| Engine.Rendering.Exposure | ✓ Value [Exposure], ✓ Auto.Enabled [AutoExposureEnabled], ✓ Auto.Metering, + Auto.Speed [SetAutoExposureSpeed], + Auto.Min, + Auto.Max, ✓ Auto.Reset() |
-| Engine.Rendering.Grading | + Enabled, ✓ Contrast, ✓ Saturation, ✓ Vignette, + Temperature, + Tint, + Lut ("Image") |
-| Engine.Rendering.AntiAliasing | + Enabled, ✓ Mode [AntiAliasing] ("off", "fxaa", "smaa", "taa"), + Sharpness |
-| Engine.Rendering.MotionBlur | + Enabled, ✓ Strength [MotionBlur], + Samples |
-| Engine.Rendering.Culling | + Frustum.Enabled, + Occlusion.Enabled, + Distance.Enabled, + Distance.Max, + SmallObjects.Enabled, + SmallObjects.Size |
+| Engine.Rendering.Exposure | ✓ Enabled (29 Oct: exposure 1, no eye adaptation), ✓ Value [Exposure], ✓ Auto.Enabled [AutoExposureEnabled], ✓ Auto.Metering, + Auto.Speed [SetAutoExposureSpeed], + Auto.Min, + Auto.Max, ✓ Auto.Reset() |
+| Engine.Rendering.Grading | ✓ Enabled (29 Oct: neutral grading), ✓ Contrast, ✓ Saturation, ✓ Vignette, + Temperature, + Tint, + Lut ("Image") |
+| Engine.Rendering.AntiAliasing | ✓ Enabled (29 Oct), ✓ Mode [AntiAliasing] ("off", "fxaa", "smaa", "taa"), + Sharpness |
+| Engine.Rendering.MotionBlur | ✓ Enabled (29 Oct), ✓ Strength [MotionBlur], + Samples |
+| Engine.Rendering.Culling | ✓ Enabled (29 Oct: nothing is culled), ✓ Frustum, ✓ Occlusion, + Frustum.Enabled, + Occlusion.Enabled, + Distance.Enabled, + Distance.Max, + SmallObjects.Enabled, + SmallObjects.Size |
 | Engine.Rendering.Detail (level of detail) | + Enabled, + Quality (distance multiplier), + Fade.Enabled, + AnimationBySize.Enabled |
 | Engine.Rendering.Atmosphere | ✓ Lut.Enabled [AtmosphereLutEnabled] |
 | Engine.Rendering.Outlines | + Enabled, + Width, ✓ Set/Clear via Engine.Shader.Outline |
@@ -213,12 +220,12 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Part | Values |
 |---|---|
 | Engine.Physics | ✓ Enabled (instance body), ✓ Available (read), + World.Enabled (simulation runs), ✓ Use("Material"), ✓ Remove() |
-| Engine.Physics.World | + Enabled, + Paused, ✓ SolverIterations, + Substeps, + FixedStep, ✓ MaxVelocity, ✓ RecoveryVelocity, ✓ AirDrag, + Simulation.Distance (bodies farther than this sleep) |
-| Engine.Physics.Gravity | + Enabled, ✓ Strength, ✓ X, ✓ Y, ✓ Z, ✓ SetDirection(x, y, z) |
+| Engine.Physics.World | ✓ Enabled (29 Oct: no simulation step), + Paused, ✓ SolverIterations, + Substeps, + FixedStep, ✓ MaxVelocity, ✓ RecoveryVelocity, ✓ AirDrag, + Simulation.Distance (bodies farther than this sleep) |
+| Engine.Physics.Gravity | ✓ Enabled (29 Oct: nothing falls), ✓ Strength, ✓ X, ✓ Y, ✓ Z, ✓ SetDirection(x, y, z) |
 | Engine.Physics.Sleep | ✓ Enabled [AllowSleep], ✓ Threshold [SleepThreshold] |
 | Engine.Physics.Body (instance) | ✓ Type [BodyType], ✓ Shape, ✓ Mass, ✓ Weight, ✓ Friction, ✓ Bounciness, ✓ LinearDamping, ✓ AngularDamping, ✓ GravityScale, ✓ UseGravity, ✓ LockRotation, ✓ Sensor, ✓ Awake, ✓ Layer, ✓ Mask, + Ccd.Enabled (fast bodies) |
 | Engine.Physics.Velocity (instance) | ✓ X, ✓ Y, ✓ Z [VelocityX...], ✓ SpinX/Y/Z, ✓ Set(x, y, z), ✓ ApplyForce, ✓ ApplyImpulse, + ApplyTorque |
-| Engine.Physics.Character | ✓ Create, ✓ Destroy, ✓ Move, ✓ SetHeight, ✓ SetPosition, ✓ X/Y/Z, ✓ Grounded, ✓ GroundNormalY, ✓ Swimming, ✓ Submerged, ✓ Fits, + StepHeight, + SlopeLimit, + Radius, + PushBodies.Enabled |
+| Engine.Physics.Character | – Enabled (CharacterCreate and CharacterDestroy are its switch), ✓ Create, ✓ Destroy, ✓ Move, ✓ SetHeight, ✓ SetPosition, ✓ X/Y/Z, ✓ Grounded, ✓ GroundNormalY, ✓ Swimming, ✓ Submerged, ✓ Fits, + StepHeight, + SlopeLimit, + Radius, + PushBodies.Enabled |
 | Engine.Physics.Joint | ✓ Create(...), ✓ Destroy(...), + Strength, + Breakable.Enabled, + BreakForce, + Motor.Enabled, + Motor.Speed |
 | Engine.Physics.Query | ✓ Raycast, ✓ HitX/Y/Z, ✓ HitNormalX/Y/Z, ✓ HitInstance, ✓ SphereCast, ✓ CapsuleCast, ✓ OverlapCapsule, ✓ PlaceFree, ✓ PlaceMeeting, ✓ PositionEmpty, + Layers (mask for queries) |
 | Engine.Physics.Collision2D | ✓ Point, ✓ Rectangle, ✓ Circle, ✓ Distance3D, ✓ RectsOverlap, ✓ CirclesOverlap, ✓ PointInRect, ✓ PointInCircle |
@@ -236,7 +243,7 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Engine.Audio.Bus (by name) | ✓ Volume(name) [Get/SetBusVolume], ✓ Duck(name, ...) [BusDuck], ✓ DuckLevel, ✓ Filter/Eq/Reverb/Compressor(name, ...) [BusFilter, BusEq, BusReverb, BusCompressor], ✓ EffectsEnabled, ✓ EffectsClear, ✓ Level [BusLevel], + Muted(name) |
 | Engine.Audio.Snapshot (29 Oct) | ✓ Enabled (a blend moving; false holds it), ✓ Name (read), ✓ Progress (read), ✓ Blend(name, seconds) [AudioSnapshotBlend], ✓ Save(name) [AudioSnapshotSave]; the project's own in AudioMixer.json |
 | Engine.Audio.Acoustics | + Enabled, ✓ Place [Acoustics] ("outdoors", "room", "hall", "cave"), ✓ Amount [AcousticsAmount] |
-| Engine.Audio.Listener | ✓ FollowCamera, ✓ Set(x, y, z, ...) [SetListener], + X, + Y, + Z |
+| Engine.Audio.Listener | ✓ Enabled (29 Oct: = FollowCamera), ✓ FollowCamera, ✓ Set(x, y, z, ...) [SetListener], + X, + Y, + Z |
 | Engine.Audio.Sound (one playing sound) | ✓ Play(...) [PlaySound], ✓ PlayAt(...), ✓ Stop, ✓ StopFaded, ✓ Fade, ✓ Volume [SoundSetVolume], ✓ Pitch, ✓ Position, ✓ Bus, ✓ IsPlaying, ✓ Preload, ✓ Loading (read), + Pan, + Loop, + MaxDistance, + Rolloff |
 | Engine.Audio.Spatial | + Enabled, + Doppler, + MaxDistance, + Rolloff |
 
@@ -294,7 +301,7 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Engine.Instance.Nearby | ✓ Nearest, ✓ NearestOther, ✓ Furthest, ✓ InRadius, ✓ FirstInRadius, ✓ DistanceTo |
 | Engine.Instance.Variables | ✓ Get, ✓ Set, ✓ Exists |
 | Engine.Instance.Bulk | ✓ SetPositionsFromNumList, ✓ SetTransformsFromNumList, ✓ SetTintsFromNumList, ✓ GetPositionsToNumList, ✓ SceneQueue* |
-| Engine.Instance.Update | ✓ Distance (beyond this an instance's Step is skipped), – Rate (a far instance stepping a few times a second would be handed Step time it did not have; far ones rest, KeepActive keeps one running) |
+| Engine.Instance.Update | ✓ Enabled (29 Oct: every instance steps), ✓ Distance (beyond this an instance's Step is skipped), – Rate (a far instance stepping a few times a second would be handed Step time it did not have; far ones rest, KeepActive keeps one running) |
 
 ## Engine.Input
 
@@ -343,13 +350,13 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Engine.Ui.Focus | ✓ Focused (read) [GetFocused], ✓ Set(id), ✓ Hovered (read), ✓ Navigation.Enabled (keys/gamepad move focus) |
 | Engine.Ui.Widget (by id) | ✓ Visible, ✓ Enabled, ✓ Text, ✓ Value, ✓ Selected, ✓ Scroll, ✓ Clicked, ✓ Submitted, ✓ ValueChanged, ✓ HitTest |
 | Engine.Ui.Mouse | ✓ X, ✓ Y |
-| Engine.Ui.Scale | ✓ Value, ✓ Auto.Enabled |
+| Engine.Ui.Scale | ✓ Enabled (29 Oct: the value is not applied), ✓ Value, ✓ Auto.Enabled |
 
 ## Engine.Draw (2D drawing state and 3D debug shapes)
 
 | Part | Values |
 |---|---|
-| Engine.Draw | + Enabled (Draw events run), ✓ Color, ✓ Alpha, ✓ OffsetX, ✓ OffsetY, ✓ BlendLinear, ✓ LineWidth, ✓ Clear |
+| Engine.Draw | ✓ Enabled (29 Oct: the drawing commands draw nothing), ✓ Color, ✓ Alpha, ✓ OffsetX, ✓ OffsetY, ✓ BlendLinear, ✓ LineWidth, ✓ Clear |
 | Engine.Draw.Text | ✓ Font, ✓ FontSize, ✓ Align [TextAlign], ✓ Tracking, ✓ Width(...), ✓ Height(...) |
 | Engine.Draw.Clip | + Enabled, ✓ Set(x, y, w, h), ✓ Reset() |
 | Engine.Draw.Shapes | ✓ Line, ✓ Rect/Rectangle, ✓ RoundRect, ✓ Circle, ✓ Ellipse, ✓ Triangle, ✓ Arrow, ✓ Cross, ✓ Grid, ✓ HealthBar, ✓ RectanglesFromList |
@@ -361,11 +368,11 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 
 | Part | Values |
 |---|---|
-| Engine.Mesh | ✓ Create, ✓ Destroy, ✓ Clear, ✓ VertexCount, ✓ TriangleCount, ✓ IsUploaded |
+| Engine.Mesh | ✓ Enabled (29 Oct: script meshes are not drawn), ✓ Create, ✓ Destroy, ✓ Clear, ✓ VertexCount, ✓ TriangleCount, ✓ IsUploaded |
 | Engine.Mesh.Build | ✓ AddVertex, ✓ AddTriangle, ✓ AddQuad, ✓ AddQuadColors, ✓ AddCube, ✓ AddCubeTiles, ✓ AddQuadsFromList/NumList, ✓ AddVerticesFromList/NumList |
 | Engine.Mesh.Draw | ✓ Draw [DrawMesh3D], ✓ DrawTransform, ✓ DrawShader, ✓ Cull, ✓ Fog, ✓ Glow, ✓ Shadows, ✓ Sky, ✓ Transparent, ✓ ResetState |
 | Engine.Mesh.Static | + Enabled, ✓ Add, ✓ Move, ✓ Remove, ✓ Clear, ✓ Count, ✓ DrawnCount |
-| Engine.Mesh.Upload | ✓ Budget [UploadBudget] |
+| Engine.Mesh.Upload | ✓ Enabled (29 Oct: no budget), ✓ Budget [UploadBudget] |
 | Engine.Mesh.Collider (instance) | ✓ Set [InstanceSetMeshCollider], + Enabled |
 
 ## Engine.Shader
@@ -389,7 +396,7 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Part | Values |
 |---|---|
 | Engine.Room | ✓ Name (read), ✓ Width, ✓ Height, ✓ GridSize, ✓ IsThreeD, ✓ Speed, ✓ LayerCount, ✓ NodeCount, ✓ Goto("Room"), ✓ GotoWhenLoaded, ✓ Restart() |
-| Engine.Room.Change (transition) | ✓ Changing (read), ✓ Fade, ✓ Colors, ✓ Text, ✓ ProgressBar, ✓ MinimumTime, ✓ Budget, + Style ("fade", "cut", "wipe") |
+| Engine.Room.Change (transition) | ✓ Enabled (29 Oct: one step, no cover), ✓ Changing (read), ✓ Fade, ✓ Colors, ✓ Text, ✓ ProgressBar, ✓ MinimumTime, ✓ Budget, + Style ("fade", "cut", "wipe") |
 | Engine.Room.Preload | + Enabled, ✓ Preload("Room"), ✓ Pending, ✓ Progress [LoadProgress] |
 | Engine.Room.Values | ✓ Get(name), ✓ Set(name, value) |
 | Engine.Room.Layer (by name) | + Visible, + Depth |

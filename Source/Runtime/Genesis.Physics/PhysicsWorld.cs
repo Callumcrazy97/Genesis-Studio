@@ -55,6 +55,12 @@ public sealed partial class PhysicsWorld : IDisposable
     public int SolverIterations { get; }
     public float RecoveryVelocity { get; set; } = 4f;
 
+    /// <summary>Whether gravity pulls bodies (Engine.Physics.Gravity.Enabled; true unless set); off, nothing falls and the strength and direction wait.</summary>
+    public bool GravityEnabled { get; set; } = true;
+
+    /// <summary>Whether the simulation steps (Engine.Physics.World.Enabled; true unless set); off, every body holds where it is.</summary>
+    public bool SimulationEnabled { get; set; } = true;
+
     private PhysicsWorld(int solverIterations)
     {
         SolverIterations = solverIterations;
@@ -90,6 +96,9 @@ public sealed partial class PhysicsWorld : IDisposable
             dir = Vector3.UnitY * -1f;
         return Vector3.Normalize(dir) * (9.81f * GravityStrength);
     }
+
+    /// <summary>What pulls the bodies now: <see cref="GetGravityAcceleration"/>, or nothing while gravity is switched off (the strength and direction stay as set).</summary>
+    public Vector3 GetActiveGravityAcceleration() => GravityEnabled ? GetGravityAcceleration() : Vector3.Zero;
 
     public void RegisterEntity(IEcsWorld world, Entity entity, ref RigidBodyComponent body, ref Transform3DComponent transform)
     {
@@ -242,7 +251,7 @@ public sealed partial class PhysicsWorld : IDisposable
 
     public void Step(IEcsWorld world, float fixedDelta)
     {
-        if (fixedDelta <= 0f)
+        if (fixedDelta <= 0f || !SimulationEnabled)
             return;
 
         RemoveMissingBodyBindings(world);

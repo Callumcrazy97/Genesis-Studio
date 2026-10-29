@@ -52,13 +52,13 @@ public static partial class PgslCommands
         Namespace = "Engine.Terrain.Water")]
     public static int WaterHoleCount => WaterAuthoringDefaults.HoleCount;
 
-    [PgslCommand("PunchHole", "Engine.Terrain.Water.PunchHole",
+    [PgslCommand("PunchHole", "Engine.Terrain.Water.PunchHole(x, y, z, nx, ny, nz)",
         "Punch a leak at position with outward surface normal", "Engine · Terrain · Water",
         Namespace = "Engine.Terrain.Water")]
     public static void PunchWaterHole(float x, float y, float z, float nx, float ny, float nz) =>
         WaterAuthoringDefaults.PunchHole(new System.Numerics.Vector3(x, y, z), new System.Numerics.Vector3(nx, ny, nz));
 
-    [PgslCommand("ClearHoles", "Engine.Terrain.Water.ClearHoles",
+    [PgslCommand("ClearHoles", "Engine.Terrain.Water.ClearHoles()",
         "Clear punched holes from the authoring scratchpad", "Engine · Terrain · Water",
         Namespace = "Engine.Terrain.Water")]
     public static void ClearWaterHoles() => WaterAuthoringDefaults.ClearHoles();

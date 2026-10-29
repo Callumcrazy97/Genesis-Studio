@@ -131,6 +131,10 @@ public static partial class PgslCommands
     public static void MeshSetUploadBudget(double milliseconds) =>
         ScriptMeshes.UploadBudgetMilliseconds = double.IsFinite(milliseconds) ? Math.Clamp(milliseconds, 0, 1000) : ScriptMeshes.DefaultUploadBudgetMilliseconds;
 
+    [PgslCommand("MeshGetUploadBudget", "MeshGetUploadBudget() -> number",
+        "How long a frame may spend sending new or changed meshes to the GPU, 0 to 1000 milliseconds (4 unless set; 0 = no limit)", "Meshes")]
+    public static double MeshGetUploadBudget() => ScriptMeshes.UploadBudgetMilliseconds;
+
     [PgslCommand("MeshIsUploaded", "MeshIsUploaded(mesh) -> bool", "Whether a mesh's latest build is on the GPU (false while it waits its turn)", "Meshes")]
     public static bool MeshIsUploaded(double mesh) => ScriptMeshes.IsUploaded((int)mesh);
 
@@ -158,7 +162,7 @@ public static partial class PgslCommands
         double yaw, string image)
     {
         IPgslDrawSurface surface = Draw;
-        if (surface is null || !Finite3(x, y, z) || !Finite3(sx, sy, sz) || !double.IsFinite(yaw)) return;
+        if (!_meshOn || surface is null || !Finite3(x, y, z) || !Finite3(sx, sy, sz) || !double.IsFinite(yaw)) return;
         Matrix4x4 world = Matrix4x4.CreateScale((float)sx, (float)sy, (float)sz)
             * Matrix4x4.CreateRotationY((float)(yaw * Math.PI / 180))
             * Matrix4x4.CreateTranslation((float)x, (float)y, (float)z);

@@ -39,11 +39,7 @@ public static partial class PgslCommands
     public static string DebugOverlayGuiReport => DebugOverlay.GuiLayersText();
 
     [PgslCommand("Enabled", "Engine.Debug.Overlay.Wireframe.Enabled = true", "The 3D scene drawn as wireframe while the debug screen is open (false unless set)", "Debug", Namespace = "Engine.Debug.Overlay.Wireframe", Flat = false)]
-    public static bool DebugOverlayWireframeEnabled
-    {
-        get => DebugOverlay.Current?.ShowWireframe ?? false;
-        set { if (DebugOverlay.Current is { } overlay) { overlay.ShowWireframe = value; if (value) DebugScreenSettings.Overlay = true; } }
-    }
+    public static bool DebugOverlayWireframeEnabled { get => DebugScreenSettings.Wireframe; set => DebugScreenSettings.Wireframe = value; }
 
     [PgslCommand("Enabled", "Engine.Debug.Inspect.Enabled = true", "The debug screen's object report (false unless set): click an instance to pick it, or step through them with Next and Previous", "Debug", Namespace = "Engine.Debug.Inspect", Flat = false)]
     public static bool DebugInspectEnabled { get => DebugScreenSettings.Inspect; set => DebugScreenSettings.Inspect = value; }

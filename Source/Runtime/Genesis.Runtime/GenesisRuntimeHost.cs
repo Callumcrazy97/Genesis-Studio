@@ -573,6 +573,7 @@ namespace Genesis.Runtime
                 if (_scene.Environment.AmbientOverrideColor is Vector3 ambientOverride)
                     meshState.AmbientColor = ambientOverride;
                 EnvironmentMapper.ApplyLightningFlash(ref meshState, _scene.Environment.LightningFlash);
+                EnvironmentMapper.ApplyPartSwitches(ref meshState, _scene.Environment);
                 // Offscreen ports share the renderer, so history from another camera must never be reused.
                 if (roomPresentation?.HasThreeDViewports == true) meshState.CloudTemporalEnabled = false;
                 _renderer.SetMesh3DState(meshState);

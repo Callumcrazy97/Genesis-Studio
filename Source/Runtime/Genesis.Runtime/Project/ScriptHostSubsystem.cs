@@ -33,7 +33,7 @@ namespace Genesis.Runtime.Project
             if (_allowUpdate != null && !_allowUpdate()) return;
             if (_host != null)
             {
-                _host.SimulationDistance = scene.Environment?.SimulationDistance ?? 0f;
+                _host.SimulationDistance = scene.Environment is { SimulationDistanceEnabled: true } environment ? environment.SimulationDistance : 0f;
                 _host.SimulationFocus = scene.Camera3D.Position;
             }
 

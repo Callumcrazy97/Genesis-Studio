@@ -131,6 +131,7 @@ namespace Genesis.Runtime.Debugger
             // Engine.Debug.* reach the game's screen through this; one set before it existed opens it now.
             Current = this;
             if (DebugScreenSettings.TakePendingScreen()) IsVisible = true;
+            if (DebugScreenSettings.TakePendingWireframe()) ShowWireframe = true;
             DebugScreenSettings.Refresh();
 
             if (Environment.GetEnvironmentVariable("GENESIS_DEBUG_EXPANDED") == "1")

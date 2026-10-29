@@ -78,6 +78,24 @@ public static partial class PgslCommands
         ctx.LightEmitterActionAmount = Math.Clamp(amount, 0, 1);
     });
 
+    // The getters of the emitter's values (Engine.Lighting.Radius and the rest read what they set).
+    [PgslCommand("LightEmitterGetRadius", "LightEmitterGetRadius() -> number", "This object's light radius, at least 0.01 (8 unless set)", "Lighting",
+        Namespace = "Engine.Rendering.Lights")]
+    public static double LightEmitterGetRadius() => GetContext()?.LightEmitterRadius ?? 8.0;
+
+    [PgslCommand("LightEmitterGetIntensity", "LightEmitterGetIntensity() -> number", "This object's light intensity, 0 or more (2 unless set)", "Lighting",
+        Namespace = "Engine.Rendering.Lights")]
+    public static double LightEmitterGetIntensity() => GetContext()?.LightEmitterIntensity ?? 2.0;
+
+    [PgslCommand("LightEmitterGetFalloff", "LightEmitterGetFalloff() -> number",
+        "This object's light falloff, 0.05 to 16 (2 unless set): 1 linear, 2 quadratic, larger values concentrate light near the emitter",
+        "Lighting", Namespace = "Engine.Rendering.Lights")]
+    public static double LightEmitterGetFalloff() => GetContext()?.LightEmitterFalloff ?? 2.0;
+
+    [PgslCommand("LightEmitterGetColorCount", "LightEmitterGetColorCount() -> number", "How many authored light colours this object's light uses, 1 to 3 (1 unless set)", "Lighting",
+        Namespace = "Engine.Rendering.Lights")]
+    public static double LightEmitterGetColorCount() => GetContext()?.LightEmitterColorCount ?? 1;
+
     private static void ChangeLight(Action<PgslContext> change)
     {
         PgslContext ctx = GetContext();

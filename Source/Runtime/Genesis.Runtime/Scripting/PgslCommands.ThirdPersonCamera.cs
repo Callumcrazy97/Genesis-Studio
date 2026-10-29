@@ -44,5 +44,19 @@ public static partial class PgslCommands
     public static void CameraSetOrbitMouseLook(bool enabled) { if (Orbit() is { } rig) rig.MouseLook = enabled; }
     [PgslCommand("CameraSetOrbitEnabled", "CameraSetOrbitEnabled(enabled)", "Enable/disable this instance's orbit camera", "Camera")]
     public static void CameraSetOrbitEnabled(bool enabled) { if (Orbit() is { } rig) rig.Enabled = enabled; }
+
+    // The getters of the values above (Engine.Camera.OrbitDistance and the rest read what they set); reading never attaches a rig.
+    [PgslCommand("CameraGetOrbitDistance", "CameraGetOrbitDistance() -> number", "How far behind this instance the orbit camera sits, 0.05 to 1000 (7.5 unless set)", "Camera")]
+    public static double CameraGetOrbitDistance() => OrbitIfAny()?.Distance ?? 7.5;
+    [PgslCommand("CameraGetOrbitPitch", "CameraGetOrbitPitch() -> number", "How far the orbit camera looks down on this instance, -25 to 75 degrees (15 unless set)", "Camera")]
+    public static double CameraGetOrbitPitch() => OrbitIfAny()?.Pitch ?? 15;
+    [PgslCommand("CameraGetOrbitYaw", "CameraGetOrbitYaw() -> number", "Which way round this instance the orbit camera looks, in degrees (0 unless set)", "Camera")]
+    public static double CameraGetOrbitYaw() => OrbitIfAny()?.Yaw ?? 0;
+    [PgslCommand("CameraGetCollisionEnabled", "CameraGetCollisionEnabled() -> bool", "Whether the orbit camera moves in front of walls between it and this instance (true unless set)", "Camera")]
+    public static bool CameraGetCollisionEnabled() => OrbitIfAny()?.CollisionEnabled ?? true;
+    [PgslCommand("CameraGetOrbitMouseLook", "CameraGetOrbitMouseLook() -> bool", "Whether moving the mouse turns the orbit camera (true unless set)", "Camera")]
+    public static bool CameraGetOrbitMouseLook() => OrbitIfAny()?.MouseLook ?? true;
+    [PgslCommand("CameraGetOrbitEnabled", "CameraGetOrbitEnabled() -> bool", "Whether this instance's orbit camera is on (false until it has one)", "Camera")]
+    public static bool CameraGetOrbitEnabled() => OrbitIfAny()?.Enabled ?? false;
 }
 

@@ -254,6 +254,12 @@ public static partial class PgslCommands
         if (ctx is not null) ctx.DrawFontSize = Math.Clamp(size, 1, 512);
     }
 
+    [PgslCommand("DrawGetFont", "DrawGetFont() -> string", "The font family or project-relative TTF/OTF later text is drawn in (\"Arial\" unless set)", "Drawing 2D")]
+    public static string DrawGetFont() => GetContext()?.DrawFont ?? "Arial";
+
+    [PgslCommand("DrawGetFontSize", "DrawGetFontSize() -> number", "The pixel size later text is drawn at, 1 to 512 (12 unless set)", "Drawing 2D")]
+    public static double DrawGetFontSize() => GetContext()?.DrawFontSize ?? 12d;
+
     [PgslCommand("DrawSetColorRgb", "DrawSetColorRgb(r, g, b)", "Set the draw colour from 0-255 channels", "Drawing 2D")]
     public static void DrawSetColorRgb(double r, double g, double b)
     {

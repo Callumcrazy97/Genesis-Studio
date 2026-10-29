@@ -83,7 +83,7 @@ internal struct PhysicsPoseCallbacks : IPoseIntegratorCallbacks
 
     public void PrepareForIntegration(float dt)
     {
-        _gravity = _world.GetGravityAcceleration();
+        _gravity = _world.GetActiveGravityAcceleration();
         _airDrag = MathF.Max(0f, _world.AirDrag);
         _maxVelocity = MathF.Max(0f, _world.MaxVelocity);
         _maxVelocitySq = _maxVelocity * _maxVelocity;

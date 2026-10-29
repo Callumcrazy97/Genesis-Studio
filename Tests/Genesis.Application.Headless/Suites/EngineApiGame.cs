@@ -174,12 +174,17 @@ internal sealed class EngineApiGame : IDisposable
     public void Dispose()
     {
         _host.Detach(_probe);
+        // Engine.Shader.Name makes the probe's draw assets, which the process keeps by entity id and version: the first
+        // entity of the next scene has the same ones and must not be taken for a 2D Object.
+        Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.Remove(_probe);
         // Values some scripts leave in process-wide statics when nothing puts them back.
         PgslCommands.AudioApiAcoustics = "outdoors";
         Genesis.Runtime.Modeling.ModelLodView.Quality = 1f;
         Genesis.Runtime.Project.RoomTerrainSubsystem.GameTerrainDetail = 1f;
         Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
         Genesis.Runtime.Input.InputSettings.Reset();
+        // Debug settings made before a screen exists wait for one: none of this room's may reach the next suite's.
+        Genesis.Runtime.Debugger.DebugScreenSettings.Reset();
         PgslCommands.ActiveGameContext = _previousGame;
         PgslCommands.ProjectPath = _previousPath;
         PgslCommands.BindContext(_previousContext);
@@ -187,10 +192,13 @@ internal sealed class EngineApiGame : IDisposable
         _scene.Dispose();
     }
 
-    /// <summary>A sound system that plays nothing and remembers what the mixer would be told.</summary>
+    /// <summary>A sound system that plays nothing and remembers what the mixer would be told: bus volumes and bus effects.</summary>
     private sealed class FakeAudio : IAudioSystem
     {
         private readonly Dictionary<string, float> _buses = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, AudioBusEffects> _effects = new(StringComparer.OrdinalIgnoreCase);
+        public void SetBusEffects(string bus, AudioBusEffects effects) => _effects[bus] = effects.Normalized();
+        public AudioBusEffects GetBusEffects(string bus) => _effects.TryGetValue(bus, out AudioBusEffects? effects) ? effects.Copy() : new AudioBusEffects();
         public float MasterVolume { get; set; } = 1f;
         public int LoadSound(string projectRelativePath) => 1;
         public AudioChannel Play(int soundId, float volume = 1f, float pitch = 1f, bool loop = false) => new(1);

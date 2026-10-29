@@ -19,6 +19,8 @@ public sealed class ThirdPersonCamera
     public float Yaw { get; set; }
     public float Pitch { get; set; } = 15;
     public Vector3 ShoulderOffset { get; set; } = new(1.2f, 2.4f, 0);
+    /// <summary>Whether the camera looks over the shoulder (Engine.Camera.Shoulder.Enabled; true unless set); off, it circles the instance itself and the offset waits.</summary>
+    public bool ShoulderEnabled { get; set; } = true;
     public bool CollisionEnabled { get; set; } = true;
     public bool MouseLook { get; set; } = true;
     public bool Enabled { get; set; } = true;
@@ -37,8 +39,9 @@ public sealed class ThirdPersonCamera
         float yaw = Yaw * MathF.PI / 180, pitch = Pitch * MathF.PI / 180;
         Vector3 forward = Conventions.DirectionFromYawPitch(yaw, pitch);
         Vector3 right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, Conventions.DirectionFromYawPitch(yaw, 0)));
-        Vector3 head = target + Vector3.UnitY * ShoulderOffset.Y;
-        Vector3 pivot = head + right * ShoulderOffset.X + Conventions.DirectionFromYawPitch(yaw, 0) * ShoulderOffset.Z;
+        Vector3 overShoulder = ShoulderEnabled ? ShoulderOffset : Vector3.Zero;
+        Vector3 head = target + Vector3.UnitY * overShoulder.Y;
+        Vector3 pivot = head + right * overShoulder.X + Conventions.DirectionFromYawPitch(yaw, 0) * overShoulder.Z;
         // Also constrain the shoulder offset, otherwise the boom could begin through a wall.
         if (CollisionEnabled && raycast != null)
         {
