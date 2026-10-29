@@ -1675,6 +1675,29 @@ That switch costs a full collection at every change, so leave it off for play.
   atmosphere** (`sunDiscScale`, 0.25 to 8; `Engine.Sky.SunSize` from a script).
 - **A clear sky no longer shows bands.** Where the engine draws a sky, the final image carries
   half a level of fixed noise. Scenes without an engine sky are pixel for pixel as they were.
+- **The sky glows round the sun** (29 Oct). The dynamic sky can draw the light the haze scatters
+  forward: a bright, whitish core a few degrees across and a halo tens of degrees wide, broader
+  near the horizon. A room sets it with `sunGlow` (0 to 4; 1 is a clear day's glow), and a script
+  with `Engine.Sky.Sun.Glow` (or `Engine.Sky.SunGlow`). It is 0 in a room saved before it, so
+  those skies are as they were; the **Sunny day** and **Golden hour** scene presets (and
+  `room.create` 3D, which starts on Sunny day) set 1, the cloudy ones 0. It hides with the sun's disc.
+- **Water reflects the dynamic sky it lies under** (29 Oct). Without planar reflections a lake
+  showed a fixed midday blue in its ripples, and at a low angle a green one (its horizon colour lost
+  its blue on the way to the shader). Under the dynamic sky it now reflects that sky's own horizon
+  and zenith colours, graded by height as the sky is drawn, so a golden-hour lake mirrors a golden
+  sky and ripples catch the low and the high sky differently. Water in a room without the dynamic
+  sky reflects as it did.
+- **Lakes are a clear teal** (29 Oct). Water with no look of its own (a terrain lake or river
+  without **Custom look**, and voxel-world water) was a pale turquoise (shallow 0.18, 0.62, 0.72,
+  deep 0.04, 0.18, 0.38) at opacity 0.5, which let a grassy bed tint the whole lake green and pale.
+  It is now shallow 0.12, 0.42, 0.52, deep 0.03, 0.12, 0.24, opacity 0.72 (`WaterMaterialSettings`);
+  a custom look starts from these. Seas keep their own look. The mist a lake carries is half as
+  thick (`GroundMistDensity` 0.15, was 0.30): seen across the lake from a few metres up it had
+  turned a sunny lake into a pale disc of mist with a white rim on its banks. The small ripples
+  fade out between 15 and 70 m, so water further off shows its larger ripples instead of a fine
+  plaid a few pixels across. In a hazy scene a dark, stair-stepped
+  line no longer outlines every lake: where the water fades to clear at the shore, the bank behind
+  it is fogged like the rest of the view.
 
 What the existing settings do, since the numbers are not obvious:
 

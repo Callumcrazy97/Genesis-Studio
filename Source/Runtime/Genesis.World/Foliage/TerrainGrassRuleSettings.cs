@@ -21,14 +21,20 @@ public sealed class TerrainGrassRuleSettings : IJsonOnDeserializing, IJsonOnDese
     /// <summary>Painted layers a rule can name a density for.</summary>
     public const int LayerCount = TerrainGrassLayerWeights.LayerCount;
 
-    /// <summary>The built-in grass's colour at the root of each blade (a deep meadow green).</summary>
-    public static readonly Vector3 DefaultBaseColor = new(0.10f, 0.22f, 0.06f);
+    // 29 Oct (T7): darker and warmer than the first values (root 0.10, 0.22, 0.06; tip 0.27, 0.62,
+    // 0.17; curve 0.8). Under the sunny sky those rendered the meadow about 1.5 times as bright as
+    // the reference picture, lime rather than olive green, with no dark roots. Rules already saved
+    // keep the colours they were saved with. The ground colour stays: it is what distant hills show
+    // where the grass has thinned out, and they already matched.
 
-    /// <summary>The built-in grass's colour at the tip of each blade (a sunlit meadow green).</summary>
-    public static readonly Vector3 DefaultTipColor = new(0.27f, 0.62f, 0.17f);
+    /// <summary>The built-in grass's colour at the root of each blade (a deep, shaded meadow green).</summary>
+    public static readonly Vector3 DefaultBaseColor = new(0.06f, 0.12f, 0.04f);
 
-    /// <summary>The built-in grass's colour curve: the sunlit tip colour reaches a little further down the blade.</summary>
-    public const float DefaultColorCurve = 0.8f;
+    /// <summary>The built-in grass's colour at the tip of each blade (a sunlit, slightly olive meadow green).</summary>
+    public static readonly Vector3 DefaultTipColor = new(0.27f, 0.46f, 0.18f);
+
+    /// <summary>The built-in grass's colour curve: the dark root colour climbs a little way up the blade.</summary>
+    public const float DefaultColorCurve = 1.25f;
 
     /// <summary>The colour of a painted Grass layer that suits the built-in grass: the ground between its tufts.</summary>
     public static readonly Vector3 DefaultGroundColor = new(0.22f, 0.38f, 0.11f);

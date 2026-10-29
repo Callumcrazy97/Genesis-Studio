@@ -80,11 +80,11 @@ public sealed class TerrainWaterDefinition
     /// </summary>
     public bool CustomAppearance { get; set; }
     /// <summary>Colour over shallow water, red, green and blue from 0 to 1.</summary>
-    public Vector3 ShallowColor { get; set; } = new(0.18f, 0.62f, 0.72f);
+    public Vector3 ShallowColor { get; set; } = WaterMaterialSettings.DefaultShallowColor;
     /// <summary>Colour the water darkens to with depth.</summary>
-    public Vector3 DeepColor { get; set; } = new(0.04f, 0.18f, 0.38f);
+    public Vector3 DeepColor { get; set; } = WaterMaterialSettings.DefaultDeepColor;
     /// <summary>How much the surface hides what is under it, 0 (glass) to 1 (opaque).</summary>
-    public float Opacity { get; set; } = 0.5f;
+    public float Opacity { get; set; } = WaterMaterialSettings.DefaultOpacity;
     /// <summary>Depth in metres over which the shallow colour gives way to the deep one.</summary>
     public float ClarityDepth { get; set; } = 12f;
     /// <summary>Width in metres of the foam along the shore.</summary>
@@ -147,9 +147,9 @@ public sealed class TerrainWaterDefinition
         TemperatureCelsius = Math.Clamp(TemperatureCelsius, -50f, 100f);
         RainCoupling = Math.Clamp(RainCoupling, 0f, 2f);
         WaveAmplitude = Math.Clamp(WaveAmplitude, 0f, 8f);
-        ShallowColor = ClampColour(ShallowColor, new Vector3(0.18f, 0.62f, 0.72f));
-        DeepColor = ClampColour(DeepColor, new Vector3(0.04f, 0.18f, 0.38f));
-        Opacity = float.IsFinite(Opacity) ? Math.Clamp(Opacity, 0f, 1f) : 0.5f;
+        ShallowColor = ClampColour(ShallowColor, WaterMaterialSettings.DefaultShallowColor);
+        DeepColor = ClampColour(DeepColor, WaterMaterialSettings.DefaultDeepColor);
+        Opacity = float.IsFinite(Opacity) ? Math.Clamp(Opacity, 0f, 1f) : WaterMaterialSettings.DefaultOpacity;
         ClarityDepth = float.IsFinite(ClarityDepth) ? Math.Clamp(ClarityDepth, 0.1f, 500f) : 12f;
         FoamWidth = float.IsFinite(FoamWidth) ? Math.Clamp(FoamWidth, 0f, 50f) : 1.25f;
         FlowSpeed = Math.Clamp(FlowSpeed, -20f, 20f);

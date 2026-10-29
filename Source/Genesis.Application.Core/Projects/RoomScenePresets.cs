@@ -32,9 +32,9 @@ public static class RoomScenePresets
     public static IReadOnlyList<RoomScenePreset> All { get; } =
     [
         new("SunnyDay", "Sunny day", "Midday sun, a few clouds, clear air.", UiGlyphs.Sun, "#F2C14B", environment =>
-            Sky(environment, 12.5f, WeatherKind.Clear, AtmospherePreset.ClearDay, coverage: 0.6f, haze: 0.12f)),
+            Sky(environment, 12.5f, WeatherKind.Clear, AtmospherePreset.ClearDay, coverage: 0.6f, haze: 0.12f, sunGlow: 1f)),
         new("GoldenHour", "Golden hour", "Low, warm evening light and long shadows.", UiGlyphs.Sunset, "#F28C4B", environment =>
-            Sky(environment, 18.6f, WeatherKind.Clear, AtmospherePreset.GoldenHour, coverage: 0.8f, haze: 0.25f)),
+            Sky(environment, 18.6f, WeatherKind.Clear, AtmospherePreset.GoldenHour, coverage: 0.8f, haze: 0.25f, sunGlow: 1f)),
         new("Overcast", "Overcast", "Soft, even light under a grey sky.", UiGlyphs.Cloud, "#8FA3B8", environment =>
             Sky(environment, 13f, WeatherKind.Overcast, AtmospherePreset.Overcast, coverage: 1.6f, haze: 0.3f)),
         new("Stormy", "Stormy", "Dark clouds, rain and thunder.", UiGlyphs.Lightning, "#6C7A99", environment =>
@@ -59,8 +59,10 @@ public static class RoomScenePresets
     public static RoomScenePreset? Find(string? id) =>
         All.FirstOrDefault(preset => preset.Id.Equals(id?.Trim(), StringComparison.OrdinalIgnoreCase));
 
+    // A clear sky glows round the sun (RoomEnvironment.SunGlow); under cloud, and in the other
+    // scenes as they always were, it does not.
     private static void Sky(RoomEnvironment environment, float hours, WeatherKind weather, AtmospherePreset atmosphere,
-        float coverage, float haze)
+        float coverage, float haze, float sunGlow = 0f)
     {
         environment.DynamicSky = true;
         environment.AutomaticWeather = false;
@@ -71,5 +73,6 @@ public static class RoomScenePresets
         environment.VolumetricClouds = true;
         environment.CloudCoverageScale = coverage;
         environment.AtmosphericHaze = haze;
+        environment.SunGlow = sunGlow;
     }
 }

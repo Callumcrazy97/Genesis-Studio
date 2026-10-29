@@ -65,7 +65,7 @@ cbuffer WaterConstants : register(b3)
     row_major float4x4 ReflectionViewProjection;
     float4 ReflectionParams;
     float4 WeatherWindRain;
-    float4 DepthParams;   // x = scene depth is reversed
+    float4 DepthParams;   // x = scene depth is reversed; yzw = the dynamic sky's horizon (0: the material's)
 };
 
 Texture2D            AlbedoTex       : register(t0);
@@ -135,7 +135,8 @@ float LinearizeDepth(float depth, float nearPlane, float farPlane)
     return SceneDepthToView(depth, nearPlane, farPlane);
 }
 
-float3 SampleWaterNormal(float2 uv, float time, float flowSpeed, float2 flowDir, float rapids)
+// fine: how much of the small ripples (the second map) to keep, 1 near the eye.
+float3 SampleWaterNormal(float2 uv, float time, float flowSpeed, float2 flowDir, float rapids, float fine)
 {
     float len = length(flowDir);
     if (len > 0.01) flowDir /= len;
@@ -148,6 +149,7 @@ float3 SampleWaterNormal(float2 uv, float time, float flowSpeed, float2 flowDir,
 
     float3 nA = WaterNormalA.Sample(WaterSamp, uv * 3.5 + scrollA).rgb * 2.0 - 1.0;
     float3 nB = WaterNormalB.Sample(WaterSamp, uv * 7.0 + scrollB).rgb * 2.0 - 1.0;
+    nB.xy *= fine;
     float3 n  = normalize(float3(nA.xy + nB.xy, nA.z * nB.z));
     return n;
 }
@@ -177,10 +179,13 @@ PSOut PS_Water(VSOut IN)
     else flowDir = float2(0.0, 1.0);
     // River and waterfall meshes both author +V along the flow. Keeping the
     // normal-map scroll in UV space makes it follow bends and vertical sheets.
-    float3 tangentNormal = SampleWaterNormal(IN.UV, time, WaterParams.x, flowDir, SkyZenithPad.w);
+    // The small ripples are a few pixels across beyond a few tens of metres, where their grid of
+    // waves shows as a fine plaid: they fade out from 15 to 70 metres, leaving the larger ones.
+    float rippleDistance = distance(IN.WorldPos, cameraPos);
+    float3 tangentNormal = SampleWaterNormal(IN.UV, time, WaterParams.x, flowDir, SkyZenithPad.w,
+        1.0 - smoothstep(15.0, 70.0, rippleDistance));
     // Ripples a few metres across turn to moire when a sea runs to the horizon. Past a couple of
     // hundred metres they give way to a broad swell, and that to flat water further still.
-    float rippleDistance = distance(IN.WorldPos, cameraPos);
     float ripples = 1.0 - smoothstep(35.0, 240.0, rippleDistance);
     if (ripples < 0.999)
     {
@@ -239,8 +244,19 @@ PSOut PS_Water(VSOut IN)
     float3 waterColor = shallow * transmittance + deep * (1.0 - transmittance);
 
     float fresnel = pow(1.0 - saturate(dot(-viewDir, n)), 5.0);
-    float3 horizonCol = float3(SkyHorizonFlow.xy, lerp(SkyHorizonFlow.x, SkyZenithPad.y, 0.45));
-    float3 skyRefl = FakeSkyReflection(viewDir, n, horizonCol, SkyZenithPad.rgb);
+    float3 skyRefl;
+    if (any(DepthParams.yzw > 0.0))
+    {
+        // The room's own sky: its horizon and zenith colours, graded by height as the sky composite
+        // grades them, so ripples catching the low sky and the high sky differ as they should.
+        float3 skyDir = reflect(viewDir, n);
+        skyRefl = lerp(DepthParams.yzw, SkyZenithPad.rgb, pow(saturate(skyDir.y), 0.45));
+    }
+    else
+    {
+        float3 horizonCol = float3(SkyHorizonFlow.xy, lerp(SkyHorizonFlow.x, SkyZenithPad.y, 0.45));
+        skyRefl = FakeSkyReflection(viewDir, n, horizonCol, SkyZenithPad.rgb);
+    }
     if (ReflectionParams.x > 0.5)
     {
         float4 projected = mul(float4(IN.WorldPos, 1.0), ReflectionViewProjection);
@@ -296,7 +312,10 @@ PSOut PS_Water(VSOut IN)
         float4 fog = FroxelFog(IN.SvPos.xy * ViewportParams.zw, cameraPos, IN.WorldPos,
             mul(float4(IN.WorldPos, 1.0), ViewProjection).w);
         waterColor = lerp(waterColor, waterColor * fog.a + fog.rgb, saturate(FogColor.a));
-        fogDone = 1.0;
+        // Only where the water mostly hides what is behind it. Along the shore it fades to nearly
+        // clear, and flagging those pixels left the bank seen through them unfogged: a dark,
+        // stair-stepped line round every lake in a hazy scene. There the post fog runs as usual.
+        fogDone = alpha > 0.4 ? 1.0 : 0.0;
     }
 
     PSOut result;

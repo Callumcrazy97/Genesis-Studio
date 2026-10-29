@@ -340,6 +340,11 @@ public sealed class RoomEnvironment
     /// <summary>How large the sun's disc is drawn against its usual size, which is a little over half a degree.</summary>
     [JsonProperty("sunDiscScale")] public float SunDiscScale { get; set; } = 1f;
     /// <summary>
+    /// How strongly the haze glows round the sun in the dynamic sky, 0 to 4: 0 (a room saved before
+    /// the glow existed) none, 1 a clear day's. The Sunny day and Golden hour scenes set 1.
+    /// </summary>
+    [JsonProperty("sunGlow")] public float SunGlow { get; set; }
+    /// <summary>
     /// How far from the camera the sun casts shadows, in metres. Zero follows the view distance
     /// (the camera's far plane) up to 300 m; a large outdoor world sets more so mountains shade valleys.
     /// </summary>

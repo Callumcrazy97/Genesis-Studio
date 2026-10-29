@@ -802,6 +802,12 @@ namespace Genesis.Shared.Interfaces
         public float   CloudCoverageScale;
         /// <summary>How large the sun's disc is drawn against its usual size. 0 (a state built without the defaults) counts as 1.</summary>
         public float   SunDiscScale;
+        /// <summary>
+        /// How strongly the haze glows round the sun in the dynamic sky (0 none, the default; 1 a clear
+        /// day's glow; up to 4). Light scattered forward by the air: a bright core and a halo tens of
+        /// degrees wide, stronger low in the sky.
+        /// </summary>
+        public float   SunGlow;
         /// <summary>The sun's disc is not drawn; its light is unchanged (a game drawing its own sky).</summary>
         public bool    HideSunDisc;
         /// <summary>The moon's disc is not drawn; moonlight is unchanged.</summary>

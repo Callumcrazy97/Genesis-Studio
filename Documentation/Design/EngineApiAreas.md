@@ -128,7 +128,7 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 |---|---|
 | Engine.Sky | + Enabled, ✓ Quality, ✓ AtmospherePreset, ✓ Haze, ✓ Visibility, + ZenithColor, + HorizonColor |
 | Engine.Sky.Time | ✓ Enabled (29 Oct: time of day runs), ✓ TimeOfDay, ✓ DayOfYear, ✓ Latitude, + Speed (in-game hours per real minute), + Paused |
-| Engine.Sky.Sun | ✓ Enabled (29 Oct: = Visible), ✓ DiscVisible [SunDiscVisible], ✓ Size [SunSize], + Brightness |
+| Engine.Sky.Sun | ✓ Enabled (29 Oct: = Visible), ✓ DiscVisible [SunDiscVisible], ✓ Size [SunSize], ✓ Glow [SunGlow] (29 Oct), + Brightness |
 | Engine.Sky.Moon | ✓ Enabled (29 Oct: = Visible), ✓ DiscVisible [MoonDiscVisible], + Phase, + Brightness |
 | Engine.Sky.Stars | + Enabled [CelestialExtrasEnabled], + Brightness, + Rotation |
 | Engine.Sky.Clouds | + Enabled [RaymarchedCloudsEnabled], ✓ Coverage, ✓ Density, ✓ Thickness, ✓ Altitude, + Speed, + DirectionX/Z, + Quality [Engine.Rendering.CloudQuality], + Temporal.Enabled [CloudTemporalEnabled] |

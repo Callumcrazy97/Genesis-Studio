@@ -549,6 +549,20 @@ float4 PS(VSOut IN) : SV_Target
                 float disc = smoothstep(cos(radius * 1.2), cos(radius * 0.8), solarDot);
                 float aureole = pow(solarDot, 1800.0) * 0.035;
                 sky += SunColorIntensity.rgb * transmittanceLut * AuthoredSkySun.w * (disc + aureole);
+
+                // The sun's glow (w, 0 none): sunlight the haze scatters forward, Henyey-Greenstein
+                // with g 0.82 for a halo tens of degrees wide, a soft bloom a few degrees across and
+                // a bright core, broader low in the sky where the air is thicker. Warm, as sunlight
+                // through haze is, so it reads as light rather than as grey mist.
+                if (AtmosphereLutParams.w > 0.0)
+                {
+                    float cosSun = dot(lutViewDir, AuthoredSkySun.xyz);
+                    float g = 0.82;
+                    float phase = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * cosSun, 1e-4), 1.5);
+                    float near = saturate(cosSun);
+                    float glow = (phase * 0.0085 * (1.0 + 0.8 * horizon) + pow(near, 150.0) * 0.2 + pow(near, 400.0) * 0.35) * daylight;
+                    sky += SunColorIntensity.rgb * float3(1.0, 0.9, 0.74) * transmittanceLut * glow * AtmosphereLutParams.w;
+                }
             }
             color.rgb = sky;
         }
