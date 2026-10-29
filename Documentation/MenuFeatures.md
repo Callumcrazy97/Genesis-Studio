@@ -31,6 +31,28 @@ The smooth shapes are drawn one pixel row at a time, so a translucent shape cove
 `DrawRoundRect` used to overlap its corner discs with its middle, which made the corners of a
 translucent one darker. Edge pixels get the share of the pixel the shape covers as their alpha.
 
+**One draw call a shape (29 October 2026).** Each of those rows (and each edge pixel of it) was a
+draw call of its own, a command to the GUI canvas and a quad on the screen. Mushroom Meadow's HUD and
+stage card, fourteen elements, made 8,969 calls a frame at 1920 x 1080 (the debug screen's GUI page
+counted them), its main menu 12,426: a bordered gradient panel of 576 pixels alone was 3,702. A
+shape's runs now go to the screen as one batch, and the runs that match are joined first: a run
+touching the next in the same colour, and a run directly under one of the row above with the same
+place, width and colour (every row of a solid box between its corners, every row of a border's
+sides, every row of a gradient that has not changed colour yet). The rectangles never overlap and
+cover the same pixels in the same colours, so the picture is exactly the one the rows made (the stage
+card's capture at 1920 x 1080 is identical pixel for pixel). The HUD and card's layer is now 41 draw
+calls (20 of them the two UIs' boxes and texts, 2,715 rectangles where there were 8,872 calls), the
+main menu's 32. Uncapped on DX11 at 1920 x 1080
+(`game.benchmark`), the main menu's median frame went from 2.91 ms to 1.30 ms (95th percentile 5.27
+to 1.50 ms) and the stage card's from 2.75 ms to 1.21 ms (5.94 to 1.36 ms). A solid rounded box is a
+few rectangles, a border a few more, a gradient box about one a row (its colour changes about every
+row), a disc about three a row. This covers `DrawRoundRect`, `DrawRoundRectEx`, `DrawCircleEx`,
+`DrawRectangleGradient` (one batch of bands, also through `DrawSetOffset`) and every rounded,
+bordered or gradient element, slider knob and toggle of a User Interface resource. A square solid box
+is still one rectangle. The GUI page counts a batch as one draw call. The Draw GUI event of the HUD
+and card still takes about 0.6 ms a frame, much of it working the rows of unchanged shapes out
+again: keeping them between frames is the next saving.
+
 **Changed:** `DrawRoundRect` is now drawn the same way: smooth edges, no dark corners, and its
 outline has rounded corners (it used to be four straight lines with gaps at the corners).
 
@@ -265,7 +287,10 @@ of lying over its right side, and its property rows keep their order when an ele
 Regression: `--test menu-clips` (pixels on all five renderers: transparent rounded corners, gradient
 directions, the border, centred and right/bottom text, the hover look under the pointer, the slider
 and toggle; a slider and toggle driven by simulated pointer input and read from a PGSL script; image
-contain/cover/crop rectangles; an old file's draw calls unchanged; Inspector save/reopen).
+contain/cover/crop rectangles; an old file's draw calls unchanged; Inspector save/reopen; Mushroom
+Meadow's HUD and stage card at three window sizes in at most 40 draw calls and with the very picture
+the rows made, and the script shapes as batches too). The GUI page's counting is in
+`--test debug-screen`.
 
 ## Models that share their clips
 

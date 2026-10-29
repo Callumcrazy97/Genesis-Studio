@@ -422,7 +422,8 @@ public static partial class PgslCommands
 
     /// <summary>
     /// <see cref="FillCoverage"/> with a colour per pixel row; transposed, the "rows" are columns,
-    /// so a left-to-right gradient is one colour per column.
+    /// so a left-to-right gradient is one colour per column. The runs go to the surface as one batch
+    /// (<see cref="GuiShapeRows"/>), not one draw call each.
     /// </summary>
     private static void FillShapeCoverage(IPgslDrawSurface surface, Func<int, Color> shade, double top, double bottom,
         SpanSource source, bool transposed)
@@ -434,6 +435,7 @@ public static partial class PgslCommands
         Span<int> sampleCounts = stackalloc int[CoverageSamples];
         Span<double> scratch = stackalloc double[4];
         Span<int> edges = stackalloc int[CoverageSamples * 4];
+        GuiShapeRows runs = GuiShapeRows.Begin(surface, transposed);
 
         for (int row = firstRow; row < lastRow; row++)
         {
@@ -459,20 +461,21 @@ public static partial class PgslCommands
                 int column = edges[e];
                 if (column == previous) continue;
                 if (previous != int.MinValue && column > previous + 1)
-                    EmitShape(surface, color, previous + 1, row, column - previous - 1,
-                        Coverage(sampleSpans, sampleCounts, previous + 1, column), transposed);
-                EmitShape(surface, color, column, row, 1, Coverage(sampleSpans, sampleCounts, column, column + 1), transposed);
+                    EmitShape(runs, color, previous + 1, row, column - previous - 1,
+                        Coverage(sampleSpans, sampleCounts, previous + 1, column));
+                EmitShape(runs, color, column, row, 1, Coverage(sampleSpans, sampleCounts, column, column + 1));
                 previous = column;
             }
         }
+        runs.End();
     }
 
-    private static void EmitShape(IPgslDrawSurface surface, Color color, int x, int y, int width, double coverage, bool transposed)
+    private static void EmitShape(GuiShapeRows runs, Color color, int x, int y, int width, double coverage)
     {
         if (coverage <= 0.002 || width <= 0) return;
         Color shade = coverage >= 0.998 ? color : Color.FromArgb((int)Math.Round(color.A * Math.Min(1, coverage)), color);
         if (shade.A == 0) return;
-        surface.FillRectangle(shade, transposed ? new RectangleF(y, x, 1, width) : new RectangleF(x, y, width, 1));
+        runs.Add(x, y, width, shade);
     }
 
     #endregion
