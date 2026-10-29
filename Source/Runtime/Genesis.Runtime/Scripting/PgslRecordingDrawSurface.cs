@@ -28,6 +28,7 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
     public readonly record struct SphereRecord(float X, float Y, float Z, float Radius, Color Color);
     public readonly record struct ModelRecord(string Name, float X, float Y, float Z, float Scale, Color Color);
     public readonly record struct PointRecord(float X, float Y, Color Color);
+    public readonly record struct BeamRecord(float X1, float Y1, float Z1, float X2, float Y2, float Z2, float Width, Color Color, float Alpha);
 
     public List<RectRecord> Rectangles { get; } = [];
     public List<CircleRecord> Circles { get; } = [];
@@ -38,6 +39,7 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
     public List<SphereRecord> Spheres { get; } = [];
     public List<ModelRecord> Models { get; } = [];
     public List<PointRecord> Points { get; } = [];
+    public List<BeamRecord> Beams { get; } = [];
     public Color? ClearedTo { get; private set; }
     public int Clears { get; private set; }
 
@@ -48,7 +50,7 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
     public int TotalShapes => Rectangles.Count + Circles.Count + Lines.Count + Points.Count;
 
     /// <summary>Every recorded call of any kind.</summary>
-    public int TotalCalls => TotalShapes + Texts.Count + Sprites.Count + Cubes.Count + Spheres.Count + Models.Count + Clears;
+    public int TotalCalls => TotalShapes + Texts.Count + Sprites.Count + Cubes.Count + Spheres.Count + Models.Count + Beams.Count + Clears;
 
     public void Reset()
     {
@@ -61,6 +63,7 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
         Spheres.Clear();
         Models.Clear();
         Points.Clear();
+        Beams.Clear();
         ClearedTo = null;
         Clears = 0;
     }
@@ -125,4 +128,7 @@ public sealed class PgslRecordingDrawSurface : IPgslDrawSurface
 
     public void QueueModel3D(string modelName, float x, float y, float z, float scale, Color color, float alpha) =>
         Models.Add(new ModelRecord(modelName, x, y, z, scale, color));
+
+    public void QueueBeam3D(float x1, float y1, float z1, float x2, float y2, float z2, float width, Color color, float alpha) =>
+        Beams.Add(new BeamRecord(x1, y1, z1, x2, y2, z2, width, color, alpha));
 }

@@ -141,6 +141,25 @@ Checks a test run reports (`game.run` lists them, and a failed one fails the run
 TestCheck("walker stands on the ground", Abs(y - Engine.Terrain.GetHeight(x, z)) < 0.2, "y " + String(y));
 ```
 
+Work that runs once and long, a world generated or a save upgraded in a Create event: a call may
+run 100 000 instructions before it is stopped as a hang. Raise the limit once for the rest of the game
+(up to 1 000 000 000; a lower number puts back 100 000), and keep ordinary per-frame work short.
+Compiled and interpreted functions count the same instructions, so the limit means the same either way:
+
+```pgsl
+ScriptInstructionLimit(50000000);          // the same as Engine.Game.Scripts.InstructionLimit = 50000000;
+UpgradeSave();                             // may now run 50 million instructions in one call
+```
+
+A spray that leaves a surface along its normal, and a tracer that reads as a streak of light:
+
+```pgsl
+ParticleBurstAtDir("Sparks", hitX, hitY, hitZ, normalX, normalY, normalZ, 1, 0);
+DrawSetColorRgb(255, 200, 80);
+DrawSetAlpha(0.9);
+DrawBeam3D(muzzleX, muzzleY, muzzleZ, hitX, hitY, hitZ, 0.04);   // in a Draw event, each frame it shows
+```
+
 ## The look
 
 - **Light**: a scene preset gives sun, sky, clouds and haze together. Reflections and light bounced

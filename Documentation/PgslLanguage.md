@@ -108,7 +108,7 @@ if (Engine.Physics.Grounded && KeyPressed("space")) Engine.Physics.VelocityY = 6
 
 | Limit | Value | When it is reached |
 |---|---|---|
-| Instructions | 100 000 per event body and per function call (each call has its own count), unless the game raises it with `ScriptInstructionLimit(instructions)` (up to 1 000 000 000, for the rest of the game; a lower number restores 100 000; it returns the limit in force) | "Infinite loop detected: Maximum instruction limit (100000) exceeded in function 'Name'". Split long work over several frames, raise the limit (a world generator's Create event: `ScriptInstructionLimit(50000000);`), or run it as a worker job. |
+| Instructions | 100 000 per event body and per function call (each call has its own count; a function running compiled counts the same instructions as one interpreted, one for each that runs), unless the game raises it with `ScriptInstructionLimit(instructions)` or `Engine.Game.Scripts.InstructionLimit = instructions` (up to 1 000 000 000, for the rest of the game; a lower number restores 100 000; the command returns the limit in force) | "Infinite loop detected: Maximum instruction limit (100000) exceeded in function 'Name'". Split long work over several frames, raise the limit (a world generator's Create event: `ScriptInstructionLimit(50000000);`), or run it as a worker job. |
 | Recursion | 200 calls deep | "Too much recursion: 'Name' is 200 calls deep". Use a loop with a list or stack (`DsStack*`) for deep work. |
 | Script calls | 64 Script resources deep | |
 | A worker job's instructions | 100 000 000 for the whole job, every call counted, unless `JobScriptBudget` sets another; no per-call limit | "The job ran more than its budget of N instructions". See [script functions on worker threads](GameFeatures.md#script-functions-on-worker-threads). |
@@ -230,6 +230,18 @@ list is; writing past the end grows the list, filling the gap with 0. `String(a)
 
 Like the other collection commands they ignore a value that is not a list.
 
+### Data structures belong to the instance that made them
+
+The `Ds` structures (`DsListCreate`, `DsMapCreate`, `DsGridCreate`, stacks, queues, priority queues)
+and `NumListCreate` belong to the instance that made them. They go when that instance is destroyed
+(nothing leaks), and a handle means something only to its owner: each instance numbers its own from 1,
+so a handle given to another instance (through `GlobalSet`, a variable or an argument) names *that*
+instance's structure of the same number, or none (a missing one reads as empty, with no error).
+To reach a structure from another instance, run the code in its owner,
+`with (owner) { DsListAdd(handle, 5); }`, or share data another way: `GlobalSet` values, a
+`[1, 2, 3]` list value (held by reference, so every holder sees one list), or an Object instance
+that keeps the structure for everyone.
+
 ## Events
 
 In one frame: Step Begin, Step, Step End, then alarms, Draw and Draw GUI. Create runs once before
@@ -240,7 +252,9 @@ the first frame (after Game Start and Room Start).
 `ParticleBurstAt(particle, x, y, z, scale, seconds)` plays a Particle resource once and removes
 itself: an effect that does not loop emits its burst count; a looping one emits for `seconds`
 (0.25 s if 0); then the emitter goes once its last particle has lived. A burst whose resource
-cannot be loaded is removed after 5 seconds. `SpawnParticleEmitter` keeps emitting until destroyed.
+cannot be loaded is removed after 5 seconds. `ParticleBurstAtDir(particle, x, y, z, dx, dy, dz, scale,
+seconds)` plays the same burst turned so the effect's up points along `(dx, dy, dz)`: dust leaving a
+wall along its normal, a muzzle flash along the barrel. `SpawnParticleEmitter` keeps emitting until destroyed.
 A particle's gravity is positive upwards (world units per second squared): use a negative value for
 falling sparks.
 

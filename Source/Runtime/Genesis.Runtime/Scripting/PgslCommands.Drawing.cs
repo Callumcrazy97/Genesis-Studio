@@ -405,6 +405,23 @@ public static partial class PgslCommands
         }
     }
 
+    [PgslCommand("DrawBeam3D", "DrawBeam3D(x1, y1, z1, x2, y2, z2, width)",
+        "A thin glowing beam between two points, width in metres: not lit and added to the light behind it, so a tracer, a laser or a bolt of lightning reads as a streak of light "
+        + "(DrawLine3D is a chain of lit cubes). The colour is the draw colour (DrawSetColorRgb) and the strength the draw alpha (DrawSetAlpha); draw it each frame it should show", "Drawing 3D")]
+    public static void DrawBeam3D(double x1, double y1, double z1, double x2, double y2, double z2, double width)
+    {
+        IPgslDrawSurface surface = Draw;
+        if (surface is null || !surface.Is3DActive
+            || !double.IsFinite(x1) || !double.IsFinite(y1) || !double.IsFinite(z1)
+            || !double.IsFinite(x2) || !double.IsFinite(y2) || !double.IsFinite(z2) || !double.IsFinite(width)) return;
+        PgslContext ctx = GetContext();
+        surface.QueueBeam3D(
+            (float)x1, (float)y1, (float)z1, (float)x2, (float)y2, (float)z2,
+            (float)Math.Clamp(Math.Abs(width), 0.001, 100),
+            ctx is null ? Color.White : Color.FromArgb(255, ctx.DrawColor),
+            (float)Math.Clamp(ctx?.DrawAlpha ?? 1d, 0d, 1d));
+    }
+
     [PgslCommand("DrawGrid3D", "DrawGrid3D(x, y, z, cellSize, columns, rows)", "Lattice of thin boxes on the XZ plane", "Drawing 3D")]
     public static void DrawGrid3D(double x, double y, double z, double cellSize, double columns, double rows)
     {

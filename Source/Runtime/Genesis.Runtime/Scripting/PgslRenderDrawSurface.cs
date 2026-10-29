@@ -559,6 +559,47 @@ namespace Genesis.Runtime.Scripting
             QueuePrimitive(BuiltinMeshKind.Sphere, x, y, z, diameter, diameter, diameter, color, alpha);
         }
 
+        public void QueueBeam3D(float x1, float y1, float z1, float x2, float y2, float z2, float width, Color color, float alpha)
+        {
+            if (!_is3DActive || _renderer == null) return;
+            MeshHandle mesh = _renderer.GetBuiltinMesh(BuiltinMeshKind.Cube);
+            if (!mesh.IsValid) return;
+            float a = Math.Clamp(alpha, 0f, 1f) * (color.A / 255f);
+            if (!(a > 0.001f)) return;
+
+            // The built-in cube stretched to the beam's length along its Z and turned to lie along it.
+            Vector3 from = new(x1, y1, z1);
+            Vector3 span = new Vector3(x2, y2, z2) - from;
+            float length = span.Length();
+            float thickness = MathF.Max(0.001f, MathF.Abs(width));
+            Vector3 along = length > 1e-6f ? span / length : Vector3.UnitZ;
+            Vector3 reference = MathF.Abs(along.Y) > 0.99f ? Vector3.UnitX : Vector3.UnitY;
+            Vector3 right = Vector3.Normalize(Vector3.Cross(reference, along));
+            Vector3 up = Vector3.Cross(along, right);
+            Matrix4x4 turn = new(
+                right.X, right.Y, right.Z, 0f,
+                up.X, up.Y, up.Z, 0f,
+                along.X, along.Y, along.Z, 0f,
+                0f, 0f, 0f, 1f);
+
+            // Drawn as an additive, unlit line of its own colour: the colour is added to what is behind, so
+            // the alpha fades the colour itself. Not Emissive: that adds the surface's white as well, and
+            // a beam of any colour came out near white. The batch of additive draws has no face culling, so
+            // the cube's far face is added over its near one: each takes half the colour for a sum of one.
+            float each = a * 0.5f;
+            MeshDrawCall call = new()
+            {
+                Mesh = mesh,
+                World = Matrix4x4.CreateScale(thickness, thickness, MathF.Max(length, thickness)) * turn * Matrix4x4.CreateTranslation(from + (span * 0.5f)),
+                Tint = new RenderColor(color.R / 255f * each, color.G / 255f * each, color.B / 255f * each, a),
+                Alpha = a,
+                Flags = MeshDrawFlags.Transparent | MeshDrawFlags.Additive | MeshDrawFlags.NoDepthWrite | MeshDrawFlags.NoShadow
+                    | MeshDrawFlags.NoReceiveShadow | MeshDrawFlags.Unlit,
+            };
+            if (_commands != null) _commands.DrawMesh(call);
+            else _renderer.DrawMesh(call);
+        }
+
         public void QueueModel3D(
             string modelName, float x, float y, float z, float scale, Color color, float alpha)
             => QueueModelTransform3D(

@@ -143,6 +143,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiTerrainGroundGrassScatterAndQueries", () => TerrainLook(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleEmitterLookAndQuality", () => ParticleEmitterLook(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleSwitches", () => ParticleSwitches(project, row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.DirectedBurstsAndGlowingBeams", () => DirectedBurstsAndBeams(row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiInstanceFrozenAndBack", () => InstanceFreeze(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiNavigationBakeAndPriority", () => NavigationParts(project, row));
     }
@@ -833,6 +834,61 @@ internal static class PgslEngineApiChecks
         {
             Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
         }
+    }
+
+    // ParticleBurstAtDir turns the effect's up to the direction (the emitter's turn carries its particles,
+    // as the composition makes the emitter's world matrix), a zero or broken direction plays it upright;
+    // DrawBeam3D reaches the draw surface with its ends, width, colour and strength, in a 3D pass only.
+    private static void DirectedBurstsAndBeams(Action<string, string, string, string> row)
+    {
+        using var scene = new RuntimeScene("Directed bursts");
+        const float ToRadians = MathF.PI / 180f;
+        List<string> wrong = [];
+        Vector3 position = new(1f, 2f, 3f);
+        foreach (Vector3 direction in new[]
+        {
+            Vector3.UnitY, -Vector3.UnitY, Vector3.UnitX, -Vector3.UnitZ, new Vector3(0f, 0f, 5f), new Vector3(1f, 2f, -3f), new Vector3(-0.3f, -0.2f, 0.9f), new Vector3(-4f, 0.5f, 0f),
+        })
+        {
+            Entity burst = Genesis.Runtime.Particles.ParticleBursts.Play(scene.World, "builtin://Explosion", position, 1f, 0f, direction);
+            if (burst.IsNull) { wrong.Add($"{direction}: no burst"); continue; }
+            TransformComponent turn = scene.World.GetRef<TransformComponent>(burst);
+            // The emitter's world matrix as ObjectCompositionSubsystem.ResolveParticleWorld makes it.
+            Matrix4x4 world = Matrix4x4.CreateRotationX(turn.RotationX * ToRadians) * Matrix4x4.CreateRotationY(turn.RotationY * ToRadians)
+                * Matrix4x4.CreateRotationZ((turn.RotationZ + turn.Rotation) * ToRadians);
+            Vector3 up = Vector3.TransformNormal(Vector3.UnitY, world), wanted = Vector3.Normalize(direction);
+            if (Vector3.Distance(up, wanted) > 1e-3f || turn.X != position.X || turn.Y != position.Y || turn.Z != position.Z)
+                wrong.Add($"{direction}: up {up} at {turn.X},{turn.Y},{turn.Z}");
+        }
+        foreach (Vector3? direction in new Vector3?[] { null, Vector3.Zero, new Vector3(float.NaN, 1f, 0f), new Vector3(float.PositiveInfinity, 0f, 0f) })
+        {
+            Entity burst = Genesis.Runtime.Particles.ParticleBursts.Play(scene.World, "builtin://Explosion", position, 1f, 0f, direction);
+            TransformComponent turn = scene.World.GetRef<TransformComponent>(burst);
+            if (turn.RotationX != 0f || turn.RotationY != 0f || turn.RotationZ != 0f) wrong.Add($"{(direction?.ToString() ?? "none")} should play upright, turned {turn.RotationX},{turn.RotationY},{turn.RotationZ}");
+        }
+
+        PgslRecordingDrawSurface surface = new() { Is3DActive = true };
+        PgslContext? previous = PgslCommands.BindContext(new PgslContext { DrawSurface = surface });
+        try
+        {
+            PgslCommands.DrawSetColorRgb(255, 128, 0);
+            PgslCommands.DrawSetAlpha(0.5);
+            PgslCommands.DrawBeam3D(0, 1, 2, 10, 1, 2, 0.05);
+            PgslCommands.DrawBeam3D(1, 1, 1, 2, 2, 2, -3);
+            PgslCommands.DrawBeam3D(0, 0, 0, double.NaN, 1, 1, 0.1);
+            surface.Is3DActive = false;
+            PgslCommands.DrawBeam3D(0, 0, 0, 1, 1, 1, 0.1);
+        }
+        finally { PgslCommands.BindContext(previous); }
+        var beams = surface.Beams;
+        bool beamsRight = beams.Count == 2
+            && beams[0] is { X1: 0, Y1: 1, Z1: 2, X2: 10, Y2: 1, Z2: 2, Alpha: 0.5f } first && Math.Abs(first.Width - 0.05f) < 1e-6f
+            && first.Color.R == 255 && first.Color.G == 128 && first.Color.B == 0 && Math.Abs(beams[1].Width - 3f) < 1e-6f;
+        bool pass = wrong.Count == 0 && beamsRight;
+        string detail = wrong.Count == 0 ? $"eight directions carried the effect's up to them, four broken ones played upright; {beams.Count} beams recorded"
+            : string.Join("; ", wrong) + $"; {beams.Count} beams recorded";
+        row("Engine API parts", "ParticleBurstAtDir turns the effect, DrawBeam3D reaches the surface", pass ? "PASS" : "FAIL", detail);
+        HeadlessHarness.Assert(pass, detail + (beamsRight ? "" : " (the beams recorded were not as asked for)"));
     }
 
     // Engine.Navigation.Mesh shapes the next bake, Engine.Navigation.Baked reads it, and an agent's

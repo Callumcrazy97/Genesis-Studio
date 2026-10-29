@@ -452,6 +452,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 |---|---|---|
 | `Alpha` | property | Reads (DrawGetAlpha) and sets (DrawSetAlpha): Current draw alpha, 0-1 |
 | `Arrow` | command | Line with an arrowhead at the far end |
+| `Beam3D` | command | A thin glowing beam between two points, width in metres: not lit and added to the light behind it, so a tracer, a laser or a bolt of lightning reads as a streak of light (DrawLine3D is a chain of lit cubes). The colour is the draw colour (DrawSetColorRgb) and the strength the draw alpha (DrawSetAlpha); draw it each frame it should show |
 | `BlendLinear` | property | Reads (DrawGetBlendLinear) and sets (DrawSetBlendLinear): Whether GUI drawing blends in linear light now |
 | `Box3D` | command | Axis-aligned box with independent extents |
 | `Circle` | command | Circle — filled, or outline when outline is true |
@@ -1403,6 +1404,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `AttachedSetRate` | command | Set this object's attached particle rate |
 | `Burst` | command | Emit a one-off burst |
 | `BurstAt` | command | Play a Particle resource once at a place; it removes itself when it has played out. Seconds is how long a continuous effect emits |
+| `BurstAtDir` | command | Play a Particle resource once at a place like ParticleBurstAt, turned so the effect's up (the axis of its cone) points along the direction (dx, dy, dz; any length): an impact's dust leaving the surface along its normal, a muzzle flash along the barrel, a jet's puffs along the jet. A zero direction leaves the effect upright, as ParticleBurstAt plays it. Drawn on the graphics card (the Software renderer plays the effect upright) |
 | `BurstBatched` | command | Play a Particle resource once at a place like ParticleBurstAt, but every batched burst of that resource shares one emitter: hundreds of them (falling leaves, sparks) cost one simulation and one draw a frame. No id is returned. An effect that loops, follows the camera, simulates in its own space, links emitters or lights the scene, and the Software renderer, play it as ParticleBurstAt |
 | `BurstCount` | command | ParticleBurstAt bursts alive now |
 | `BurstLimit` | property | Reads (ParticleBurstLimit) and sets (ParticleSetBurstLimit): The most ParticleBurstAt bursts alive at once (0 = no limit) |
