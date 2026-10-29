@@ -183,7 +183,7 @@ namespace Genesis.Rendering.Primitives
         /// <summary>Runs every post effect over the composited image, the last one into <paramref name="target"/>.</summary>
         private void RunPostEffects(GpuRenderTargetHandle target, GpuTextureHandle depthTexture, int width, int height, GpuTextureHandle whiteTexture)
         {
-            if (_postEffects.Count == 0 || !_postEffectTargets[0].IsValid) return;
+            if (_postEffects.Count == 0 || !_postEffectTargets[0].IsValid || RenderDiagnosticsOff.PostEffects) return;
             if (!_cbPostFrame.IsValid)
             {
                 _cbPostFrame = MakeCB<PostEffectFrameCB>("Post effect frame");

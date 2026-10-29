@@ -239,7 +239,8 @@ internal sealed partial class ForwardRenderer
         LastDecalsDrawn = 0;
         LastDecalDrawCalls = 0;
         int count = _pendingDecalCount;
-        if (count == 0 || _reflectionPassActive || _probeCaptureActive || !_mainPassHdrMrt || !_currentDepthTexture.IsValid) return;
+        if (count == 0 || _reflectionPassActive || _probeCaptureActive || !_mainPassHdrMrt || !_currentDepthTexture.IsValid
+            || RenderDiagnosticsOff.Decals) return;
         if (!EnsureDecalResources() || !TryGetMesh(_decalQuad.Id, out MeshEntry quad)) return;
 
         // Order: multiply, then alpha, then add. Multiply and add decals do not depend on order, so

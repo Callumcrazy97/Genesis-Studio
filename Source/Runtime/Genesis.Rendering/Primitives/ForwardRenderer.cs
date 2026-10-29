@@ -5418,6 +5418,7 @@ namespace Genesis.Rendering.Primitives
         /// <summary>
         private bool ShouldRunGtao(bool canPost) =>
             _state.GtaoEnabled
+            && !RenderDiagnosticsOff.AmbientOcclusion
             && canPost
             && _gtaoProgram.IsValid
             && _gtaoBlurProgram.IsValid

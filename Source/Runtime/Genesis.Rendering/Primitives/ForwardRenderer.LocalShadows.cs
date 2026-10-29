@@ -97,6 +97,7 @@ internal sealed partial class ForwardRenderer
         _state.ShadowsEnabled
         && _state.LightingEnabled
         && RenderCapacityDefaults.OmniShadowBudget > 0
+        && !RenderDiagnosticsOff.LampShadows
         && HasShadowCasters()
         && _shadowProgram.IsValid
         && _shadowTileClearProgram.IsValid
