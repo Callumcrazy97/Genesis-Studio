@@ -59,6 +59,8 @@ The `.gterrain` file stays **version 1** (heights, then one splat plane) while l
 
 The Software renderer draws all eight layers from its whole-terrain bake.
 
+**Paint from a model's ground.** `terrain.fromModel` (Automation) paints each sample with the layers of the model's surfaces over the sample's whole cell, each in proportion to the share of the cell it covers (`paintSupersample`, default 4: a cell is measured at 4 x 4 points, and 1 gives the earlier paint of the one layer under the sample's centre). A strip narrower than a cell, such as the 0.2 m earth rim round a path on a 0.25 m grid, used to fall between the sample centres wherever its wobble allowed and showed as a broken brown band along the path's edge; it is now a share of the paint along its whole length. A terrain made before 29 October 2026 keeps the paint it was saved with: to give it the new paint, make the terrain again with the same call and keep the new `.gterrain` (the heights come out the same).
+
 Measured on the development PC (DX11, 1280 × 720, a 2 km terrain seen from walking height): eight 1024² layers pack in about 0.7 s on the background bake, upload with mipmaps in about 0.2 s when the material is first bound, and the frame cost was 0.36 ms against 0.33 ms for the four-layer shader on the same view. Layers with no paint at a pixel are skipped, so cost follows how many layers overlap rather than how many exist.
 
 **Generate PBR** preserves existing channels and saves missing channels into the assigned Image. Albedo, Normal, Roughness and AO update the open terrain and entity previews. Normal relief does not displace geometry. Texture components expose the same generation action. Generation saves to the Image; terrain material assignment and Fill use terrain undo.
@@ -80,6 +82,8 @@ Scripts: `Engine.Terrain.Holes.Cut(x, z, radius)` and `Fill(x, z, radius)` chang
 ## Verification scope
 
 `Genesis.Application.Headless.exe --test terrain-grass` checks holes (cut, saved as version 3 and reopened; a terrain without holes still saves version 1; collision, raycast, grass and scatter leave them out; a dropped body falls through; the navigation grid refuses them; scripts cut, fill and switch them off; `terrain.setHole`; a DX11 pixel through a hole shows what lies below; the Terrain editor's brush, undo, save and reopen, with a capture).
+
+`Genesis.Application.Headless.exe --test terrain-material-runtime` checks that a model's ground is painted with the share of each layer over every cell (`Runtime.Terrain.Paint.ThinPathRimKeepsItsPaintAlongTheWholeEdge`: a wobbling path with a 0.2 m rim on a 0.25 m grid loses its rim in many columns when painted from sample centres alone and in none when measured over the cells; every sample's weights add up to 255; ground under one surface stays that layer alone).
 
 `Genesis.Application.Headless.exe --test terrain-layers-grass` checks eight-layer paint, version 1/2 files and undo snapshots, atlas cells, compiles the per-layer shader to DXBC, DXIL, SPIR-V and GLSL, renders all eight layers on DX11, DX12, Vulkan and OpenGL, and captures height blending and tiled per-layer normals on DX11.
 

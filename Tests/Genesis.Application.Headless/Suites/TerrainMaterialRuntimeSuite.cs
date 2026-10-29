@@ -18,6 +18,8 @@ using Genesis.Runtime.Scene;
 using Genesis.Shared.Assets;
 using Genesis.Shared.Interfaces;
 using Genesis.World.Terrain;
+using GroundTriangle = Genesis.Application.Core.Terrain.GroundTriangle;
+using ModelPaint = Genesis.Application.Core.Terrain.TerrainModelPaint;
 
 namespace Genesis.Application.Headless.Suites;
 
@@ -28,6 +30,87 @@ internal static class TerrainMaterialRuntimeSuite
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.Materials.SavedPaintPbrAndLiveImageMatchAuthoring", () => Check(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.Materials.TiledImagesKeepDetailBeyondSurfaceBake", () => FineDetail(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Render.Software.Materials.LinearSamplingSmoothsBakedTerrain", () => SoftwareFiltering(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.Paint.ThinPathRimKeepsItsPaintAlongTheWholeEdge", ThinRimKeepsItsPaint);
+    }
+
+    // A path through grass as the Kinfield village's: a lifted path strip over an earth rim 0.2 m wide
+    // each side, over the ground, its edges wobbling so the rim crosses the 0.25 m grid at every offset.
+    // Painted from the sample centres alone the rim falls between them where the grid allows, and the
+    // edge is a broken band; measured over each sample's cell it never drops out.
+    private static void ThinRimKeepsItsPaint()
+    {
+        const float cell = 0.25f, rimWidth = 0.2f;
+        const int grass = 0, path = 3, rim = 5; // the rim is on the second splat plane, as the village's Bank is
+        TerrainAsset terrain = new(97, 41, cell, -12, -5, -1, 1);
+        float Lower(float x) => -1f + 0.12f * MathF.Sin(x * 1.3f);
+        float Upper(float x) => 1f + 0.12f * MathF.Sin(x * 0.9f + 1f);
+        var triangles = new List<GroundTriangle>();
+        void Strip(float x0, float x1, Func<float, float> low, Func<float, float> high, float lowOffset, float highOffset, float y, int layer)
+        {
+            Vector3 a = new(x0, y, low(x0) + lowOffset), b = new(x1, y, low(x1) + lowOffset), c = new(x1, y, high(x1) + highOffset), d = new(x0, y, high(x0) + highOffset);
+            triangles.Add(new(a, b, c, layer)); triangles.Add(new(a, c, d, layer));
+        }
+        triangles.Add(new(new(-12, 0, -5), new(12, 0, -5), new(12, 0, 5), grass)); triangles.Add(new(new(-12, 0, -5), new(12, 0, 5), new(-12, 0, 5), grass));
+        for (float x = -12; x < 12 - 1e-3f; x += cell)
+        {
+            Strip(x, x + cell, Lower, Lower, -rimWidth, 0, 0.02f, rim);
+            Strip(x, x + cell, Upper, Upper, 0, rimWidth, 0.02f, rim);
+            Strip(x, x + cell, Lower, Upper, 0, 0, 0.04f, path);
+        }
+
+        // The layer under each sample's centre: the highest surface there.
+        int[] centre = new int[terrain.ResolutionX * terrain.ResolutionZ];
+        for (int z = 0; z < terrain.ResolutionZ; z++)
+        for (int x = 0; x < terrain.ResolutionX; x++)
+        {
+            float px = terrain.OriginX + x * cell, pz = terrain.OriginZ + z * cell, top = float.NegativeInfinity;
+            foreach (GroundTriangle t in triangles)
+            {
+                float area = (t.B.X - t.A.X) * (t.C.Z - t.A.Z) - (t.C.X - t.A.X) * (t.B.Z - t.A.Z);
+                float u = ((t.B.X - px) * (t.C.Z - pz) - (t.C.X - px) * (t.B.Z - pz)) / area, v = ((t.C.X - px) * (t.A.Z - pz) - (t.A.X - px) * (t.C.Z - pz)) / area;
+                if (u < -1e-5f || v < -1e-5f || 1f - u - v < -1e-5f || t.A.Y * u + t.B.Y * v + t.C.Y * (1f - u - v) <= top) continue;
+                top = t.A.Y * u + t.B.Y * v + t.C.Y * (1f - u - v); centre[z * terrain.ResolutionX + x] = t.Layer;
+            }
+        }
+
+        // Across each column of samples, the rim's paint on one edge: a whole sample's worth would be 1.
+        int Dropouts(TerrainAsset painted)
+        {
+            int missing = 0;
+            for (int x = 8; x < painted.ResolutionX - 8; x++) // clear of the strip's ends at the terrain's edge
+                foreach ((float near, float far) in new[] { (-1.9f, -0.5f), (0.5f, 1.9f) })
+                {
+                    float mass = 0;
+                    for (int z = 0; z < painted.ResolutionZ; z++)
+                    {
+                        float pz = painted.OriginZ + z * cell;
+                        if (pz >= near && pz <= far) mass += painted.GetLayerWeight(x, z, rim) / 255f;
+                    }
+                    if (mass < 0.5f) missing++;
+                }
+            return missing;
+        }
+
+        ModelPaint.Paint(terrain, triangles, centre, 1);
+        int pointDropouts = Dropouts(terrain);
+        Assert(terrain.HasExtendedLayers && Enumerable.Range(0, centre.Length).All(i => terrain.GetLayerWeight(i % terrain.ResolutionX, i / terrain.ResolutionX, centre[i]) == 255),
+            "Painting at one point a sample did not give each sample the layer under its centre.");
+        Assert(pointDropouts > 10, $"The fixture no longer shows the old dropouts of an undersampled rim ({pointDropouts} columns without rim paint); it cannot guard the fix.");
+
+        ModelPaint.Paint(terrain, triangles, centre, 4);
+        int dropouts = Dropouts(terrain);
+        Assert(dropouts == 0, $"{dropouts} columns of the path's edge lost their earth rim between the samples (without it {pointDropouts}).");
+        for (int z = 0; z < terrain.ResolutionZ; z++)
+        for (int x = 0; x < terrain.ResolutionX; x++)
+        {
+            int sum = 0;
+            for (int layer = 0; layer < 8; layer++) sum += terrain.GetLayerWeight(x, z, layer);
+            Assert(sum == 255, $"Sample {x}, {z} was painted with weights adding up to {sum}, not 255.");
+        }
+        Assert(terrain.GetLayerWeight(48, 20, path) == 255 && terrain.GetLayerWeight(48, 2, grass) == 255 && terrain.GetLayerWeight(8, 38, grass) == 255,
+            "Ground wholly under one surface was not painted with that layer alone.");
+        Assert(Enumerable.Range(0, centre.Length).Any(i => terrain.GetLayerWeight(i % terrain.ResolutionX, i / terrain.ResolutionX, path) is > 0 and < 255),
+            "The edge of the path was not painted with the share of each layer over it.");
     }
 
     private static void SoftwareFiltering(HeadlessContext ctx)

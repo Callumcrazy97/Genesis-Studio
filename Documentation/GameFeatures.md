@@ -755,6 +755,13 @@ one counts, so a pond within the sea's reach is the pond.
 Kinfield (Pennywick) was moved over this way: the ground, its stream, pond and sea, and its grass
 tufts (scatter layers of its own grass models on the grass paint) are terrain, not models and a
 script.
+
+29 October 2026: `terrain.fromModel` paints a sample with the layers over its whole cell, each in
+proportion to the share it covers (`paintSupersample`, default 4), not with the one layer under its
+centre point. Kinfield's paths have a 0.2 m earth rim in the model; on the terrain's 0.25 m grid it
+fell between sample centres wherever its wobble allowed, and every path edge showed a broken brown
+band. Terrains made earlier keep their saved paint; making one again with the same call gives the
+new paint and the same heights.
 ## Online games through a relay (22 October 2026)
 
 Games on a local network find each other with `NetDiscover` and connect by address. Over the
