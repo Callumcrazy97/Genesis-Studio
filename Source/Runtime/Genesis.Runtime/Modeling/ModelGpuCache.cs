@@ -25,7 +25,8 @@ namespace Genesis.Runtime.Modeling
             public SkinPaletteHandle IdentityPalette;
             public int PaletteSize;
             public readonly Dictionary<string, SkinPaletteHandle> AnimationPalettes = new(StringComparer.OrdinalIgnoreCase);
-            public readonly Dictionary<string, WeakReference<AnimationController>> ControllerOwners = new();
+            // Palettes of one instance's own pose (a controller's, or a look or reach's), by the object that owns it.
+            public readonly Dictionary<string, WeakReference<object>> ControllerOwners = new();
             /// <summary>Last use of each clip/frame palette, so unused poses can be released.</summary>
             public readonly Dictionary<string, long> PaletteLastUsed = new(StringComparer.OrdinalIgnoreCase);
             /// <summary>Idle clip palettes kept for the next new pose: releasing one and creating
@@ -513,7 +514,9 @@ namespace Genesis.Runtime.Modeling
             }
 
             string key = PaletteKey(asset, animation);
-            if (animation.Controller != null)
+            // A controller, or a look or reach on top of the pose, makes the pose this instance's own.
+            object owner = (object)animation.Controller ?? (animation.Targets is { Posing: true } targets ? targets : null);
+            if (owner != null)
             {
                 if (++cached.ControllerUpdates % 64 == 0)
                 {
@@ -528,7 +531,7 @@ namespace Genesis.Runtime.Modeling
                     }
                 }
                 if (!cached.ControllerOwners.ContainsKey(key))
-                    cached.ControllerOwners.Add(key, new WeakReference<AnimationController>(animation.Controller));
+                    cached.ControllerOwners.Add(key, new WeakReference<object>(owner));
             }
             if (string.IsNullOrEmpty(key))
             {
@@ -543,7 +546,7 @@ namespace Genesis.Runtime.Modeling
                 return cached.IdentityPalette;
             }
 
-            bool controllerDriven = animation.Controller != null;
+            bool controllerDriven = owner != null;
             if (cached.AnimationPalettes.TryGetValue(key, out SkinPaletteHandle handle) && handle.IsValid)
             {
                 if (!controllerDriven)
@@ -556,7 +559,7 @@ namespace Genesis.Runtime.Modeling
                 }
                 // Small on screen: the pose drawn last time stands for this draw too
                 // (ModelLodView.AnimationRateBySize).
-                if (animation.Controller.KeepsLastPose(animationStride))
+                if (animation.Controller?.KeepsLastPose(animationStride) == true)
                     return handle;
             }
             else
@@ -598,6 +601,7 @@ namespace Genesis.Runtime.Modeling
         private static string PaletteKey(GModelAsset asset, RuntimeModelAnimationState animation)
         {
             if (animation.Controller != null) return animation.Controller.PaletteKey;
+            if (animation.Targets is { Posing: true } targets) return targets.PaletteKey;
             string body = BodyPaletteKey(asset, animation);
             if (!animation.HasLayer) return body;
             GModelAnimationClip layer = FindClip(asset, animation.LayerClipName);

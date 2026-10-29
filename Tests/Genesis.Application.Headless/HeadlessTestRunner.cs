@@ -1152,6 +1152,9 @@ internal static class HeadlessTestRunner
         // Particle burst cost and mesh streaming memory together (not part of the tiers), and with
         // the suites that use runtime particles and script meshes.
         ["streaming-load"] = ["particle-bursts", "mesh-soak"],
+        // Looks and reaches with the engine's other animation cases (engine-systems) and the API's
+        // names and every-command sweep (pgsl-logic) (not part of the tiers).
+        ["animation"] = ["engine-systems", "pgsl-logic"],
         ["particles-meshes"] = ["particle-bursts", "mesh-soak", "mesh-upload", "engine-systems", "terrain-parts-runtime", "particle-workbench", "pgsl-logic"],
         // Bulk GUI drawing, what script sprite draws allocate, script textures and the sky layer with
         // the particle and mesh streaming checks, on every renderer (not part of the tiers).
@@ -1291,11 +1294,15 @@ internal static class HeadlessTestRunner
             case "engine-systems":
                 Suites.EngineSystemsSuite.Run(ctx);
                 Suites.CameraRigSuite.Run(ctx);
+                Suites.BoneTargetsSuite.Run(ctx);
                 Suites.FramePathAssetIoSuite.Run(ctx);
                 Suites.LoadCacheSuite.Run(ctx);
                 break;
             case "camera-rigs":
                 Suites.CameraRigSuite.Run(ctx);
+                break;
+            case "look-and-reach":
+                Suites.BoneTargetsSuite.Run(ctx);
                 break;
             case "load-cache":
                 Suites.LoadCacheSuite.Run(ctx);

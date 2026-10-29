@@ -212,6 +212,11 @@ public static class EngineSettings
         "Engine.Model.Glow", "Engine.Model.EmissionScale", "Engine.Model.CastShadows", "Engine.Model.ReceiveShadows", "Engine.Model.Layer",
     };
     private static readonly string[] AnimationValues = { "Engine.Animation.Speed", "Engine.Animation.Loop" };
+    // Shown only for an instance that looks or reaches, so the others' lists are as they were.
+    private static readonly string[] BoneTargetValues =
+    {
+        "Engine.Animation.LookAt.Enabled", "Engine.Animation.LookAt.Weight", "Engine.Animation.Reach.Enabled", "Engine.Animation.Reach.Weight",
+    };
     private static readonly string[] ImageValues =
     {
         "Engine.Image.Frame", "Engine.Image.Speed", "Engine.Image.Alpha", "Engine.Image.Angle", "Engine.Image.ScaleX", "Engine.Image.ScaleY",
@@ -234,7 +239,11 @@ public static class EngineSettings
         var names = new List<string>();
         if (world.Has<Genesis.Shared.ECS.Components.RigidBodyComponent>(entity)) names.AddRange(BodyValues);
         if (world.Has<Genesis.Runtime.ECS.Components.ModelRendererComponent>(entity)) names.AddRange(ModelValues);
-        if (world.Has<Genesis.Runtime.ECS.Components.ModelAnimatorComponent>(entity)) names.AddRange(AnimationValues);
+        if (world.Has<Genesis.Runtime.ECS.Components.ModelAnimatorComponent>(entity))
+        {
+            names.AddRange(AnimationValues);
+            if (world.GetRef<Genesis.Runtime.ECS.Components.ModelAnimatorComponent>(entity).Targets != null) names.AddRange(BoneTargetValues);
+        }
         if (world.Has<Genesis.Runtime.ECS.Components.Draw2DComponent>(entity)) names.AddRange(ImageValues);
         return Read(names, context);
     }

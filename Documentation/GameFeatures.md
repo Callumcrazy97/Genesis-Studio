@@ -261,6 +261,23 @@ through several 3D views each view keeps its own camera. The F6 world values sho
 `Camera.Rigs.Active` once a room has rigs. Recipe: Cookbook.md, "Camera rigs". Checked by
 `Runtime.Camera.Rigs.*` (`--test camera-rigs`, also in `engine-systems`).
 
+## Heads that look and hands that reach, on any model (29 October 2026)
+
+Any instance with a skinned model can turn its head to a point or another instance and reach a hand
+to one, on top of whatever poses it (a clip, a clip on part of the body, an Animation Controller):
+`Engine.Animation.LookAt.Follow(other, "Head")` or `.At(x, y, z)`, `Engine.Animation.Reach.At(...)`,
+or `AnimationLookAtPoint`, `AnimationLookAtInstance`, `AnimationReachToPoint(bone, ...)`,
+`AnimationReachToInstance(bone, ...)`. A look turns as far across and up or down as its limits allow
+(`YawLimit` 70 and `PitchLimit` 40 degrees unless set) by its `Weight`; each blends in, out and to a
+new weight over its `BlendTime` (0.25 s unless set) and keeps going until stopped. A target instance
+is followed wherever it goes (one of its bones or sockets, or its position raised by `Height`). From
+C#: `ModelInstance.SetBoneLookAt(world, entity, bone, point or entity, ...)`, `SetBoneReach`,
+`ClearBoneLookAt`, `ClearBoneReach`. An instance that never asks is posed exactly as before; one that
+does is drawn with a pose of its own while a look or reach is on, and shares the clip's again after.
+The older `AnimationBoneLookAt` and `AnimationBoneReach` (a point every frame, on a controller's
+bones) are unchanged. Recipe: Cookbook.md. Checked by `Runtime.Animation.LookAt.*` and
+`Runtime.Animation.Reach.*` (`--test look-and-reach`, also in `engine-systems`).
+
 ## Run This Resource, and a check before export (24-25 October 2026)
 
 **Run This Resource** (Shift+F5, File menu, or the command palette) runs the resource selected in
