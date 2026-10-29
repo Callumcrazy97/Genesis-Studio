@@ -5,6 +5,7 @@ using System.Windows.Forms;
 using Genesis.Application.Core.Images;
 using Genesis.Application.Core.Resources;
 using Genesis.Application.Editors.Image.Imaging;
+using Genesis.Application.Editors.Suite;
 using Genesis.Application.Editors.Suite.Assets;
 using Genesis.Application.Editors.Suite.Assets.Painting;
 using Genesis.Application.Studio.Theme;
@@ -49,6 +50,9 @@ internal static class ModelLiveTexturePaintSuite
                 ?? throw new InvalidOperationException("Painting a material without an Image did not make one.");
             Check(texture.Width == 512 && texture.Height == 512, $"The new Image is {texture.Width} x {texture.Height}, not the chosen 512.");
             Check(editor.PreviewAsset.Materials[material].BaseColor.X == 1f, "The material's own colour was not baked into the new Image.");
+            string named = editor.PreviewAsset.Materials[material].AlbedoTexture;
+            Check(!named.Contains('/') && ProjectAssetIndex.ResolveSpriteImage(project.RootPath, named) is { } pixelsFile && File.Exists(pixelsFile),
+                $"The material does not name the new Image as a resource the Inspector can show ({named}).");
             byte[] painted = (byte[])texture.Layer.Pixels.Clone();
             Check(!painted.SequenceEqual(texture.Original), "The stroke did not change the Image's pixels.");
             Check(editor.LastEditLabel == "Paint on model", $"The stroke is not one undo entry (last entry: {editor.LastEditLabel}).");
@@ -154,6 +158,9 @@ internal static class ModelLiveTexturePaintSuite
                 $"The editor does not show why the part cannot be painted: {message.Text}");
             Check(editor.PaintTextureForMaterial(material) is null && editor.LastEditLabel == lastEdit && string.IsNullOrEmpty(editor.PreviewAsset.Materials[material].AlbedoTexture),
                 "Refusing a model without UVs still made an Image or an undo entry.");
+            Check(message.Text.Contains("Material & PBR", StringComparison.Ordinal) && !message.UseMnemonic, "The message hides the '&' of Material & PBR.");
+            editor.SetCameraView("Front"); editor.FrameModel();
+            using (editor.Viewport.CaptureFrame(8)) { }
             var form = VisualCapture.CaptureOpenForm(host, Path.Combine(ctx.Captures, "model-live-paint-no-uv.png"), true);
             ctx.Report.Images.Add(ImageResult.From("model-live-paint-no-uv", "model-live-paint-no-uv.png", form));
             editor.Save();

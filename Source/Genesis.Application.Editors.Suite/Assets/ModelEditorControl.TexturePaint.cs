@@ -2,7 +2,6 @@ using System.Drawing;
 using System.Numerics;
 using System.Windows.Forms;
 using Genesis.Application.Core.Resources;
-using Genesis.Application.Editors.Image;
 using Genesis.Application.Editors.Image.Controls;
 using Genesis.Application.Editors.Image.Imaging;
 using Genesis.Application.Editors.Suite.Assets.Painting;
@@ -111,6 +110,7 @@ public sealed partial class ModelEditorControl
         _paintMessage = new Label
         {
             Name = "ModelTexturePaintMessage", Text = PaintGuide, Location = new Point(8, 212), Size = new Size(250, 100), ForeColor = EditorChrome.Muted,
+            UseMnemonic = false,
         };
         _paintMessageText = PaintGuide;
         paint.Content.Controls.Add(_paintMessage);
@@ -137,8 +137,8 @@ public sealed partial class ModelEditorControl
         try
         {
             bool active = _tool == ModelAuthoringTool.TexturePaint && _mode == ModelEditorMode.TexturePaint;
-            _paintToolButton.BackColor = active && !_paintErase ? ImageEditorChrome.Hover : ImageEditorChrome.Raised;
-            _paintEraseButton!.BackColor = active && _paintErase ? ImageEditorChrome.Hover : ImageEditorChrome.Raised;
+            Mark(_paintToolButton, active && !_paintErase);
+            Mark(_paintEraseButton!, active && _paintErase);
             _paintColourButton!.BackColor = _paintBrushColour;
             _paintColourButton.ForeColor = _paintBrushColour.GetBrightness() > .45f ? Color.Black : Color.White;
             _paintSizeInput!.Value = Math.Clamp(_paintBrush.Size, (int)_paintSizeInput.Minimum, (int)_paintSizeInput.Maximum);
@@ -147,6 +147,14 @@ public sealed partial class ModelEditorControl
             _paintNewSizeInput!.SelectedIndex = _paintNewTextureSize <= 512 ? 0 : 1;
         }
         finally { _syncingPaint = false; }
+
+        // The brush in use is marked as the Rig page marks its recommended button.
+        static void Mark(Button button, bool on)
+        {
+            button.BackColor = on ? EditorChrome.Hover : EditorChrome.Raised;
+            button.FlatAppearance.BorderColor = on ? EditorChrome.Accent : EditorChrome.Border;
+            button.ForeColor = on ? EditorChrome.Accent : EditorChrome.Text;
+        }
     }
 
     private void ShowPaintMessage(string text)
@@ -364,7 +372,10 @@ public sealed partial class ModelEditorControl
             ShowPaintMessage("An Image to paint could not be made: " + exception.Message);
             return null;
         }
-        string reference = Path.GetRelativePath(ProjectRoot, texture.ImagePath).Replace('\\', '/');
+        // Materials name an Image by its resource name, as the Image picker does (and renames update);
+        // the name must find the new Image at once, in the Inspector's preview as in the renderer.
+        ResourceNames.Invalidate(ProjectRoot);
+        string reference = ResourceNames.Name(ProjectRoot, texture.ImagePath);
         _paintTextures[Path.GetFullPath(texture.ImagePath)] = texture;
         _paintByReference[reference] = texture;
         ChangeAsset("Make paint Image", () =>
