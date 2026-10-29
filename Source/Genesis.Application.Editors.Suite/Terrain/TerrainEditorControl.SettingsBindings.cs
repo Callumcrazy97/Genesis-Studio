@@ -39,7 +39,7 @@ public sealed partial class TerrainEditorControl
         int index = parent.Controls.GetChildIndex(form);
         parent.SuspendLayout();
         form.Dispose();
-        form = Inspector.InspectorBuilder.BuildForObject(settings, note, inline: true);
+        form = Inspector.InspectorBuilder.BuildForObject(settings, note, ProjectRoot, FindForm(), inline: true);
         parent.Controls.Add(form);
         parent.Controls.SetChildIndex(form, index);
         parent.ResumeLayout(true);

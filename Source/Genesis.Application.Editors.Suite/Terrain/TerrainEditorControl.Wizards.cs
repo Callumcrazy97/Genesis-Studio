@@ -1,5 +1,6 @@
 using System.Windows.Forms;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Core.Terrain;
 using Genesis.World.Foliage;
 using Genesis.World.Terrain;
 
@@ -96,6 +97,14 @@ public sealed partial class TerrainEditorControl
     private FlowLayoutPanel BuildFoliagePage()
     {
         var page = MakeContextPage();
+        // Templates: a ready-made look for each part of a terrain, with nothing to choose.
+        page.Controls.Add(MakeContextCaption("Templates"));
+        page.Controls.Add(DecorateAction("TerrainTemplateTerrain", "Terrain: meadow ground",
+            "Grass, Dirt, Rock and Snow paint layers in colours that suit the built-in grass", ApplyGroundTemplate));
+        page.Controls.Add(DecorateAction("TerrainTemplateGrass", "Foliage: grass",
+            "The built-in meadow grass on the painted grass, swaying in the wind and parting round characters", ApplyGrassTemplate));
+        page.Controls.Add(DecorateAction("TerrainTemplateWater", "Water: lake",
+            "Then click inside a valley or crater to fill it with a lake", ArmFillBasin));
         // The Decorate step's main tools, each a click or two, before the place-one-at-a-time assets.
         page.Controls.Add(MakeContextCaption("Decorate"));
         page.Controls.Add(DecorateAction("TerrainDecorateForests", "Forests and scatter…",
@@ -143,8 +152,8 @@ public sealed partial class TerrainEditorControl
 
     /// <summary>
     /// Decorate › Meadow flowers and grass: the Meadow ecological scatter (meadow grass, wildflowers
-    /// and tall grass on the painted grass) and grass grown around the camera with the Nature Walk's
-    /// look. Two undo steps: the scatter, then the grass.
+    /// and tall grass on the painted grass) and the built-in grass grown around the camera (the
+    /// Foliage › Grass template). Undo steps: the scatter, the ground's colour, the grass.
     /// </summary>
     public void ApplyMeadowFlowersAndGrass()
     {
@@ -154,16 +163,43 @@ public sealed partial class TerrainEditorControl
         RefreshComponentsPanel();
         RefreshTerrainSettingsBindings();
 
-        TerrainGrassRuleSettings grass = _nature.GrassRule.Clone();
-        grass.Enabled = true;
-        grass.Species = FoliageSpecies.MeadowGrass;
-        grass.Radius = 90f;
-        grass.Spacing = 0.3f;
-        grass.MinimumScale = 0.5f;
-        grass.MaximumScale = 0.85f;
-        ApplyGrassRule(grass);
-        RebindGrassRuleForm();
+        ApplyGrassTemplate();
         _statusLabel.Text = "Meadow flowers and grass added · grass grows around the camera";
+    }
+
+    /// <summary>The meadow palette's paint layers, in order: what Terrain › Meadow ground gives.</summary>
+    public static IReadOnlyList<(string Name, float[] Color)> MeadowGround { get; } =
+    [
+        ("Grass", TerrainGrassGround.GroundColor),
+        ("Dirt", [0.44f, 0.34f, 0.23f]),
+        ("Rock", [0.46f, 0.46f, 0.50f]),
+        ("Snow", [0.90f, 0.92f, 0.96f]),
+    ];
+
+    /// <summary>
+    /// Terrain › Meadow ground: the first four paint layers named Grass, Dirt, Rock and Snow in the
+    /// meadow palette, which suits the built-in grass. Layers with an Image keep their picture; missing
+    /// layers are added. One undo step.
+    /// </summary>
+    public void ApplyGroundTemplate()
+    {
+        var before = CloneLayers(_settings.Layers);
+        var after = CloneLayers(before);
+        for (int index = 0; index < MeadowGround.Count; index++)
+        {
+            (string name, float[] color) = MeadowGround[index];
+            if (index >= after.Count) after.Add(new TerrainLayerDocument { Name = name, Color = [.. color] });
+            else
+            {
+                after[index].Name = name;
+                if (string.IsNullOrWhiteSpace(after[index].Image)) after[index].Color = [.. color];
+            }
+        }
+
+        ApplyLayers(before, after, "Meadow ground");
+        RefreshMaterialTiles();
+        LabelGrassLayerDensities();
+        _statusLabel.Text = "Meadow ground · Grass, Dirt, Rock and Snow layers ready to paint";
     }
 
     /// <summary>Decorate › Water: Fill Basin armed, so the next click in a valley or crater makes a lake.</summary>

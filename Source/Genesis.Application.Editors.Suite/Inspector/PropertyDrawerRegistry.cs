@@ -28,6 +28,8 @@ public static class PropertyDrawerRegistry
         Register(new ColorDrawer());
         Register(new ChoiceDrawer());
         Register(new AssetReferenceDrawer());
+        // After the Vector3 drawer, so a Vector3 named …Color is drawn as a colour.
+        Register(new Vector3ColorDrawer());
     }
 
     public static void Register(IPropertyDrawer drawer)

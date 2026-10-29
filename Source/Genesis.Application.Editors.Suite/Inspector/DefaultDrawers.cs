@@ -363,6 +363,51 @@ public sealed class ColorDrawer : IPropertyDrawer
         $"#{color.A:X2}{color.R:X2}{color.G:X2}{color.B:X2}";
 }
 
+/// <summary>
+/// A colour kept as a Vector3 of red, green and blue from 0 to 1 (a property named …Color, as the
+/// grass rule's blade colours are): a colour button with its #rrggbb, instead of three numbers.
+/// </summary>
+public sealed class Vector3ColorDrawer : IPropertyDrawer
+{
+    public bool CanDraw(PropertyDrawerContext context) =>
+        context.PropertyType == typeof(System.Numerics.Vector3)
+        && (context.PropertyName.EndsWith("Color", StringComparison.Ordinal) || context.PropertyName.EndsWith("Colour", StringComparison.Ordinal));
+
+    public Control CreateDrawer(PropertyDrawerContext context)
+    {
+        System.Numerics.Vector3 initial = context.InitialValue is System.Numerics.Vector3 vector ? vector : System.Numerics.Vector3.One;
+        Color value = ToColor(initial);
+        Button button = new()
+        {
+            AutoEllipsis = true,
+            BackColor = value,
+            ForeColor = value.GetBrightness() < 0.5f ? Color.White : Color.Black,
+            FlatStyle = FlatStyle.Flat,
+            Tag = "property-color",
+            Text = $"#{value.R:X2}{value.G:X2}{value.B:X2}",
+            UseVisualStyleBackColor = false,
+            Enabled = !context.ReadOnly,
+        };
+        button.Click += (_, _) =>
+        {
+            using ColorDialog dialog = new() { Color = button.BackColor, FullOpen = true };
+            if (dialog.ShowDialog(context.DialogOwner) != DialogResult.OK) return;
+            Color picked = dialog.Color;
+            button.BackColor = picked;
+            button.ForeColor = picked.GetBrightness() < 0.5f ? Color.White : Color.Black;
+            button.Text = $"#{picked.R:X2}{picked.G:X2}{picked.B:X2}";
+            context.ValueChanged(new System.Numerics.Vector3(picked.R / 255f, picked.G / 255f, picked.B / 255f));
+        };
+        return button;
+    }
+
+    private static Color ToColor(System.Numerics.Vector3 colour)
+    {
+        static int Channel(float value) => (int)Math.Round(Math.Clamp(float.IsFinite(value) ? value : 0f, 0f, 1f) * 255f);
+        return Color.FromArgb(Channel(colour.X), Channel(colour.Y), Channel(colour.Z));
+    }
+}
+
 public sealed class AssetReferenceDrawer : IPropertyDrawer
 {
     public bool CanDraw(PropertyDrawerContext context) =>
