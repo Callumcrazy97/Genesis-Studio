@@ -78,13 +78,18 @@ namespace Genesis.Audio
 
         /// <summary>Start a source voice; returns the tracked voice for Stop/loop control.</summary>
         public IXAudio2SourceVoice? PlayVoice(AudioEngine engine, float volume = 1f, float pitch = 1f, bool loop = false, bool music = false)
+            => PlayVoice(engine, volume, pitch, loop, music, null);
+
+        /// <summary>As above, into a bus's own submix when it has effects (<paramref name="bus"/>; null for none).</summary>
+        internal IXAudio2SourceVoice? PlayVoice(AudioEngine engine, float volume, float pitch, bool loop, bool music, string? bus)
         {
             if (engine == null || _data.Length == 0) return null;
             try
             {
                 var voice = engine.XAudio.CreateSourceVoice(_format, false);
-                // Music through the music submix (muffling), everything else through the world's (acoustics).
-                if (engine.OutputFor(music) is { } output)
+                // Music through the music submix (muffling), everything else through the world's
+                // (acoustics); a bus with effects through its own submix first.
+                if ((bus is null ? engine.OutputFor(music) : engine.OutputForBus(bus, music)) is { } output)
                     voice.SetOutputVoices(new[] { new VoiceSendDescriptor { OutputVoice = output } });
                 voice.SetVolume(volume);
                 if (MathF.Abs(pitch - 1f) > 0.001f)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 
 namespace Genesis.Shared.Audio
@@ -135,6 +136,45 @@ namespace Genesis.Shared.Audio
 
         /// <summary>How muffled the music is, 0 (clear) to 1 (heard through a wall).</summary>
         float MusicMuffle { get => 0f; set { } }
+
+        /// <summary>
+        /// The effects a bus carries (filter, EQ, reverb, compressor; see <see cref="AudioBusEffects"/>),
+        /// applied in the mixer to every sound on the bus. A system with no mixer ignores them.
+        /// </summary>
+        void SetBusEffects(string bus, AudioBusEffects effects) { }
+
+        /// <summary>A copy of the effects a bus carries; none are on unless set.</summary>
+        AudioBusEffects GetBusEffects(string bus) => new();
+
+        /// <summary>
+        /// How loud a bus is now, after its effects: its peak, 0 to 1 and over, for a meter or a test. Asking
+        /// starts measuring the bus; 0 from a system that cannot measure.
+        /// </summary>
+        float GetBusLevel(string bus) => 0f;
+
+        /// <summary>Keeps the buses' volumes and effects as they are now as the snapshot <paramref name="name"/>.</summary>
+        void SaveSnapshot(string name) { }
+
+        /// <summary>Makes (or replaces) a snapshot from bus mixes; a bus it does not name is left alone by it.</summary>
+        void DefineSnapshot(string name, IReadOnlyDictionary<string, AudioBusMix> buses) { }
+
+        /// <summary>
+        /// Moves every bus the snapshot names from how it is now to the snapshot's volume and effects over
+        /// <paramref name="seconds"/> (0 at once). False when there is no such snapshot.
+        /// </summary>
+        bool BlendToSnapshot(string name, float seconds) => false;
+
+        /// <summary>The snapshot last blended to (or being blended to); empty for none.</summary>
+        string CurrentSnapshot => "";
+
+        /// <summary>How far the blend to <see cref="CurrentSnapshot"/> has gone, 0 to 1 (1 when there is none).</summary>
+        float SnapshotProgress => 1f;
+
+        /// <summary>The snapshots there are, by name.</summary>
+        IReadOnlyList<string> SnapshotNames => Array.Empty<string>();
+
+        /// <summary>Stops a snapshot blend where it has got to; the buses stay as they are now.</summary>
+        void HoldSnapshotBlend() { }
 
         /// <summary>
         /// Starts decoding a sound off the game's thread so that a later play of it starts at once.
