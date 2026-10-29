@@ -1233,6 +1233,9 @@ internal static class HeadlessTestRunner
             case "editor-h21":
                 Suites.ParticleWorkbenchSuite.Run(ctx);
                 break;
+            case "particle-modules":
+                Suites.ParticleWorkbenchSuite.RunModules(ctx);
+                break;
             case "resource-tags":
             case "editor-h20":
                 Suites.ResourceTagsSuite.Run(ctx);

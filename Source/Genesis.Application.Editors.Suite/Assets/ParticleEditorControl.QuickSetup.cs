@@ -81,6 +81,10 @@ public sealed partial class ParticleEditorControl
         });
         advanced.Name = "ParticleMoreEffectSettings";
         page.Controls.Add(advanced);
+        Button modules = MakeInspectorButton("Module stack…", ShowModuleStack);
+        modules.Name = "ParticleOpenModuleStack";
+        page.Controls.Add(modules);
+        AddParticleGuideText(page, "The module stack shows the effect as Spawn, Initialise, Update and Render modules: switch each on or off, shape it with curves, add more.");
         AddParticleGuideText(page, "3. Use it in your game", heading: true);
         AddParticleGuideText(page, "Use in game on the toolbar can create an Object ready to place in a Room, or show the PGSL command to spawn this effect.");
         return page;
@@ -251,6 +255,7 @@ public sealed partial class ParticleEditorControl
         SetAuthoringMode(ParticleAuthoringMode.Properties);
         if (_authoringMode != ParticleAuthoringMode.Properties) return;
         _particleWorkflow?.SetCurrent("UseInGame");
+        HideModuleStack();
         _particleQuickSetup!.Visible = false;
         _inspectorTabs.Visible = false;
         _particleGameGuide!.Visible = true;
@@ -264,6 +269,7 @@ public sealed partial class ParticleEditorControl
     {
         if (_advancedPropertiesMenu!.Checked) _advancedPropertiesMenu.Checked = false;
         _particleWorkflow?.SetCurrent("Tune");
+        HideModuleStack();
         _particleGameGuide!.Visible = false;
         _inspectorTabs.Visible = false;
         _particleQuickSetup!.Visible = true;
@@ -278,6 +284,7 @@ public sealed partial class ParticleEditorControl
         if (_particleQuickSetup is null) return;
         SetAuthoringMode(ParticleAuthoringMode.Properties);
         if (_authoringMode != ParticleAuthoringMode.Properties) return;
+        HideModuleStack();
         _particleGameGuide!.Visible = false;
         _particleQuickSetup.Visible = !show;
         _inspectorTabs.Visible = show;

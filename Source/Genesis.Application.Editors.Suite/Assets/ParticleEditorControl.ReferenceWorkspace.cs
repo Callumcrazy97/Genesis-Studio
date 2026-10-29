@@ -1042,6 +1042,28 @@ public sealed partial class ParticleEditorControl
                 e.Graphics.DrawLine(grid, graph.Left, y, graph.Right, y);
             }
             ParticleBezierCurve curve = _curve();
+            if (curve.Keys is { Count: > 0 } keys)
+            {
+                // A curve drawn as points in the module stack: shown here, edited there.
+                using Pen pointCurve = new(EditorChrome.Accent, 2.5f);
+                PointF last = CurvePoint(graph, 0, curve.Evaluate(0));
+                for (int i = 1; i <= 100; i++)
+                {
+                    PointF next = CurvePoint(graph, i / 100f, curve.Evaluate(i / 100f));
+                    e.Graphics.DrawLine(pointCurve, last, next);
+                    last = next;
+                }
+                using SolidBrush mark = new(EditorChrome.Text);
+                foreach (ParticleCurveKey key in keys)
+                {
+                    PointF at = CurvePoint(graph, (float)key.Time, (float)key.Value);
+                    e.Graphics.FillEllipse(mark, at.X - 4, at.Y - 4, 8, 8);
+                }
+                using SolidBrush note = new(EditorChrome.Muted);
+                e.Graphics.DrawString("Points curve: edit it in the module stack", EditorChrome.SmallFont, note, graph.Left + 4, graph.Top + 4);
+                DrawGradient(e.Graphics, GradientBounds);
+                return;
+            }
             PointF c1 = CurvePoint(graph, (float)curve.X1, (float)curve.Y1);
             PointF c2 = CurvePoint(graph, (float)curve.X2, (float)curve.Y2);
             PointF start = CurvePoint(graph, 0, 0);
@@ -1105,8 +1127,9 @@ public sealed partial class ParticleEditorControl
             ParticleBezierCurve curve = _curve();
             PointF c1 = CurvePoint(graph, (float)curve.X1, (float)curve.Y1);
             PointF c2 = CurvePoint(graph, (float)curve.X2, (float)curve.Y2);
-            if (Distance(e.Location, c1) < 11) _dragControl = 1;
-            else if (Distance(e.Location, c2) < 11) _dragControl = 2;
+            bool points = curve.Keys is { Count: > 0 };
+            if (!points && Distance(e.Location, c1) < 11) _dragControl = 1;
+            else if (!points && Distance(e.Location, c2) < 11) _dragControl = 2;
             else
             {
                 Rectangle gradient = GradientBounds;

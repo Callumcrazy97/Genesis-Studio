@@ -16,9 +16,9 @@ namespace Genesis.Application.Core.Automation;
 /// does. A change is read back by the engine's own loader for that kind before it is saved, so a
 /// value of the wrong kind is refused rather than written.
 /// </summary>
-public static class JsonResourceCommands
+public static partial class JsonResourceCommands
 {
-    public static IEnumerable<IAutomationCommand> All() => [new ResourceSet(), new ParticleCreate()];
+    public static IEnumerable<IAutomationCommand> All() => [new ResourceSet(), new ParticleCreate(), new ParticleModule()];
 
     // As the editors save JSON resources: camelCase names, enums by name, indented.
     private static readonly JsonSerializerOptions EditorJson = new()
