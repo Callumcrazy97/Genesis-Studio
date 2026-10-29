@@ -1289,6 +1289,9 @@ public static partial class PgslCommands
     [PgslCommand("InstructionLimit", "Engine.Game.Scripts.InstructionLimit = count", "Instructions each event body and function call may run before it is stopped as a hang (100000 unless set; up to 1000000000)", "Game", Namespace = "Engine.Game.Scripts", Flat = false)]
     public static double GameScriptsInstructionLimit { get => VM.PgslVm.CallInstructionLimit; set => ScriptInstructionLimit(value); }
 
+    [PgslCommand("DataOwnerChecks", "Engine.Game.Scripts.DataOwnerChecks = true", "Whether a list, map, grid, stack, queue or priority queue handle used in an instance that did not make it is an error (false unless set): data structures belong to the instance that made them, and such a handle reads as empty without a word. Counts the handles made after it is turned on", "Game", Namespace = "Engine.Game.Scripts", Flat = false)]
+    public static bool GameScriptsDataOwnerChecks { get => DataOwnerChecks; set => DataOwnerChecks = value; }
+
     private static bool _scriptProfile;
 
     [PgslCommand("Profile", "Engine.Game.Scripts.Profile = true", "Time every event and function, for Engine.Game.Scripts.Report() (false unless set)", "Game", Namespace = "Engine.Game.Scripts", Flat = false)]

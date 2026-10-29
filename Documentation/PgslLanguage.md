@@ -242,6 +242,12 @@ To reach a structure from another instance, run the code in its owner,
 `[1, 2, 3]` list value (held by reference, so every holder sees one list), or an Object instance
 that keeps the structure for everyone.
 
+To find such a mistake, set `Engine.Game.Scripts.DataOwnerChecks = true;` (in a Create event, or in
+a test run): a read, a change or a free of a handle that this instance did not make, while another
+instance holds a structure of that number, is then an error that says so. It is off unless set, so a
+game that has always worked this way is not stopped by it, and it counts only the handles made after
+it is turned on. A handle nobody holds, and an instance's own, are never errors.
+
 ## Events
 
 In one frame: Step Begin, Step, Step End, then alarms, Draw and Draw GUI. Create runs once before

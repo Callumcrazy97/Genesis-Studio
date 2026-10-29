@@ -144,6 +144,7 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleEmitterLookAndQuality", () => ParticleEmitterLook(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiParticleSwitches", () => ParticleSwitches(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.DirectedBurstsAndGlowingBeams", () => DirectedBurstsAndBeams(row));
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.AHandleUsedInAnotherInstanceIsAnErrorWhenAsked", () => DataOwnerChecks(row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiInstanceFrozenAndBack", () => InstanceFreeze(project, row));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.EngineApiNavigationBakeAndPriority", () => NavigationParts(project, row));
     }
@@ -833,6 +834,58 @@ internal static class PgslEngineApiChecks
         finally
         {
             Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
+        }
+    }
+
+    // Data structures belong to the instance that made them: another instance using the handle reads an empty
+    // list and says nothing (as ever, with the check off); with Engine.Game.Scripts.DataOwnerChecks on, a read, a
+    // write and a free of a number another instance holds is an error, and the owner, and a number nobody holds, are not.
+    private static void DataOwnerChecks(Action<string, string, string, string> row)
+    {
+        PgslContext maker = new() { InstanceId = 11 }, other = new() { InstanceId = 12 };
+        PgslContext? previous = PgslCommands.BindContext(maker);
+        bool was = PgslCommands.DataOwnerChecks;
+        string Attempt(Action use)
+        {
+            try { use(); return ""; }
+            catch (InvalidOperationException error) { return error.Message; }
+        }
+        try
+        {
+            PgslCommands.DataOwnerChecks = false;
+            double first = PgslCommands.DsListCreate();
+            PgslCommands.DsListAdd(first, 5);
+            PgslCommands.BindContext(other);
+            string offRead = Attempt(() => PgslCommands.DsListSize(first)), offWrite = Attempt(() => PgslCommands.DsListAdd(first, 1));
+            double offSize = PgslCommands.DsListSize(first);
+            bool silent = offRead.Length == 0 && offWrite.Length == 0 && offSize == 0;
+
+            PgslCommands.DataOwnerChecks = true;
+            PgslCommands.BindContext(maker);
+            double owned = PgslCommands.DsListCreate();
+            double grid = PgslCommands.DsGridCreate(4, 4);
+            PgslCommands.DsListAdd(owned, 7);
+            PgslCommands.BindContext(other);
+            double mine = PgslCommands.DsListCreate();
+            PgslCommands.DsListAdd(mine, 3);
+            string read = Attempt(() => PgslCommands.DsListSize(owned)), write = Attempt(() => PgslCommands.DsListAdd(owned, 1)),
+                free = Attempt(() => PgslCommands.DsListDestroy(owned)), gridWrite = Attempt(() => PgslCommands.DsGridSet(grid, 1, 1, 5));
+            bool errors = new[] { read, write, free, gridWrite }.All(message => message.Contains("belong to the instance that made them", StringComparison.Ordinal));
+            // Its own, and a number no instance holds: no error.
+            bool fine = Attempt(() => PgslCommands.DsListAdd(mine, 4)) == "" && PgslCommands.DsListSize(mine) == 2 && Attempt(() => PgslCommands.DsListSize(9999)) == "";
+            // The owner still has it, untouched by the refused writes, and may free it; once freed, nobody holds the number.
+            PgslCommands.BindContext(maker);
+            bool owner = PgslCommands.DsListSize(owned) == 1 && Attempt(() => PgslCommands.DsListDestroy(owned)) == "" && Attempt(() => PgslCommands.DsListSize(owned)) == "";
+            PgslCommands.DataOwnerChecks = false;
+            bool pass = silent && errors && fine && owner;
+            string detail = $"off: the other instance read {offSize} and wrote with no word ({silent}); on: errors for read/write/free/grid {errors}, its own and an unheld number fine {fine}, the owner's use and free {owner}";
+            row("Engine API parts", "a data structure handle used in another instance is an error when asked", pass ? "PASS" : "FAIL", detail);
+            HeadlessHarness.Assert(pass, detail + $" [read '{read}', write '{write}', free '{free}', grid '{gridWrite}']");
+        }
+        finally
+        {
+            PgslCommands.DataOwnerChecks = was;
+            PgslCommands.BindContext(previous);
         }
     }
 

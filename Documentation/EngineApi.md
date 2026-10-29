@@ -571,6 +571,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
 | Name | Kind | What it is |
 |---|---|---|
+| `DataOwnerChecks` | property | Whether a list, map, grid, stack, queue or priority queue handle used in an instance that did not make it is an error (false unless set): data structures belong to the instance that made them, and such a handle reads as empty without a word. Counts the handles made after it is turned on |
 | `InstructionLimit` | property | Instructions each event body and function call may run before it is stopped as a hang (100000 unless set; up to 1000000000) |
 | `Profile` | property | Time every event and function, for Engine.Game.Scripts.Report() (false unless set) |
 
