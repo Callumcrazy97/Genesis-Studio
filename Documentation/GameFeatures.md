@@ -1638,7 +1638,9 @@ That switch costs a full collection at every change, so leave it off for play.
   It is now shallow 0.12, 0.42, 0.52, deep 0.03, 0.12, 0.24, opacity 0.72 (`WaterMaterialSettings`);
   a custom look starts from these. Seas keep their own look. The mist a lake carries is half as
   thick (`GroundMistDensity` 0.15, was 0.30): seen across the lake from a few metres up it had
-  turned a sunny lake into a pale disc of mist with a white rim on its banks. In a hazy scene a dark, stair-stepped
+  turned a sunny lake into a pale disc of mist with a white rim on its banks. The small ripples
+  fade out between 15 and 70 m, so water further off shows its larger ripples instead of a fine
+  plaid a few pixels across. In a hazy scene a dark, stair-stepped
   line no longer outlines every lake: where the water fades to clear at the shore, the bank behind
   it is fogged like the rest of the view.
 

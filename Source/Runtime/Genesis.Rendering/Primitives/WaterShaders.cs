@@ -135,7 +135,8 @@ float LinearizeDepth(float depth, float nearPlane, float farPlane)
     return SceneDepthToView(depth, nearPlane, farPlane);
 }
 
-float3 SampleWaterNormal(float2 uv, float time, float flowSpeed, float2 flowDir, float rapids)
+// fine: how much of the small ripples (the second map) to keep, 1 near the eye.
+float3 SampleWaterNormal(float2 uv, float time, float flowSpeed, float2 flowDir, float rapids, float fine)
 {
     float len = length(flowDir);
     if (len > 0.01) flowDir /= len;
@@ -147,12 +148,8 @@ float3 SampleWaterNormal(float2 uv, float time, float flowSpeed, float2 flowDir,
     float2 scrollB = ortho * time * spd * 0.55 - flowDir * time * spd * 0.22;
 
     float3 nA = WaterNormalA.Sample(WaterSamp, uv * 3.5 + scrollA).rgb * 2.0 - 1.0;
-    // Both maps are grids of waves along their own axes; laid square on each other they read as
-    // a plaid once the water is clear enough to see it. The second is turned about 37 degrees
-    // (its drift unchanged on the surface) and its normal turned back into the surface's frame.
-    const float2x2 turn = float2x2(0.8, -0.6, 0.6, 0.8);
-    float3 nB = WaterNormalB.Sample(WaterSamp, mul(turn, uv * 7.0 + scrollB)).rgb * 2.0 - 1.0;
-    nB.xy = mul(nB.xy, turn);
+    float3 nB = WaterNormalB.Sample(WaterSamp, uv * 7.0 + scrollB).rgb * 2.0 - 1.0;
+    nB.xy *= fine;
     float3 n  = normalize(float3(nA.xy + nB.xy, nA.z * nB.z));
     return n;
 }
@@ -182,10 +179,13 @@ PSOut PS_Water(VSOut IN)
     else flowDir = float2(0.0, 1.0);
     // River and waterfall meshes both author +V along the flow. Keeping the
     // normal-map scroll in UV space makes it follow bends and vertical sheets.
-    float3 tangentNormal = SampleWaterNormal(IN.UV, time, WaterParams.x, flowDir, SkyZenithPad.w);
+    // The small ripples are a few pixels across beyond a few tens of metres, where their grid of
+    // waves shows as a fine plaid: they fade out from 15 to 70 metres, leaving the larger ones.
+    float rippleDistance = distance(IN.WorldPos, cameraPos);
+    float3 tangentNormal = SampleWaterNormal(IN.UV, time, WaterParams.x, flowDir, SkyZenithPad.w,
+        1.0 - smoothstep(15.0, 70.0, rippleDistance));
     // Ripples a few metres across turn to moire when a sea runs to the horizon. Past a couple of
     // hundred metres they give way to a broad swell, and that to flat water further still.
-    float rippleDistance = distance(IN.WorldPos, cameraPos);
     float ripples = 1.0 - smoothstep(35.0, 240.0, rippleDistance);
     if (ripples < 0.999)
     {
