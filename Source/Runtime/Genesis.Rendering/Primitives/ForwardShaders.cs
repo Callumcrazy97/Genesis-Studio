@@ -1418,9 +1418,10 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         // light arriving from that side.
         if (LightProbeParams.w > 0.5)
         {
-            float probeFloor = LightProbeFloorParams.x;
-            envMirror = max(LightProbeMirror(reflected), envMirror * probeFloor);
-            envRough = max(LightProbeAmbientFrom(reflected), envRough * probeFloor);
+            // The floor is the room's own ambient, not the sky: a dark hall must not mirror a blue sky.
+            float3 probeFloor = roomAmbient * LightProbeFloorParams.x;
+            envMirror = max(LightProbeMirror(reflected), probeFloor);
+            envRough = max(LightProbeAmbientFrom(reflected), probeFloor);
         }
         float3 envLight = lerp(envMirror, envRough, roughness);
         float4 envC0 = float4(-1.0, -0.0275, -0.572, 0.022);

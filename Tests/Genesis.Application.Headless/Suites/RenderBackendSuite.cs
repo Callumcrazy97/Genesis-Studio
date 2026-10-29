@@ -807,7 +807,7 @@ internal static class RenderBackendSuite
                     "A room's start must restore the floor.");
                 string shader = ForwardShaders.Source;
                 HeadlessHarness.Assert(shader.Contains("max(LightProbeAmbientFrom(n), roomAmbient * LightProbeFloorParams.x)", StringComparison.Ordinal)
-                    && shader.Contains("max(LightProbeMirror(reflected), envMirror * probeFloor)", StringComparison.Ordinal),
+                    && shader.Contains("max(LightProbeMirror(reflected), probeFloor)", StringComparison.Ordinal),
                     "The forward shader must keep the floor under both bounced light and reflections.");
                 foreach (ConstantBufferComparison comparison in ShaderLayoutAudit.CompareAll())
                     HeadlessHarness.Assert(comparison.IsConsistent, "Constant buffer drift: " + comparison);
