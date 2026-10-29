@@ -140,10 +140,38 @@ public sealed class AuthoredTerrainGround : IDisposable
         }
     }
 
+    /// <summary>
+    /// Rebuilds the chunks over an inclusive cell rectangle after holes were cut or filled there:
+    /// a hole changes which triangles a chunk has, not only its vertices, so those chunks are made
+    /// again whole.
+    /// </summary>
+    public void RebuildHoleRegion(int minCellX, int minCellZ, int maxCellX, int maxCellZ)
+    {
+        if (_render == null) return;
+        if (_lod != null) { _lod.InvalidateRegion(minCellX, minCellZ, maxCellX + 1, maxCellZ + 1); return; }
+        if (_meshes.Count == 0 || _meshes.Count != _chunks.Count
+            || _builtResolutionX != _asset.ResolutionX || _builtResolutionZ != _asset.ResolutionZ)
+        {
+            RebuildMesh();
+            return;
+        }
+
+        for (int i = 0; i < _chunks.Count; i++)
+        {
+            var chunk = _chunks[i];
+            if (chunk.StartX > maxCellX || chunk.StartX + chunk.CellsX - 1 < minCellX
+                || chunk.StartZ > maxCellZ || chunk.StartZ + chunk.CellsZ - 1 < minCellZ) continue;
+            if (_meshes[i].IsValid) _render.ReleaseMesh(_meshes[i]);
+            _meshes[i] = BuildChunk(chunk.StartX, chunk.StartZ, chunk.CellsX, chunk.CellsZ);
+        }
+    }
+
     private MeshHandle BuildChunk(int startX, int startZ, int cellsX, int cellsZ)
     {
         int pointsX = cellsX + 1;
         var verts = BuildChunkVertices(startX, startZ, cellsX, cellsZ);
+        // Cells cut away (holes) have no triangles: nothing is drawn there, in any pass.
+        bool holes = _asset.AnyHole(startX, startZ, startX + cellsX - 1, startZ + cellsZ - 1);
         var inds = new ushort[cellsX * cellsZ * 6];
 
         int idx = 0;
@@ -151,6 +179,7 @@ public sealed class AuthoredTerrainGround : IDisposable
         {
             for (int x = 0; x < cellsX; x++)
             {
+                if (holes && _asset.IsHole(startX + x, startZ + z)) continue;
                 int i00 = z * pointsX + x;
                 int i10 = i00 + 1;
                 int i01 = i00 + pointsX;
@@ -160,6 +189,7 @@ public sealed class AuthoredTerrainGround : IDisposable
             }
         }
 
+        if (idx < inds.Length) Array.Resize(ref inds, Math.Max(3, idx));
         return _render.RegisterMesh(verts, inds);
     }
 

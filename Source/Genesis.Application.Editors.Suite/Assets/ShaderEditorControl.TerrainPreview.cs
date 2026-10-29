@@ -242,14 +242,26 @@ public sealed partial class ShaderEditorControl
         using FileStream stream = File.OpenRead(path);
         using BinaryReader reader = new(stream);
         int version = stream.Length < 36 || reader.ReadInt32() != 0x4E525447 ? 0 : reader.ReadInt32();
-        if (version is not (1 or 2))
+        if (version is not (1 or 2 or 3))
             throw new InvalidDataException("The terrain data header is invalid or unsupported.");
         int width = reader.ReadInt32(), depth = reader.ReadInt32();
         // Check before TerrainAsset.Load allocates from the header. The shader preview is
         // bounded to 4097 samples per axis; malformed/truncated files never reach allocation.
         if (width < 2 || depth < 2 || width > 4097 || depth > 4097)
             throw new InvalidDataException("Terrain shader previews support 2–4097 samples per axis.");
-        // Version 2 appends a second four-byte splat plane (paint layers 5-8).
+        // Version 2 appends a second four-byte splat plane (paint layers 5-8). Version 3 (a terrain
+        // with holes) appends flags, then that plane if flagged, then a bit per cell.
+        if (version == 3)
+        {
+            reader.BaseStream.Position = 36L + (long)width * depth * 6L;
+            int flags = stream.Length >= reader.BaseStream.Position + 4 ? reader.ReadInt32() : -1;
+            long cells = (long)(width - 1) * (depth - 1);
+            long withHoles = 40L + (long)width * depth * ((flags & 1) != 0 ? 10L : 6L) + ((flags & 2) != 0 ? (cells + 7) / 8 : 0);
+            if (flags < 0 || stream.Length != withHoles)
+                throw new InvalidDataException("Terrain data dimensions do not match its height, material and hole samples.");
+            return;
+        }
+
         long expected = 36L + (long)width * depth * (version == 2 ? 10L : 6L);
         if (stream.Length != expected)
             throw new InvalidDataException("Terrain data dimensions do not match its height and material samples.");

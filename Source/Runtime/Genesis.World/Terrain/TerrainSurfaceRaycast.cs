@@ -46,9 +46,13 @@ public static class TerrainSurfaceRaycast
             Vector3 c = Vertex(terrain, x + 1, z + 1), d = Vertex(terrain, x, z + 1);
             float nearest = float.PositiveInfinity;
             Vector3 normal = default;
-            // Match TerrainMeshBuilder's a,c,b / a,d,c diagonal and outward winding exactly.
-            Test(a, c, b);
-            Test(a, d, c);
+            // Match TerrainMeshBuilder's a,c,b / a,d,c diagonal and outward winding exactly. A hole
+            // has no surface: the ray goes on through it.
+            if (!terrain.IsHole(x, z))
+            {
+                Test(a, c, b);
+                Test(a, d, c);
+            }
             if (float.IsFinite(nearest))
             {
                 normal = Vector3.TransformNormal(normal, Matrix4x4.Transpose(inverse));

@@ -432,6 +432,11 @@ public sealed class TerrainGrassField : IDisposable
             _water.BeginCell(cellMinX - step, cellMinZ - step, cellMinX + (perSide + 1) * step, cellMinZ + (perSide + 1) * step);
         }
 
+        // Holes are looked up per tuft only in a cell with one under it.
+        int firstCellX = (int)(cellX * perSide * step / terrain.CellSize), firstCellZ = (int)(cellZ * perSide * step / terrain.CellSize);
+        int lastCellX = (int)((cellX + 1) * perSide * step / terrain.CellSize), lastCellZ = (int)((cellZ + 1) * perSide * step / terrain.CellSize);
+        bool holes = terrain.AnyHole(firstCellX - 1, firstCellZ - 1, lastCellX + 1, lastCellZ + 1);
+
         // Paths are looked up per tuft only in a cell some path comes near.
         bool paths = false;
         float pathEdge = settings.PathEdge;
@@ -457,6 +462,7 @@ public sealed class TerrainGrassField : IDisposable
                 float density = DensityAt(terrain, offsetX, offsetZ, weights);
                 if (density <= 0f) continue;
                 float x = terrain.OriginX + offsetX, z = terrain.OriginZ + offsetZ;
+                if (holes && terrain.IsHoleAt(x, z)) continue;
                 if (paths)
                 {
                     TerrainPathSample path = _paths.Sample(x, z);

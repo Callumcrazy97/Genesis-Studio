@@ -15,7 +15,7 @@ namespace Genesis.Application.Core.Automation;
 /// </summary>
 public static class TerrainShapeCommands
 {
-    public static IEnumerable<IAutomationCommand> All() => [new TerrainCreate(), new TerrainFromModel(), new TerrainInfo(), new TerrainSculptStroke()];
+    public static IEnumerable<IAutomationCommand> All() => [new TerrainCreate(), new TerrainFromModel(), new TerrainInfo(), new TerrainSculptStroke(), new TerrainSetHole()];
 
     private static string Terrain(AutomationContext context, string path)
     {
@@ -365,7 +365,7 @@ public static class TerrainShapeCommands
     public sealed class SculptInput
     {
         [Description("The Terrain resource, project-relative."), RequiredInput] public string Terrain { get; set; } = string.Empty;
-        [Description("The brush: Raise, Lower, Smooth, Flatten (to the ground where the stroke starts, or flattenHeight), InFill (fills hollows to their rim) or Paint (lays a paint layer)."), RequiredInput]
+        [Description("The brush: Raise, Lower, Smooth, Flatten (to the ground where the stroke starts, or flattenHeight), InFill (fills hollows to their rim), Paint (lays a paint layer), Hole (cuts the ground away) or FillHole (puts it back)."), RequiredInput]
         public TerrainSculptBrush Brush { get; set; }
         [Description("The stroke: world points [x, z]; dabs are laid along it every quarter of the radius, as dragging the brush does."), RequiredInput]
         public List<float[]> Points { get; set; } = [];
@@ -432,6 +432,58 @@ public static class TerrainShapeCommands
             if (File.Exists(binary)) ResourceBackupService.BackupBeforeOverwrite(binary);
             terrain.Save(binary);
             return AutomationResult.Success($"{input.Brush}: {dabs} dabs.", Describe(context, full, terrain), context.Relative(binary));
+        }
+    }
+
+    public sealed class HoleInput
+    {
+        [Description("The Terrain resource, project-relative."), RequiredInput] public string Terrain { get; set; } = string.Empty;
+        [Description("Where to cut: world points [x, z]; one point cuts a round hole, more cut along the line between them (a trench, a crevasse).")]
+        public List<float[]>? Points { get; set; }
+        [Description("Radius of the hole round each point, metres (default 2).")] public float? Radius { get; set; }
+        [Description("Put the ground back there instead of cutting it (default false).")] public bool? Fill { get; set; }
+        [Description("Fill every hole the terrain has first (default false); alone, it removes them all.")] public bool? Clear { get; set; }
+    }
+
+    public sealed class TerrainSetHole : AutomationCommand<HoleInput>
+    {
+        public override string Name => "terrain.setHole";
+        public override string Description => "Cuts holes in a terrain (or fills them): the ground there is not drawn, light falls through, bodies fall through and agents do not walk there; its grass and scattered copies keep off. As the Terrain editor's Hole brush.";
+
+        protected override AutomationResult Execute(AutomationContext context, HoleInput input)
+        {
+            string full = Terrain(context, input.Terrain);
+            int count = input.Points?.Count ?? 0;
+            if (count == 0 && input.Clear != true) throw new AutomationException("Give points to cut (or fill), or clear: true to fill every hole.");
+            float radius = input.Radius ?? 2f;
+            if (!(radius > 0f)) throw new AutomationException("The radius must be above 0.");
+            TerrainAsset terrain = Load(full);
+            int before = terrain.HoleCount;
+            if (input.Clear == true) terrain.ClearHoles();
+            if (count > 0)
+            {
+                System.Numerics.Vector2[] points = [.. input.Points!.Select(Point)];
+                TerrainSculptBrush brush = input.Fill == true ? TerrainSculptBrush.FillHole : TerrainSculptBrush.Hole;
+                var dab = new TerrainSculptDab { Radius = radius };
+                float spacing = Math.Max(radius * 0.25f, terrain.CellSize * 0.5f);
+                TerrainSculpt.Apply(terrain, brush, points[0].X, points[0].Y, dab);
+                for (int i = 1; i < points.Length; i++)
+                {
+                    int steps = Math.Max(1, (int)MathF.Ceiling(System.Numerics.Vector2.Distance(points[i - 1], points[i]) / spacing));
+                    for (int step = 1; step <= steps; step++)
+                    {
+                        var at = System.Numerics.Vector2.Lerp(points[i - 1], points[i], step / (float)steps);
+                        TerrainSculpt.Apply(terrain, brush, at.X, at.Y, dab);
+                    }
+                }
+            }
+
+            string binary = full + ".gterrain";
+            if (File.Exists(binary)) ResourceBackupService.BackupBeforeOverwrite(binary);
+            terrain.Save(binary);
+            JsonObject data = Describe(context, full, terrain);
+            data["holeCells"] = terrain.HoleCount;
+            return AutomationResult.Success($"The terrain has {terrain.HoleCount} cells cut away (was {before}).", data, context.Relative(binary));
         }
     }
 }

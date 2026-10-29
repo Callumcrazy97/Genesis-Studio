@@ -115,6 +115,8 @@ public static class TerrainScatterPlacement
 
                 float height = terrain.SampleHeight(x, z);
                 if (height < layer.MinimumHeight || height > layer.MaximumHeight) continue;
+                // Nothing stands over a hole.
+                if (terrain.IsHoleAt(x, z)) continue;
 
                 float dx = terrain.SampleHeight(x + step, z) - terrain.SampleHeight(x - step, z);
                 float dz = terrain.SampleHeight(x, z + step) - terrain.SampleHeight(x, z - step);

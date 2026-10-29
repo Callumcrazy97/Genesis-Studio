@@ -57,6 +57,15 @@ public class TerrainAsset
     // Second 4-channel splatmap (layers 5-8). Absent until a layer above four is painted, so a
     // four-layer terrain keeps its memory use and saves the original version 1 file unchanged.
     private byte[] _splatmap2;
+    // Holes: one bit per cell (the square between four neighbouring samples), set where the
+    // ground is cut away. Absent until a hole is cut, so a terrain without holes keeps its memory
+    // use and saves the version 1 or 2 file it always did.
+    private byte[] _holes;
+    // Holes per block of HoleBlockCells x HoleBlockCells cells, so asking whether a large area has
+    // any hole skips the empty blocks.
+    private int[] _holeBlocks;
+    private int _holeCount;
+    private const int HoleBlockCells = 32;
 
     public TerrainAsset(int resX, int resZ, float cellSize, float originX, float originZ, float minHeight, float maxHeight)
         : this(resX, resZ, cellSize, originX, originZ, minHeight, maxHeight, initialise: true)
@@ -158,6 +167,155 @@ public class TerrainAsset
         {
             _splatmap[at + c] = (byte)(c == layer ? 255 : 0);
             if (_splatmap2 is { } second) second[at + c] = (byte)(c + 4 == layer ? 255 : 0);
+        }
+    }
+
+    // ── Holes ────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Cells across: one fewer than the samples. A hole is cut out of whole cells.</summary>
+    public int CellsX => Math.Max(0, ResolutionX - 1);
+
+    /// <summary>Cells deep.</summary>
+    public int CellsZ => Math.Max(0, ResolutionZ - 1);
+
+    /// <summary>
+    /// When false the holes are kept but not cut: the ground is drawn, solid and walkable over them
+    /// (Engine.Terrain.Holes.Enabled). Not saved.
+    /// </summary>
+    public bool HolesEnabled { get; set; } = true;
+
+    /// <summary>True when some cell is cut away (and holes are enabled).</summary>
+    public bool HasHoles => _holeCount > 0 && HolesEnabled;
+
+    /// <summary>How many cells are cut away, enabled or not.</summary>
+    public int HoleCount => _holeCount;
+
+    /// <summary>True when the cell whose low corner is sample (<paramref name="cellX"/>, <paramref name="cellZ"/>) is cut away.</summary>
+    public bool IsHole(int cellX, int cellZ)
+    {
+        if (_holeCount == 0 || !HolesEnabled || (uint)cellX >= (uint)CellsX || (uint)cellZ >= (uint)CellsZ) return false;
+        int bit = cellZ * CellsX + cellX;
+        return (_holes[bit >> 3] & (1 << (bit & 7))) != 0;
+    }
+
+    /// <summary>True when the ground at a point in the terrain's own space is cut away.</summary>
+    public bool IsHoleAt(float localX, float localZ)
+    {
+        if (!HasHoles) return false;
+        float gx = (localX - OriginX) / CellSize, gz = (localZ - OriginZ) / CellSize;
+        if (gx < 0f || gz < 0f) return false;
+        return IsHole((int)gx, (int)gz);
+    }
+
+    /// <summary>Cuts a cell away (<paramref name="hole"/> true) or fills it again. Returns true when it changed.</summary>
+    public bool SetHole(int cellX, int cellZ, bool hole)
+    {
+        if ((uint)cellX >= (uint)CellsX || (uint)cellZ >= (uint)CellsZ) return false;
+        int bit = cellZ * CellsX + cellX;
+        if (_holes == null)
+        {
+            if (!hole) return false;
+            _holes = new byte[(CellsX * CellsZ + 7) >> 3];
+            _holeBlocks = new int[HoleBlocksX * HoleBlocksZ];
+        }
+
+        bool was = (_holes[bit >> 3] & (1 << (bit & 7))) != 0;
+        if (was == hole) return false;
+        if (hole) _holes[bit >> 3] |= (byte)(1 << (bit & 7));
+        else _holes[bit >> 3] &= (byte)~(1 << (bit & 7));
+        int delta = hole ? 1 : -1;
+        _holeCount += delta;
+        _holeBlocks[cellZ / HoleBlockCells * HoleBlocksX + cellX / HoleBlockCells] += delta;
+        return true;
+    }
+
+    /// <summary>
+    /// True when a hole lies in the inclusive cell rectangle. Empty blocks are skipped, so asking
+    /// about a large area of a terrain with a few holes is quick.
+    /// </summary>
+    public bool AnyHole(int minCellX, int minCellZ, int maxCellX, int maxCellZ)
+    {
+        if (!HasHoles) return false;
+        minCellX = Math.Max(0, minCellX); minCellZ = Math.Max(0, minCellZ);
+        maxCellX = Math.Min(CellsX - 1, maxCellX); maxCellZ = Math.Min(CellsZ - 1, maxCellZ);
+        if (minCellX > maxCellX || minCellZ > maxCellZ) return false;
+        for (int bz = minCellZ / HoleBlockCells; bz <= maxCellZ / HoleBlockCells; bz++)
+        for (int bx = minCellX / HoleBlockCells; bx <= maxCellX / HoleBlockCells; bx++)
+        {
+            if (_holeBlocks[bz * HoleBlocksX + bx] == 0) continue;
+            int x0 = Math.Max(minCellX, bx * HoleBlockCells), x1 = Math.Min(maxCellX, bx * HoleBlockCells + HoleBlockCells - 1);
+            int z0 = Math.Max(minCellZ, bz * HoleBlockCells), z1 = Math.Min(maxCellZ, bz * HoleBlockCells + HoleBlockCells - 1);
+            for (int z = z0; z <= z1; z++)
+            for (int x = x0; x <= x1; x++)
+                if (IsHole(x, z)) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Cuts away (or, with <paramref name="fill"/>, fills) every cell whose centre lies within
+    /// <paramref name="radius"/> of a point in the terrain's own space. Returns the cells it changed.
+    /// </summary>
+    public int ApplyHoleBrush(float localX, float localZ, float radius, bool fill = false)
+    {
+        if (!float.IsFinite(localX) || !float.IsFinite(localZ) || !(radius > 0f)) return 0;
+        float cx = (localX - OriginX) / CellSize - 0.5f, cz = (localZ - OriginZ) / CellSize - 0.5f, reach = radius / CellSize;
+        int minX = Math.Max(0, (int)MathF.Floor(cx - reach)), maxX = Math.Min(CellsX - 1, (int)MathF.Ceiling(cx + reach));
+        int minZ = Math.Max(0, (int)MathF.Floor(cz - reach)), maxZ = Math.Min(CellsZ - 1, (int)MathF.Ceiling(cz + reach));
+        int changed = 0;
+        for (int z = minZ; z <= maxZ; z++)
+        for (int x = minX; x <= maxX; x++)
+        {
+            float dx = x - cx, dz = z - cz;
+            if (dx * dx + dz * dz <= reach * reach && SetHole(x, z, !fill)) changed++;
+        }
+
+        return changed;
+    }
+
+    /// <summary>A copy of the hole bits (editor undo); empty when the terrain has none.</summary>
+    public byte[] CaptureHoleState() => _holes == null || _holeCount == 0 ? Array.Empty<byte>() : (byte[])_holes.Clone();
+
+    /// <summary>Puts back holes taken by <see cref="CaptureHoleState"/> (an empty array fills every hole).</summary>
+    public void RestoreHoles(byte[] state)
+    {
+        if (state == null) return;
+        if (state.Length == 0)
+        {
+            _holes = null;
+            _holeBlocks = null;
+            _holeCount = 0;
+            return;
+        }
+
+        if (state.Length != ((CellsX * CellsZ + 7) >> 3)) return;
+        _holes = (byte[])state.Clone();
+        RecountHoles();
+    }
+
+    /// <summary>Fills every hole.</summary>
+    public void ClearHoles() => RestoreHoles(Array.Empty<byte>());
+
+    private int HoleBlocksX => (CellsX + HoleBlockCells - 1) / HoleBlockCells;
+    private int HoleBlocksZ => (CellsZ + HoleBlockCells - 1) / HoleBlockCells;
+
+    private void RecountHoles()
+    {
+        _holeBlocks = new int[Math.Max(1, HoleBlocksX * HoleBlocksZ)];
+        _holeCount = 0;
+        int cells = CellsX * CellsZ;
+        for (int bit = 0; bit < cells; bit++)
+        {
+            if ((_holes[bit >> 3] & (1 << (bit & 7))) == 0) continue;
+            _holeCount++;
+            _holeBlocks[bit / CellsX / HoleBlockCells * HoleBlocksX + bit % CellsX / HoleBlockCells]++;
+        }
+
+        if (_holeCount == 0)
+        {
+            _holes = null;
+            _holeBlocks = null;
         }
     }
 
@@ -463,8 +621,11 @@ public class TerrainAsset
         // and is written only when one of those layers carries paint, so four-layer terrains keep
         // the file older readers understand.
         bool extended = _splatmap2 is { } second && second.AsSpan().ContainsAnyExcept((byte)0);
+        // Version 3 follows the first plane with flags saying which of the second plane and the
+        // hole bits come next. It is written only for a terrain with holes.
+        bool holes = _holeCount > 0;
         bw.Write(0x4E525447); // 'GTRN'
-        bw.Write(extended ? 2 : 1);
+        bw.Write(holes ? 3 : extended ? 2 : 1);
         bw.Write(ResolutionX);
         bw.Write(ResolutionZ);
         bw.Write(CellSize);
@@ -475,7 +636,13 @@ public class TerrainAsset
         // One block write: a sample-at-a-time loop took seconds on a multi-kilometre terrain.
         bw.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(_heights.AsSpan()));
         bw.Write(_splatmap);
-        if (extended) bw.Write(_splatmap2);
+        if (holes)
+        {
+            bw.Write((extended ? 1 : 0) | 2);
+            if (extended) bw.Write(_splatmap2);
+            bw.Write(_holes);
+        }
+        else if (extended) bw.Write(_splatmap2);
     }
 
     public static TerrainAsset Load(string path)
@@ -485,7 +652,7 @@ public class TerrainAsset
         if (br.ReadInt32() != 0x4E525447)
             throw new InvalidDataException("Not a Genesis terrain file (.gterrain).");
         int version = br.ReadInt32();
-        if (version is not (1 or 2))
+        if (version is not (1 or 2 or 3))
             throw new InvalidDataException($"Unsupported terrain version {version}.");
         int resX = br.ReadInt32();
         int resZ = br.ReadInt32();
@@ -508,6 +675,18 @@ public class TerrainAsset
         // Version 2: layers 5-8. A short plane keeps whatever was read; the rest stays unpainted.
         else if (version == 2)
             ReadFully(fs, asset.EnsureExtendedSplatmap());
+        // Version 3: flags, then the second plane if flagged, then the hole bits if flagged.
+        else if (version == 3)
+        {
+            Span<byte> flagBytes = stackalloc byte[4];
+            int flags = ReadFully(fs, flagBytes) == 4 ? BitConverter.ToInt32(flagBytes) : 0;
+            if ((flags & 1) != 0) ReadFully(fs, asset.EnsureExtendedSplatmap());
+            if ((flags & 2) != 0 && asset.CellsX > 0 && asset.CellsZ > 0)
+            {
+                byte[] holes = new byte[(asset.CellsX * asset.CellsZ + 7) >> 3];
+                if (ReadFully(fs, holes) == holes.Length) asset.RestoreHoles(holes);
+            }
+        }
         return asset;
     }
 

@@ -153,6 +153,7 @@ public static class FoliageScatter
             if (slope > maxSlope) continue;
             TerrainPathSample path = paths.Sample(worldX, worldZ);
             if (path.IsValid && path.Distance < path.Width * settings.PathExclusion) continue;
+            if (terrain.IsHoleAt(worldX, worldZ)) continue;
             if (TerrainWaterDefinition.ContainsAny(waters, worldX, worldZ, TerrainWaterDefinition.FoliageExclusionPadding)) continue;
 
             Vector2 horizontal = new(worldX, worldZ);

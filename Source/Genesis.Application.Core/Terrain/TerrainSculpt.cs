@@ -13,6 +13,10 @@ public enum TerrainSculptBrush
     Paint,
     Erase,
     InFill,
+    /// <summary>Cuts the ground away: the cells under the brush are not drawn, solid or walkable.</summary>
+    Hole,
+    /// <summary>Puts cut-away ground back.</summary>
+    FillHole,
 }
 
 /// <summary>How one dab of a brush behaves.</summary>
@@ -52,6 +56,21 @@ public static class TerrainSculpt
         float radius = dab.Radius, strength = dab.Strength;
         var bounds = CellBounds(terrain, worldX, worldZ, radius);
         IReadOnlyList<Vector2> selection = dab.Selection ?? [];
+        if (brush is TerrainSculptBrush.Hole or TerrainSculptBrush.FillHole)
+        {
+            // Whole cells, cut or filled where their middle lies within the brush (and the selection).
+            for (int z = bounds.MinZ; z < Math.Min(bounds.MaxZ + 1, terrain.CellsZ); z++)
+            for (int x = bounds.MinX; x < Math.Min(bounds.MaxX + 1, terrain.CellsX); x++)
+            {
+                float wx = terrain.OriginX + (x + 0.5f) * terrain.CellSize, wz = terrain.OriginZ + (z + 0.5f) * terrain.CellSize;
+                if (Vector2.Distance(new(wx, wz), new(worldX, worldZ)) > radius
+                    || (selection.Count >= 3 && !InsidePolygon(selection, wx, wz))) continue;
+                terrain.SetHole(x, z, brush == TerrainSculptBrush.Hole);
+            }
+
+            return bounds;
+        }
+
         ushort[] baseline = dab.EraseBaseline ?? [];
         // Smooth reads a snapshot of the brush footprint plus a one-sample border, not a copy of
         // the entire heightfield per dab.
