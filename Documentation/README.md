@@ -10384,9 +10384,10 @@ Shared viewport chrome is **done**. These items are the remaining product work.
 **Decision:** keep Image Editor 2D. Do **not** add View → Mode → 2D↔3D or MagicaVoxel-style
 pixel gizmos there. That would duplicate Model Editor and confuse who owns the texture.
 
-- [ ] **TEX-1 Model Editor: Paint on Model — Partial.** Mesh-hit UV projection and brush/spray into model-owned PNGs already exist in `ModelEditorProductionAuthoring`. Remaining: project into the bound
-      Image. Reuse Image Editor brush/pencil/eraser (shared imaging types, not a forked toolset).
-      The 3D viewport updates live, including animated UV/flow materials.
+- [ ] **TEX-1 Model Editor: Paint on Model — first version 29 Oct 2026.** Texture page → Paint / Erase
+      paints the triangle's material Image live in the editor's 3D view, with the Image editor's
+      brush, one undo per stroke and Save writing the Images (`Documentation/Design/ModelEditor.md`,
+      Paint). Remaining: animated UV/flow materials, frames other than 1, Normal/ORM images.
 - [ ] **TEX-2 Side-by-side texture panel** in Model Composer showing the target Image while
       painting, with a jump-to-Image-Editor handoff for layers/frames/clips.
 - [ ] **TEX-3** Optional later: select/move/rotate a floating 2D selection **on the UV island**,
