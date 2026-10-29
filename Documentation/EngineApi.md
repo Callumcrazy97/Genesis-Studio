@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1821 names: 507 properties (430 can be set), 1314 commands.
+1861 names: 531 properties (452 can be set), 1330 commands.
 
 ## Engine.Alarm
 
@@ -50,6 +50,10 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `LayerCreate` | command | Create/select a layer; comma-separated exact bone names, empty mask affects all bones |
 | `LayerSetAdditive` | command | Choose additive or override layer blending |
 | `LayerSetWeight` | command | Set layer influence between zero and one |
+| `LookAmount` | command | How much this instance's head is turned to its target now, as blended in or out (0 to 1) |
+| `LookAtInstance` | command | This instance's head follows another instance with its eyes wherever it goes: one of its bones or sockets ("Head" to meet its eyes), or its position raised by Engine.Animation.LookAt.Height; once it is gone, where it was last. False when this instance has no model |
+| `LookAtPoint` | command | This instance's head (Engine.Animation.LookAt.Bone, "Head" unless set) turns to look at a world point, blending in over the seconds given (its BlendTime unless given), as far as its yaw and pitch limits allow, on top of its animation; it keeps looking until AnimationLookStop. False when this instance has no model |
+| `LookStop` | command | This instance's head goes back to its animation over the seconds given (its BlendTime unless given) |
 | `Loop` | property | Sets (AnimationSetLoop): Whether the clip repeats |
 | `ModelAnimationCrossed` | command | True in the one frame the active model clip passes this point (0 = its start, 1 = its end): the moment a blow lands or a foot comes down |
 | `ModelAnimationGetClip` | command | Get the active model clip |
@@ -69,8 +73,13 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `ModelAnimationStop` | command | Pause the active model clip |
 | `Play` | command | Start a named animation clip |
 | `Playing` | read only | Reads (AnimationIsPlaying): True while a clip is running |
+| `ReachAmount` | command | How much this instance's limb ending in the bone reaches now, as blended in or out (0 to 1) |
+| `ReachStop` | command | This instance's limb ending in the bone goes back to its animation over the seconds given (its blend time unless given); no bone, or "", lets every reach go |
+| `ReachToInstance` | command | This instance's limb ending in the bone reaches another instance wherever it goes: one of its bones or sockets (a door's "Handle"), or its position raised by Engine.Animation.Reach.Height. False when this instance has no model |
+| `ReachToPoint` | command | This instance's limb ending in the bone (a hand: "RightHand") bends to bring it to a world point, blending in over the seconds given (0.25 unless given), its lengths and the way it bends kept; a point out of reach is reached towards. On top of its animation, until AnimationReachStop. False when this instance has no model |
 | `SetBool` | command | Set a boolean state parameter |
 | `SetLookForward` | command | Which way the model faces in its own space (default 0, 0, 1), for a model built facing another way; AnimationBoneLookAt measures turns from it |
+| `SetLookLimits` | command | How far this instance's head may turn across (0 to 180 degrees, 70 unless set) and up or down (0 to 89, 40 unless set) from the way its animation faces it |
 | `SetLoop` | command | Whether the clip repeats |
 | `SetParameter` | command | Set a numeric blend/state parameter |
 | `SetSpeed` | command | Clip playback rate multiplier |
@@ -93,6 +102,47 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `StateStop` | command | Pause the assigned sprite or model animation |
 | `Stop` | command | Halt the current clip |
 | `Tag` | read only | Reads (AnimationGetTag): Name of the current clip |
+
+## Engine.Animation.LookAt
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Amount` | read only | How much the head is turned to its target now, as blended in or out, 0 to 1 (read) |
+| `At` | command | Look at a world point (and turn the look on); false when this instance has no model |
+| `BlendTime` | property | How long the look takes to blend in, out or to a new weight, 0 to 10 seconds (0.25 unless set) |
+| `Bone` | property | The bone that looks ("Head" unless set); the other LookAt values belong to its look. A rig's prefix may be left off ("Head" finds "mixamorig:Head") |
+| `Enabled` | property | Whether this instance's head (the Bone) looks at its target, blending in, or goes back to its animation, blending out, over BlendTime (false unless set) |
+| `Follow` | command | Look at another instance wherever it goes, at one of its bones or sockets when named (and turn the look on) |
+| `Height` | property | Metres above the point or instance looked at, -1000 to 1000 (0 unless set): eye height on an instance with no head |
+| `PitchLimit` | property | How far the head may turn up or down from the way its animation faces it, 0 to 89 degrees (40 unless set) |
+| `SetForward` | command | Which way the model faces in its own space (0, 0, 1 unless set), for a model built facing another way; looks are measured from it |
+| `Stop` | command | Let the head go back to its animation over BlendTime |
+| `Target` | property | The instance looked at, wherever it goes (0, unless set, looks at the point X, Y, Z) |
+| `TargetBone` | property | A bone or socket of the instance looked at ("" unless set: its position) |
+| `Weight` | property | How much of the way the head turns to its target once blended in, 0 to 1 (1 unless set) |
+| `X` | property | The world point looked at when there is no Target, across (0 unless set) |
+| `Y` | property | The world point looked at when there is no Target, up (0 unless set) |
+| `YawLimit` | property | How far the head may turn across from the way its animation faces it, 0 to 180 degrees (70 unless set) |
+| `Z` | property | The world point looked at when there is no Target, along z (0 unless set) |
+
+## Engine.Animation.Reach
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Amount` | read only | How much the limb reaches now, as blended in or out, 0 to 1 (read) |
+| `At` | command | Reach for a world point (and turn the reach on); false when this instance has no model |
+| `BlendTime` | property | How long the reach takes to blend in, out or to a new weight, 0 to 10 seconds (0.25 unless set) |
+| `Bone` | property | The bone at the end of the limb that reaches, with the two above it bending ("RightHand" unless set); the other Reach values belong to its reach. A rig's prefix may be left off |
+| `Enabled` | property | Whether this instance's limb ending in the Bone reaches its target, blending in, or goes back to its animation, blending out, over BlendTime (false unless set) |
+| `Follow` | command | Reach for another instance wherever it goes, for one of its bones or sockets when named (and turn the reach on) |
+| `Height` | property | Metres above the point or instance reached for, -1000 to 1000 (0 unless set) |
+| `Stop` | command | Let the limb go back to its animation over BlendTime |
+| `Target` | property | The instance reached for, wherever it goes (0, unless set, reaches the point X, Y, Z) |
+| `TargetBone` | property | A bone or socket of the instance reached for ("" unless set: its position) |
+| `Weight` | property | How much of the way the limb reaches once blended in, 0 to 1 (1 unless set) |
+| `X` | property | The world point reached for when there is no Target, across (0 unless set) |
+| `Y` | property | The world point reached for when there is no Target, up (0 unless set) |
+| `Z` | property | The world point reached for when there is no Target, along z (0 unless set) |
 
 ## Engine.Array
 
