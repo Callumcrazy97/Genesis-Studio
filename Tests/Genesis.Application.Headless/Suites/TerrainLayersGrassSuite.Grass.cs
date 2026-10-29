@@ -31,6 +31,7 @@ internal static partial class TerrainLayersGrassSuite
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.Dx11FrameCostBeforeAndAfter", () => GrassDx11FrameCost(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.TerrainEditorAppliesSavesAndDrawsRule", () => GrassTerrainEditor(ctx));
         RunGrassShader(ctx);
+        RunHoles(ctx);
     }
 
     private static void GrassTerrainEditor(HeadlessContext ctx)

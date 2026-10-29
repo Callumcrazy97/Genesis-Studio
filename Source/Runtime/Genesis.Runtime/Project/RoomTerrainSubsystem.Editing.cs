@@ -91,6 +91,13 @@ public sealed partial class RoomTerrainSubsystem
         return false;
     }
 
+    /// <summary>
+    /// The ground's height for a navigation bake: none (not a number) over a hole, so the bake does
+    /// not let agents walk there.
+    /// </summary>
+    public float NavigationHeightAt(float worldX, float worldZ) =>
+        IsHoleAt(worldX, worldZ) ? float.NaN : SampleHeight(worldX, worldZ);
+
     /// <summary>Cells cut away across the room's terrains.</summary>
     public int HoleCount
     {

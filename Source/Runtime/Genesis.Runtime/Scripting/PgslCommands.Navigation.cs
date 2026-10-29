@@ -162,7 +162,7 @@ public static partial class PgslCommands
     {
         RoomTerrainSubsystem? terrains = FirstTerrains();
         if (terrains is not { HoleCount: > 0, HolesEnabled: true }) return game.GetTerrainHeight;
-        return (x, z) => terrains.IsHoleAt(x, z) ? float.NaN : game.GetTerrainHeight(x, z);
+        return terrains.NavigationHeightAt;
     }
 
     [PgslCommand("NavMeshSetAreaCost", "NavMeshSetAreaCost(x1, z1, x2, z2, cost) -> number",
