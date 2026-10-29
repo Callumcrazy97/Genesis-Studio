@@ -268,8 +268,10 @@ DrawBeam3D(muzzleX, muzzleY, muzzleZ, hitX, hitY, hitZ, 0.04);   // in a Draw ev
 
 ## The look
 
-- **Light**: a scene preset gives sun, sky, clouds and haze together. Reflections and light bounced
-  off the ground and walls are automatic in a game (`Engine.Lighting.*` to tune or turn off).
+- **Light**: a scene preset gives sun, sky, clouds and haze together; Sunny day and Golden hour
+  also make the haze glow round the sun (`sunGlow` in `room.setEnvironment`, `Engine.Sky.Sun.Glow`
+  in a script, 0 to 4). Reflections and light bounced off the ground and walls are automatic in a
+  game (`Engine.Lighting.*` to tune or turn off), and lakes reflect the dynamic sky above them.
 - **Distance**: `visibilityKilometres` sets how far the haze lets you see; 2 to 3 km gives depth
   without hiding the hills.
 - **Shadows**: `shadowDistance` (metres) covers what the player walks among; 100 to 150 for a walk. `Engine.Rendering.Shadows.Strength` (0 to 1) lightens shade that looks too dark for a sunny scene; 0.7 is gentle.

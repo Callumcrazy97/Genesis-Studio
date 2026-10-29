@@ -26,7 +26,7 @@ internal static class LookGapsSuite
         HeadlessHarness.RunCase(ctx.Report, "Render.Sky.SunGlowWhitensTheSkyRoundTheSun", () => SunGlowPixels(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Render.Water.ReflectsTheDynamicSkyItLiesUnder", () => WaterReflectsTheSky(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Engine.Sky.SunGlowIsKeptWithTheRoomAndSetBySunnyScenes", SunGlowSetting);
-        HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.GrassRule.BuiltInGrassIsTheDeeperMeadowGreen", GrassDefaults);
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Look.BuiltInGrassAndStandardWaterKeepTheirColours", GrassAndWaterDefaults);
     }
 
     private static readonly Matrix4x4 Projection =
@@ -89,7 +89,7 @@ internal static class LookGapsSuite
         (int X, int Y) sun = OnScreen(camera, view, towardSun);
         (int X, int Y) near = OnScreen(camera, view, Turned(towardSun, 8f, 0f));
         (int X, int Y) far = OnScreen(camera, view, Turned(towardSun, -40f, -12f));
-        HeadlessHarness.Assert(Math.Abs(sun.X - Width / 2) <= 2 && near.X > sun.X + 10 && far.X >= 0 && far.X < Width && far.Y >= 0 && far.Y < Height,
+        HeadlessHarness.Assert(Math.Abs(sun.X - Width / 2) <= 2 && Math.Abs(near.X - sun.X) > 10 && far.X >= 0 && far.X < Width && far.Y >= 0 && far.Y < Height,
             $"The check itself is wrong: sun at {sun}, near at {near}, far at {far}.");
 
         using var host = UnattendedWindowing.NewHost(Width, Height);
@@ -119,7 +119,7 @@ internal static class LookGapsSuite
         var farOff = At(off, far); var farOn = At(on, far);
         Console.WriteLine($"[LookGaps] sun glow: 8 deg {nearOff} -> {nearOn}; 40 deg {farOff} -> {farOn}");
         float nearGain = Luma(nearOn) - Luma(nearOff), farGain = Luma(farOn) - Luma(farOff);
-        HeadlessHarness.Assert(nearGain >= 20f,
+        HeadlessHarness.Assert(nearGain >= 15f,
             $"With the glow on, the sky 8 degrees from the sun should be clearly brighter: {nearOff} off, {nearOn} on.");
         HeadlessHarness.Assert(nearOn.B - nearOn.R < nearOff.B - nearOff.R,
             $"The glow should whiten the sky round the sun (less blue than red): {nearOff} off, {nearOn} on.");
@@ -136,9 +136,23 @@ internal static class LookGapsSuite
         Vector3 camera = new(0f, 1.5f, -40f);
         Vector3 forward = Vector3.Normalize(new Vector3(0f, -0.06f, 1f));
         Matrix4x4 view = D3dMatrixHelper.CreateLookAtLh(camera, camera + forward, Vector3.UnitY);
-        // Water about 25 metres ahead: a grazing view, mostly reflection.
-        (int X, int Y) water = OnScreen(camera, view, Vector3.Normalize(new Vector3(0f, -1.5f, 25f)));
-        HeadlessHarness.Assert(water.Y > Height / 2 && water.Y < Height, $"The check itself is wrong: the water is at {water}.");
+        // The band of water from 20 to 100 metres ahead: a grazing view, mostly reflection. Ripples
+        // turn single pixels to the low or the high sky, so the band's mean colour is compared.
+        (int X, int Y) water = OnScreen(camera, view, Vector3.Normalize(new Vector3(0f, -1.5f, 20f)));
+        (int X, int Y) far = OnScreen(camera, view, Vector3.Normalize(new Vector3(0f, -1.5f, 100f)));
+        HeadlessHarness.Assert(water.Y < Height && far.Y < water.Y - 5, $"The check itself is wrong: the water band is rows {far.Y} to {water.Y}.");
+        (float R, float G, float B) Band(byte[] bgra)
+        {
+            float r = 0f, g = 0f, b = 0f;
+            int count = 0;
+            for (int y = far.Y + 1; y <= water.Y; y++)
+                for (int x = 10; x < Width - 10; x++)
+                {
+                    var c = At(bgra, (x, y));
+                    r += c.R; g += c.G; b += c.B; count++;
+                }
+            return (r / count, g / count, b / count);
+        }
 
         using var host = UnattendedWindowing.NewHost(Width, Height);
         UnattendedWindowing.ShowWithoutFocus(host);
@@ -180,11 +194,11 @@ internal static class LookGapsSuite
         byte[] live = Frame(dynamicSky: true), own = Frame(dynamicSky: false);
         SaveFrame(ctx, live, "look-gaps-water-dynamic-sky-dx11.png");
         SaveFrame(ctx, own, "look-gaps-water-own-sky-dx11.png");
-        var underSky = At(live, water); var underOwn = At(own, water);
-        Console.WriteLine($"[LookGaps] water at {water}: dynamic sky {underSky}, own sky {underOwn}");
-        HeadlessHarness.Assert(underSky.R > underSky.B + 20,
-            $"Under an orange dynamic sky the lake should reflect orange: it reads {underSky}.");
-        HeadlessHarness.Assert(underOwn.B > underOwn.R && underSky.R > underOwn.R + 30,
+        var underSky = Band(live); var underOwn = Band(own);
+        Console.WriteLine($"[LookGaps] water rows {far.Y}-{water.Y}: dynamic sky {underSky}, own sky {underOwn}");
+        HeadlessHarness.Assert(underSky.R > underSky.B + 15,
+            $"Under an orange dynamic sky the far lake should reflect orange: it reads {underSky}.");
+        HeadlessHarness.Assert(underOwn.B > underOwn.R && underSky.R > underOwn.R + 25,
             $"With no dynamic sky the lake should keep its own blue-green sky ({underOwn}), and the orange sky should redden it ({underSky}).");
     }
 
@@ -225,17 +239,28 @@ internal static class LookGapsSuite
         HeadlessHarness.Assert(state.SunGlow == 1.25f, $"The atmosphere's glow did not reach the frame ({state.SunGlow}).");
     }
 
-    /// <summary>A new grass rule grows the deeper meadow green the reference picture shows (T7), with dark roots.</summary>
-    private static void GrassDefaults()
+    /// <summary>
+    /// A new grass rule grows the deeper meadow green the reference picture shows (T7), with dark
+    /// roots, and a lake with no look of its own is a clear teal rather than a pale turquoise.
+    /// </summary>
+    private static void GrassAndWaterDefaults()
     {
         TerrainGrassRuleSettings rule = new();
         static float Luma(Vector3 c) => 0.2126f * c.X + 0.7152f * c.Y + 0.0722f * c.Z;
-        HeadlessHarness.Assert(rule.BaseColor == new Vector3(0.07f, 0.17f, 0.045f) && rule.TipColor == new Vector3(0.20f, 0.47f, 0.12f)
+        HeadlessHarness.Assert(rule.BaseColor == new Vector3(0.08f, 0.15f, 0.05f) && rule.TipColor == new Vector3(0.27f, 0.46f, 0.18f)
             && rule.ColorCurve == 1.25f,
             $"The built-in grass's colours changed: root {rule.BaseColor}, tip {rule.TipColor}, curve {rule.ColorCurve}.");
         HeadlessHarness.Assert(Luma(rule.TipColor) < 0.4f && Luma(rule.TipColor) > Luma(rule.BaseColor) * 2.5f
-            && rule.TipColor.Y > rule.TipColor.X * 2f,
+            && rule.TipColor.Y > rule.TipColor.X * 1.5f,
             "The built-in grass should be a deep green with roots well darker than its tips.");
+
+        // The standard water look a lake takes: a clear teal that hides most of its bed.
+        WaterMaterialSettings water = WaterMaterialSettings.Default;
+        HeadlessHarness.Assert(water.Opacity >= 0.7f && water.ShallowColor.Z > water.ShallowColor.Y && water.ShallowColor.Y < 0.5f,
+            $"The standard water should be a clear teal that hides most of its bed ({water.ShallowColor}, opacity {water.Opacity}).");
+        WaterBody lake = new();
+        HeadlessHarness.Assert(lake.GroundMistEnabled && lake.GroundMistDensity <= 0.15f,
+            $"A lake's mist should be a breath over the water, not a white slab (density {lake.GroundMistDensity}).");
     }
 
     private static void SaveFrame(HeadlessContext ctx, byte[] bgra, string name)

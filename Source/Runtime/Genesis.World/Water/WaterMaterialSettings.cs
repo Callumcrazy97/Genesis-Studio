@@ -38,11 +38,23 @@ namespace Genesis.World.Water
         /// <summary>Ambient temperature 0..1 for CPU tinting (optional).</summary>
         public float TemperatureNorm;
 
+        /// <summary>The colour over shallow water: a clear teal (29 Oct; it was a pale turquoise, 0.18, 0.62, 0.72).</summary>
+        public static readonly Vector3 DefaultShallowColor = new(0.12f, 0.42f, 0.52f);
+
+        /// <summary>The colour water darkens to with depth (29 Oct; it was 0.04, 0.18, 0.38).</summary>
+        public static readonly Vector3 DefaultDeepColor = new(0.03f, 0.12f, 0.24f);
+
+        /// <summary>
+        /// How much the surface hides what is under it (29 Oct; it was 0.5, which let a grassy lake bed
+        /// tint the whole lake green and pale).
+        /// </summary>
+        public const float DefaultOpacity = 0.72f;
+
         public static WaterMaterialSettings Default => new()
         {
-            ShallowColor = new Vector3(0.18f, 0.62f, 0.72f),
-            DeepColor = new Vector3(0.04f, 0.18f, 0.38f),
-            Opacity = 0.5f,
+            ShallowColor = DefaultShallowColor,
+            DeepColor = DefaultDeepColor,
+            Opacity = DefaultOpacity,
             DepthFade = 12f,
             FlowSpeed = 0.35f,
             FresnelPower = 4f,

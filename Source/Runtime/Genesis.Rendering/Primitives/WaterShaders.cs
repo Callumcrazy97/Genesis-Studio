@@ -307,7 +307,10 @@ PSOut PS_Water(VSOut IN)
         float4 fog = FroxelFog(IN.SvPos.xy * ViewportParams.zw, cameraPos, IN.WorldPos,
             mul(float4(IN.WorldPos, 1.0), ViewProjection).w);
         waterColor = lerp(waterColor, waterColor * fog.a + fog.rgb, saturate(FogColor.a));
-        fogDone = 1.0;
+        // Only where the water mostly hides what is behind it. Along the shore it fades to nearly
+        // clear, and flagging those pixels left the bank seen through them unfogged: a dark,
+        // stair-stepped line round every lake in a hazy scene. There the post fog runs as usual.
+        fogDone = alpha > 0.4 ? 1.0 : 0.0;
     }
 
     PSOut result;

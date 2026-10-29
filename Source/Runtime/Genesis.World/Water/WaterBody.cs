@@ -122,7 +122,12 @@ namespace Genesis.World.Water
         public bool GroundMistEnabled { get; set; } = true;
 
         public Vector3 GroundMistColor { get; set; } = new(0.80f, 0.84f, 0.87f);
-        public float GroundMistDensity { get; set; } = 0.30f;
+        /// <summary>
+        /// How thick the mist is (29 Oct: 0.15; it was 0.30, which a view across a lake from a few
+        /// metres up saw through several metres of, so on a sunny day the lake read as a pale disc
+        /// of mist and its banks wore a white rim).
+        /// </summary>
+        public float GroundMistDensity { get; set; } = 0.15f;
 
         /// <summary>Half-height of the mist slab above/below SurfaceY.</summary>
         public float GroundMistHeight { get; set; } = 0.6f;

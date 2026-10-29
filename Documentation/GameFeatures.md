@@ -1631,7 +1631,16 @@ That switch costs a full collection at every change, so leave it off for play.
   its blue on the way to the shader). Under the dynamic sky it now reflects that sky's own horizon
   and zenith colours, graded by height as the sky is drawn, so a golden-hour lake mirrors a golden
   sky and ripples catch the low and the high sky differently. Water in a room without the dynamic
-  sky looks as it did.
+  sky reflects as it did.
+- **Lakes are a clear teal** (29 Oct). Water with no look of its own (a terrain lake or river
+  without **Custom look**, and voxel-world water) was a pale turquoise (shallow 0.18, 0.62, 0.72,
+  deep 0.04, 0.18, 0.38) at opacity 0.5, which let a grassy bed tint the whole lake green and pale.
+  It is now shallow 0.12, 0.42, 0.52, deep 0.03, 0.12, 0.24, opacity 0.72 (`WaterMaterialSettings`);
+  a custom look starts from these. Seas keep their own look. The mist a lake carries is half as
+  thick (`GroundMistDensity` 0.15, was 0.30): seen across the lake from a few metres up it had
+  turned a sunny lake into a pale disc of mist with a white rim on its banks. In a hazy scene a dark, stair-stepped
+  line no longer outlines every lake: where the water fades to clear at the shore, the bank behind
+  it is fogged like the rest of the view.
 
 What the existing settings do, since the numbers are not obvious:
 
