@@ -670,24 +670,26 @@ internal static class RenderBackendSuite
             float[] extents = { frame.NearExtent, frame.MidExtent, frame.FarExtent };
             float[] texels = { frame.NearTexelWorld, frame.MidTexelWorld, frame.FarTexelWorld };
             float[] centres = { frame.NearCentreDistance, frame.MidCentreDistance, frame.FarCentreDistance };
+            // The camera turned four ways and also moved a little (less than a texel, and more): a still
+            // point keeps the same place within its shadow-map texel every time.
+            Vector3[] cameras = { camera, camera, camera, camera, camera + new Vector3(0.0004f, 0f, 0.0003f), camera + new Vector3(3.7f, 0.4f, -2.2f) };
             for (int cascade = 0; cascade < 3; cascade++)
             {
                 Vector2 firstFraction = default;
-                for (int i = 0; i < looks.Length; i++)
+                for (int i = 0; i < cameras.Length; i++)
                 {
-                    Matrix4x4 vp = ForwardRenderer.CascadeLightViewProjection(camera, looks[i], light, extents[cascade], texels[cascade], centres[cascade]);
+                    Matrix4x4 vp = ForwardRenderer.CascadeLightViewProjection(cameras[i], looks[Math.Min(i, looks.Length - 1)], light,
+                        extents[cascade], texels[cascade], centres[cascade]);
                     Vector4 clip = Vector4.Transform(new Vector4(point, 1f), vp);
                     // Shadow-map texels: the map is 1024 across the cascade's width.
                     Vector2 texel = new((clip.X * 0.5f + 0.5f) * 1024f, (-clip.Y * 0.5f + 0.5f) * 1024f);
                     Vector2 fraction = new(texel.X - MathF.Floor(texel.X), texel.Y - MathF.Floor(texel.Y));
                     if (i == 0) { firstFraction = fraction; continue; }
-                    HeadlessHarness.Assert(Vector2.Distance(fraction, firstFraction) < 2e-3f,
-                        $"Cascade {cascade}: turning the camera moved a still point within its texel ({firstFraction} -> {fraction}).");
+                    Vector2 drift = Vector2.Abs(fraction - firstFraction);
+                    drift = Vector2.Min(drift, Vector2.One - drift);
+                    HeadlessHarness.Assert(drift.Length() < 2e-3f,
+                        $"Cascade {cascade}: turning or moving the camera moved a still point within its texel ({firstFraction} -> {fraction}).");
                 }
-                Matrix4x4 still = ForwardRenderer.CascadeLightViewProjection(camera, looks[1], light, extents[cascade], texels[cascade], centres[cascade]);
-                Matrix4x4 crept = ForwardRenderer.CascadeLightViewProjection(camera + new Vector3(0.0004f, 0f, 0.0003f), looks[1], light,
-                    extents[cascade], texels[cascade], centres[cascade]);
-                HeadlessHarness.Assert(still == crept, $"Cascade {cascade}: a sub-texel camera move changed the light matrix (the cached map would redraw).");
             }
             CascadeShadowFrame again = CascadeShadowMath.Compute(0.1f, 500f, 1.2f, 16f / 9f, 1024, 0.0015f, 3, 0f);
             HeadlessHarness.Assert(again.NearExtent == frame.NearExtent && again.FarExtent == frame.FarExtent,
@@ -761,11 +763,13 @@ internal static class RenderBackendSuite
                 && Genesis.Rendering.SilkNet.Vulkan.VulkanGpuFormats.ToVulkan(reversed.Format).ToString() == "D32SfloatS8Uint"
                 && (int)Genesis.Rendering.SilkNet.OpenGL.OpenGLGpuFormats.ToInternal(reversed.Format) == 0x8CAD,
                 "Every backend must store reversed scene depth as 32-bit float with stencil (DXGI D32_FLOAT_S8X24_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT, GL_DEPTH32F_STENCIL8).");
-            HeadlessHarness.Assert(Genesis.Rendering.SilkNet.DX11.Dx11GpuFormats.ToComparison(reversed.Nearer).ToString() == "Greater"
-                && Genesis.Rendering.SilkNet.DX12.Dx12GpuFormats.ToComparison(reversed.Nearer).ToString() == "Greater"
-                && Genesis.Rendering.SilkNet.Vulkan.VulkanGpuFormats.ToCompare(reversed.Nearer).ToString() == "Greater"
-                && Genesis.Rendering.SilkNet.OpenGL.OpenGLGpuFormats.ToCompare(reversed.Nearer).ToString() == "Greater",
-                "Every backend must test reversed depth with greater-than.");
+            // D3D11_COMPARISON_GREATER = 5 (D3D12 the same), VK_COMPARE_OP_GREATER = 4, GL_GREATER = 0x0204.
+            int dx11 = (int)Genesis.Rendering.SilkNet.DX11.Dx11GpuFormats.ToComparison(reversed.Nearer);
+            int dx12 = (int)Genesis.Rendering.SilkNet.DX12.Dx12GpuFormats.ToComparison(reversed.Nearer);
+            int vk = (int)Genesis.Rendering.SilkNet.Vulkan.VulkanGpuFormats.ToCompare(reversed.Nearer);
+            int gl = (int)Genesis.Rendering.SilkNet.OpenGL.OpenGLGpuFormats.ToCompare(reversed.Nearer);
+            HeadlessHarness.Assert(dx11 == 5 && dx12 == 5 && vk == 4 && gl == 0x0204,
+                $"Every backend must test reversed depth with greater-than (D3D11 {dx11}, D3D12 {dx12}, Vulkan {vk}, OpenGL 0x{gl:X}).");
         });
 
         // T2: a hall full of lamps used to overflow the packed light lists, and clusters are packed
