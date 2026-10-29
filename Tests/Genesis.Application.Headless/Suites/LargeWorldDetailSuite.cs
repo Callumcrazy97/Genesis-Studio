@@ -210,17 +210,17 @@ internal static class LargeWorldDetailSuite
 
         HeadlessHarness.RunCase(context.Report, "Engine.Rendering.Shadows.FarCascadeReachesAcrossAValley", () =>
         {
-            CascadeShadowFrame standard = CascadeShadowMath.Compute(0.5f, 16000f, 120f, 1.05f, 16f / 9f, 1024, 1024, 0.0015f, 3);
-            CascadeShadowFrame wide = CascadeShadowMath.Compute(0.5f, 16000f, 120f, 1.05f, 16f / 9f, 1024, 1024, 0.0015f, 3, 4000f);
-            HeadlessHarness.Assert(wide.FarExtent == 4000f && standard.FarExtent < 400f,
-                $"The far cascade should widen from {standard.FarExtent:F0} m to 4000 m; got {wide.FarExtent:F0} m.");
-            HeadlessHarness.Assert(wide.NearExtent == standard.NearExtent && wide.MidExtent == standard.MidExtent
-                && wide.NearDepthBias == standard.NearDepthBias && wide.MidDepthBias == standard.MidDepthBias
-                && wide.FarDepthBias == standard.FarDepthBias,
-                "Widening the far cascade changed the near or middle cascade, or the bias they share.");
-            CascadeShadowFrame two = CascadeShadowMath.Compute(0.5f, 16000f, 120f, 1.05f, 16f / 9f, 1024, 1024, 0.0015f, 2, 4000f);
-            HeadlessHarness.Assert(two.FarExtent == CascadeShadowMath.Compute(0.5f, 16000f, 120f, 1.05f, 16f / 9f, 1024, 1024, 0.0015f, 2).FarExtent,
-                "A two-cascade scene must ignore the long shadow distance: it has no cascade to spare for it.");
+            CascadeShadowFrame standard = CascadeShadowMath.Compute(0.5f, 16000f, 1.05f, 16f / 9f, 1024, 0.0015f, 3, 0f);
+            CascadeShadowFrame wide = CascadeShadowMath.Compute(0.5f, 16000f, 1.05f, 16f / 9f, 1024, 0.0015f, 3, 4000f);
+            HeadlessHarness.Assert(wide.ShadowDistance == 4000f && standard.ShadowDistance == CascadeShadowMath.AutomaticDistanceCap,
+                $"Shadows should reach 4000 m when the room asks, 300 m when it does not; got {wide.ShadowDistance:F0} and {standard.ShadowDistance:F0} m.");
+            HeadlessHarness.Assert(wide.FarCentreDistance + wide.FarExtent * 0.5f >= 4000f && wide.FarExtent > standard.FarExtent,
+                $"The far cascade must reach across the valley ({wide.FarCentreDistance + wide.FarExtent * 0.5f:F0} m).");
+            HeadlessHarness.Assert(wide.NearExtent == standard.NearExtent && wide.NearDepthBias == standard.NearDepthBias,
+                "A long shadow distance must leave the near cascade, and its sharp shadows, as they were.");
+            CascadeShadowFrame two = CascadeShadowMath.Compute(0.5f, 16000f, 1.05f, 16f / 9f, 1024, 0.0015f, 2, 4000f);
+            HeadlessHarness.Assert(two.ShadowDistance == 4000f && two.CascadeCount == 2,
+                "Two cascades reach the same distance as three, with one map fewer.");
         });
 
         HeadlessHarness.RunCase(context.Report, "Engine.World.Room.LongViewSettingsSurviveSaveAndReload", () =>
@@ -230,17 +230,21 @@ internal static class LargeWorldDetailSuite
             string file = Path.Combine(folder, "World.room.json");
             RoomAsset room = RoomAsset.Create("World", RoomDimension.ThreeD);
             HeadlessHarness.Assert(room.Environment.VisibilityKilometres == 0f && room.Environment.ShadowDistance == 0f
-                && room.Environment.SimulationDistance == 0f,
-                "A new room must keep the short-range haze and shadows, and run every object, as small scenes expect.");
+                && room.Environment.SimulationDistance == 0f && room.Environment.ShadowCascades == 3 && room.Environment.ShadowFade == 0f,
+                "A new room must keep the short-range haze, shadows that follow the view on three cascades, and run every object.");
             room.Environment.VisibilityKilometres = 40f;
             room.Environment.ShadowDistance = 3500f;
+            room.Environment.ShadowCascades = 2;
+            room.Environment.ShadowFade = 0.3f;
             room.Environment.SimulationDistance = 600f;
             RoomAssetLoader.Save(room, file);
             RoomAsset loaded = RoomAssetLoader.Parse(file);
             HeadlessHarness.Assert(loaded.Environment.VisibilityKilometres == 40f && loaded.Environment.ShadowDistance == 3500f
+                && loaded.Environment.ShadowCascades == 2 && loaded.Environment.ShadowFade == 0.3f
                 && loaded.Environment.SimulationDistance == 600f,
                 $"Long-view settings were not saved (read {loaded.Environment.VisibilityKilometres} km, "
-                + $"{loaded.Environment.ShadowDistance} m, {loaded.Environment.SimulationDistance} m).");
+                + $"{loaded.Environment.ShadowDistance} m, {loaded.Environment.ShadowCascades} cascades, fade {loaded.Environment.ShadowFade}, "
+                + $"{loaded.Environment.SimulationDistance} m).");
         });
 
         HeadlessHarness.RunCase(context.Report, "Engine.World.Simulation.DistantObjectsRestUntilTheCameraReturns", () =>

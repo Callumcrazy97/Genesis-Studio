@@ -336,10 +336,14 @@ public sealed class RoomEnvironment
     /// <summary>How large the sun's disc is drawn against its usual size, which is a little over half a degree.</summary>
     [JsonProperty("sunDiscScale")] public float SunDiscScale { get; set; } = 1f;
     /// <summary>
-    /// How far from the camera the sun casts shadows, in metres. Zero keeps the close-range
-    /// shadows suited to small scenes; a large outdoor world sets this so mountains shade valleys.
+    /// How far from the camera the sun casts shadows, in metres. Zero follows the view distance
+    /// (the camera's far plane) up to 300 m; a large outdoor world sets more so mountains shade valleys.
     /// </summary>
     [JsonProperty("shadowDistance")] public float ShadowDistance { get; set; }
+    /// <summary>How many shadow maps share the shadow distance: 3 (default, sharpest near the camera) or 2 (cheaper).</summary>
+    [JsonProperty("shadowCascades")] public int ShadowCascades { get; set; } = 3;
+    /// <summary>The share of the shadow distance over which shadows fade out at its end, 0 to 1; 0 for the standard 0.15.</summary>
+    [JsonProperty("shadowFade")] public float ShadowFade { get; set; }
     /// <summary>
     /// The sun casts shadows (default). Off for rooms whose shading is painted into their
     /// pictures, as on handheld consoles, so no sun shadows fall across it.

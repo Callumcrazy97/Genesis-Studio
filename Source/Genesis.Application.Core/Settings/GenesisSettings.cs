@@ -2,7 +2,7 @@ namespace Genesis.Application.Core.Settings;
 
 public sealed class GenesisSettings
 {
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
@@ -214,10 +214,10 @@ public sealed class RenderingSettings
     public int SceneLocalLightCap { get; set; } = 256;
 
     /// <summary>
-    /// AF1.3 omnidirectional shadow cubemap slots (0–4, default 1). Independent of
-    /// <see cref="SceneLocalLightCap"/> — never a shadow map per torch.
+    /// Lamps (point and spot lights) that cast shadows at once (0–8, default 4; 1 before 29 Oct).
+    /// Independent of <see cref="SceneLocalLightCap"/> — never a shadow map per torch.
     /// </summary>
-    public int OmniShadowBudget { get; set; } = 1;
+    public int OmniShadowBudget { get; set; } = Genesis.Shared.Interfaces.RenderCapacityDefaults.DefaultOmniShadowBudget;
 
     /// <summary>
     /// AF1.5 local lights that get a volumetric beam (0–4, default 1). Ranked by the same camera

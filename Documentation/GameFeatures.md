@@ -943,7 +943,7 @@ first-person and other model layers, and the volumetric fog. The forward rendere
 limit: every point light goes into one clustered list (16 × 16 screen tiles × 24 depth slices, up
 to 64 lights a cluster, the strongest 256 by distance and brightness when there are more), and a
 pixel shades only the lights whose reach covers its cluster, so small flashes cost little however
-many there are. What a flash never does is take a local shadow slot (one by default, at most four):
+many there are. What a flash never does is take a local shadow slot (four by default, at most eight):
 an ordinary light as bright as a muzzle flash next to the camera wins the slot from the lamp that
 held it, so firing made the lamp's shadow blink off and had six shadow faces drawn for a light that
 lasts 50 ms. Flashes are unshadowed.
@@ -2311,7 +2311,7 @@ One call sets the costly rendering features together, for a Graphics menu:
 | Contact shadows | off | off | on | on | `Engine.Rendering.ContactShadowsEnabled` |
 | Sun shadow cascades | 2 | 2 | 3 | 3 | `Engine.Rendering.CascadeCount` |
 | Sun shadow map size (each cascade) | 512 | 1024 | 1024 | 2048 | `Engine.Rendering.ShadowResolution` |
-| Point lights given a shadow map | 0 | 1 | 2 | 4 | `Engine.Rendering.OmniShadowBudget` |
+| Point lights given a shadow map (4 with no tier) | 0 | 2 | 4 | 8 | `Engine.Rendering.OmniShadowBudget` |
 | Local lights in the volumetric fog | off | off | on | on | `Engine.Rendering.LocalVolumetricsEnabled` |
 | Bloom | off | on | on | on | `Engine.Rendering.BloomEnabled` |
 | Volumetric fog grid quality | 0 | 1 | 1 | 2 | `Engine.Rendering.VolumetricFogQuality` |

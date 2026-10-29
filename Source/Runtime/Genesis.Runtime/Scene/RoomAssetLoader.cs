@@ -472,6 +472,8 @@ public sealed class RoomSceneBuilder
         scene.Environment.ShadowDistance = float.IsFinite(environment.ShadowDistance)
             ? Math.Clamp(environment.ShadowDistance, 0f, 20000f)
             : 0f;
+        scene.Environment.ShadowCascadeCount = environment.ShadowCascades == 2 ? 2 : 3;
+        scene.Environment.ShadowFade = float.IsFinite(environment.ShadowFade) ? Math.Clamp(environment.ShadowFade, 0f, 1f) : 0f;
         scene.Environment.ShadowsEnabled = environment.Shadows;
         scene.Environment.ToneMapping = environment.ToneMapping;
         scene.Environment.SimulationDistance = float.IsFinite(environment.SimulationDistance)

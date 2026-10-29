@@ -396,6 +396,11 @@ namespace Genesis.Runtime.Rendering
                     // A light probe captured next frame sees all around the camera: what is near it stays.
                     if (Cull && !IsPosedByAnimation(World, draw.Entity) && !LightProbes.KeepsForCapture(pos, radius))
                         draw.Skip = (byte)Visibility.Test(Frustum, ViewProjection, pos, radius, Occlude);
+                    // Outside the view but casting a shadow into it (a roof above the camera, a wall
+                    // behind it): submitted all the same, and the renderer draws it only as a caster.
+                    if (draw.Skip == PreparedDraw.OutsideView && draw.Draw3D.CastShadows
+                        && ShadowCasterCulling.CastsIntoView(Frustum.Shared, pos, radius))
+                        draw.Skip = 0;
                     // A model that would cover a pixel or two costs a draw call and shows nothing.
                     if (draw.Skip == 0 && draw.Bounded && ModelLodView.Active && ModelLodView.LevelFor(pos, radius) < 0)
                         draw.Skip = PreparedDraw.TooSmall;

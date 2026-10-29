@@ -33,6 +33,9 @@ namespace Genesis.Rendering.D3dMath
         public bool IntersectsAabb(Vector3 min, Vector3 max) => _shared.IntersectsAabb(min, max);
 
         public bool ContainsBox(Vector3 min, Vector3 max) => _shared.ContainsBox(min, max);
+
+        /// <summary>The canonical frustum, for tests that take it (shadow casters outside the view).</summary>
+        public CameraFrustum Shared => _shared;
     }
 
     public static class MatrixScaleHelper

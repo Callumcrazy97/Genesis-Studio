@@ -37,13 +37,15 @@ namespace Genesis.Runtime.Scene
         public float ShadowStrength { get; set; } = 1f;
         public float ShadowBias { get; set; } = 0.00015f;
         public float ShadowOrthoSize { get; set; } = 120f;
-        /// <summary>2 = default CSM; 3 = AF1.1 far cascade.</summary>
-        public int ShadowCascadeCount { get; set; } = 2;
+        /// <summary>How many shadow maps share the sun's shadow distance: 3 (default) or 2.</summary>
+        public int ShadowCascadeCount { get; set; } = 3;
         /// <summary>
-        /// How far from the camera the sun still casts shadows, in metres; 0 keeps them close.
-        /// Uses the third cascade, so near shadows stay as sharp as before.
+        /// How far from the camera the sun still casts shadows, in metres; 0 follows the view
+        /// distance (the camera's far plane) up to 300 m.
         /// </summary>
         public float ShadowDistance { get; set; }
+        /// <summary>The share of the shadow distance over which shadows fade out at its end, 0 to 1; 0 for the standard 0.15.</summary>
+        public float ShadowFade { get; set; }
         /// <summary>
         /// Scripted objects drawn in the 3D world further than this from the camera skip their
         /// step events; 0 runs every object every frame.

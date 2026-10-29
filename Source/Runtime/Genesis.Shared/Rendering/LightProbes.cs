@@ -91,6 +91,22 @@ public static class LightProbes
         set => _bouncedLightStrength = float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : 1f;
     }
 
+    /// <summary>The share of the room's own ambient light kept under bounced light unless set.</summary>
+    public const float DefaultAmbientFloor = 0.35f;
+
+    private static float _ambientFloor = DefaultAmbientFloor;
+
+    /// <summary>
+    /// The least light bounced light and reflections leave a surface, as a share of the room's own
+    /// ambient light and reflection, 0 to 1 (0.35 unless set). A probe that captured a dark room or a
+    /// black background used to take every shaded surface to pure black.
+    /// </summary>
+    public static float AmbientFloor
+    {
+        get => _ambientFloor;
+        set => _ambientFloor = float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : DefaultAmbientFloor;
+    }
+
     /// <summary>The pixels a side of each face of the captured view.</summary>
     public static int FaceSize => 16 << ReflectionQuality;
 
@@ -109,6 +125,7 @@ public static class LightProbes
         Reflections = true;
         BouncedLight = true;
         _bouncedLightStrength = 1f;
+        _ambientFloor = DefaultAmbientFloor;
         ReflectionStrength = reflectionStrength > 0f ? reflectionStrength : 1f;
         _recaptureDistance = DefaultRecaptureDistance;
         _captureRadius = DefaultCaptureRadius;

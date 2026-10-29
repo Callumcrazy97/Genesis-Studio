@@ -788,9 +788,14 @@ namespace Genesis.Runtime.Debugger
                 Pass("Celestial", stats.CelestialExtrasMs), CloudsStatusLabel(stats, _renderer?.BackendName ?? string.Empty, MeshLightingDefaults.RaymarchedCloudsEnabled)),
                 x, y, 9.5f, DebugOverlayPalette.Text);
             y += 15f;
-            hud.Text($"Shadow casters {stats.ShadowCasterDraws}   cascades {stats.ShadowCascadesRendered} ({stats.ShadowMapResolution} px)   local shadow lights {stats.LocalShadowLights}   "
+            hud.Text($"Shadow casters {stats.ShadowCasterDraws}   cascades {stats.ShadowCascadesRendered} ({stats.ShadowMapResolution} px, to {stats.ShadowDistance:0} m)   local shadow lights {stats.LocalShadowLights}   "
                 + $"instances drawn {stats.InstancesDrawn} (culled {stats.InstancesCulled}, dropped {stats.InstancesDropped})",
                 x, y, 9.5f, DebugOverlayPalette.Muted);
+            y += 15f;
+            // Lamps whose light covers part of the view but were left out (light cap, full clusters):
+            // a hard edge where a lamp's light stops is one of these, not the lamp's own falloff.
+            hud.Text($"Lights culled {stats.LightsCulled} (in view, left unshaded)   out of view {stats.LightsOutOfView}",
+                x, y, 9.5f, stats.LightsCulled > 0 ? DebugOverlayPalette.Accent : DebugOverlayPalette.Muted);
             y += 22f;
 
             DebugFrameSample last = Profiler.Last;

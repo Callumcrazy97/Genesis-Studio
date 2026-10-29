@@ -113,15 +113,15 @@ namespace Genesis.Shared.Interfaces
                 LocalVolumetrics: false, Bloom: false, VolumetricFogQuality: 0, CloudQuality: 0,
                 AntiAliasing: AntiAliasingMode.Fxaa),
             RenderQualityTier.Medium => new(
-                Gtao: true, ContactShadows: false, ShadowCascades: 2, ShadowResolution: 1024, PointLightShadows: 1,
+                Gtao: true, ContactShadows: false, ShadowCascades: 2, ShadowResolution: 1024, PointLightShadows: 2,
                 LocalVolumetrics: false, Bloom: true, VolumetricFogQuality: 1, CloudQuality: 1,
                 AntiAliasing: AntiAliasingMode.Fxaa),
             RenderQualityTier.High => new(
-                Gtao: true, ContactShadows: true, ShadowCascades: 3, ShadowResolution: 1024, PointLightShadows: 2,
+                Gtao: true, ContactShadows: true, ShadowCascades: 3, ShadowResolution: 1024, PointLightShadows: 4,
                 LocalVolumetrics: true, Bloom: true, VolumetricFogQuality: 1, CloudQuality: 2,
                 AntiAliasing: AntiAliasingMode.Smaa),
             _ => new(
-                Gtao: true, ContactShadows: true, ShadowCascades: 3, ShadowResolution: 2048, PointLightShadows: 4,
+                Gtao: true, ContactShadows: true, ShadowCascades: 3, ShadowResolution: 2048, PointLightShadows: 8,
                 LocalVolumetrics: true, Bloom: true, VolumetricFogQuality: 2, CloudQuality: 3,
                 AntiAliasing: AntiAliasingMode.Smaa),
         };
@@ -218,7 +218,7 @@ namespace Genesis.Shared.Interfaces
 
         /// <summary>
         /// Forgets any applied tier and puts the settings it covers back to the engine's defaults
-        /// (everything off, two cascades, 1024 shadows, one point-light shadow, fog quality from the
+        /// (everything off, two cascades, 1024 shadows, four lamp shadows, fog quality from the
         /// room, high clouds, no anti-aliasing). For tests and tools; games pick a tier instead.
         /// </summary>
         public static void Reset()

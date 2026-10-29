@@ -204,14 +204,27 @@ public static partial class PgslCommands
     [PgslCommand("Strength", "Engine.Rendering.Shadows.Strength = amount", "How dark shadows are, 0 (none) to 1 (1 unless the room sets another)", "Rendering", Namespace = "Engine.Rendering.Shadows", Flat = false)]
     public static double RenderingShadowsStrength { get => RoomLook?.ShadowStrength ?? 1; set { if (RoomLook is { } look) look.ShadowStrength = Finite(value, 0, 1, 1f); } }
 
-    [PgslCommand("Distance", "Engine.Rendering.Shadows.Distance = metres", "How far from the camera the sun's shadows reach, 0 for automatic (0 unless the room sets another)", "Rendering", Namespace = "Engine.Rendering.Shadows", Flat = false)]
+    [PgslCommand("Distance", "Engine.Rendering.Shadows.Distance = metres", "How far from the camera the sun's shadows reach, 0 for automatic: the view distance up to 300 m (0 unless the room sets another)", "Rendering", Namespace = "Engine.Rendering.Shadows", Flat = false)]
     public static double RenderingShadowsDistance { get => RoomLook?.ShadowDistance ?? 0; set { if (RoomLook is { } look) look.ShadowDistance = Finite(value, 0, 20000, 0f); } }
+
+    [PgslCommand("Fade", "Engine.Rendering.Shadows.Fade = share", "The share of the shadow distance over which the sun's shadows fade out at its end, 0 to 1; 0 for the standard 0.15 (0 unless the room sets another)", "Rendering", Namespace = "Engine.Rendering.Shadows", Flat = false)]
+    public static double RenderingShadowsFade { get => RoomLook?.ShadowFade ?? 0; set { if (RoomLook is { } look) look.ShadowFade = Finite(value, 0, 1, 0f); } }
 
     [PgslCommand("Bias", "Engine.Rendering.Shadows.Bias = amount", "How far shadows are pushed off the surfaces casting them, against speckled self-shadowing, 0 to 0.01 (0.00015 unless set)", "Rendering", Namespace = "Engine.Rendering.Shadows", Flat = false)]
     public static double RenderingShadowsBias { get => RoomLook?.ShadowBias ?? 0.00015; set { if (RoomLook is { } look) look.ShadowBias = Finite(value, 0, 0.01, 0.00015f); } }
 
-    [PgslCommand("Cascades", "Engine.Rendering.Shadows.Cascades = 3", "How many shadow maps share the view, 2 or 3 (the quality tier's unless set)", "Rendering", Namespace = "Engine.Rendering.Shadows", Flat = false)]
-    public static double RenderingShadowsCascades { get => CascadeCount; set { if (double.IsFinite(value)) CascadeCount = (int)Math.Round(value); } }
+    [PgslCommand("Cascades", "Engine.Rendering.Shadows.Cascades = 3", "How many shadow maps share the shadow distance, 2 (cheaper) or 3 (sharpest near the camera); 3 unless the room sets another", "Rendering", Namespace = "Engine.Rendering.Shadows", Flat = false)]
+    public static double RenderingShadowsCascades
+    {
+        get => RoomLook?.ShadowCascadeCount ?? CascadeCount;
+        set
+        {
+            if (!double.IsFinite(value)) return;
+            int count = value >= 2.5 ? 3 : 2;
+            if (RoomLook is { } look) look.ShadowCascadeCount = count;
+            else CascadeCount = count;
+        }
+    }
 
     [PgslCommand("Resolution", "Engine.Rendering.Shadows.Resolution = 2048", "The sun's shadow map size in pixels (the quality tier's unless set)", "Rendering", Namespace = "Engine.Rendering.Shadows", Flat = false)]
     public static double RenderingShadowsResolution { get => ShadowResolution; set { if (double.IsFinite(value)) ShadowResolution = (int)Math.Round(value); } }

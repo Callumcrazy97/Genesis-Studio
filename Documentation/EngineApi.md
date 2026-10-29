@@ -911,6 +911,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Enabled` | property | Bounced light: surfaces are lit by the light around them (the sky where nothing is in the way, the lit walls and ground where something is) instead of the room's two flat ambient colours. On in each room unless turned off |
+| `Floor` | property | The least light bounced light and reflections leave a surface, as a share of the room's own ambient light, 0 to 1 (0.35 unless set): a dark capture shades a room instead of blacking it out |
 | `Strength` | property | How much the bounced light takes the place of the room's flat ambient colours, 0 to 1 (1 unless set) |
 
 ## Engine.Lighting
@@ -1177,6 +1178,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `InstanceSetMaterialTexture` | command | Give one of another instance's model materials another Image on that instance only |
 | `InstanceSetModelLayer` | command | Draw another instance's model in a model layer (0 = the world, 1-8) |
 | `InstanceSetViewLayer` | command | The same as InstanceSetModelLayer(id, 1) or (id, 0) |
+| `InFront` | property | Draws this instance's model a hair nearer the camera, so where it lies on or in another surface (a window set into a wall, a sign on a door) it shows instead of flickering with it (false unless set) |
 | `Layer` | property | The model layer this instance's model is drawn in (0 = the world, 1-8 drawn over it) |
 | `MorphGetWeight` | command | Read a named morph-target weight from this model instance |
 | `MorphReset` | command | Remove this instance's override for one named morph target |
@@ -1850,10 +1852,11 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Bias` | property | How far shadows are pushed off the surfaces casting them, against speckled self-shadowing, 0 to 0.01 (0.00015 unless set) |
-| `Cascades` | property | How many shadow maps share the view, 2 or 3 (the quality tier's unless set) |
+| `Cascades` | property | How many shadow maps share the shadow distance, 2 (cheaper) or 3 (sharpest near the camera); 3 unless the room sets another |
 | `Contact` | property | Small screen-space shadows where things touch (the quality tier's unless set) |
-| `Distance` | property | How far from the camera the sun's shadows reach, 0 for automatic (0 unless the room sets another) |
+| `Distance` | property | How far from the camera the sun's shadows reach, 0 for automatic: the view distance up to 300 m (0 unless the room sets another) |
 | `Enabled` | property | The sun's shadows (true unless the room turns them off) |
+| `Fade` | property | The share of the shadow distance over which the sun's shadows fade out at its end, 0 to 1; 0 for the standard 0.15 (0 unless the room sets another) |
 | `LampBudget` | property | How many point and spot lights may cast shadows at once (the quality tier's unless set) |
 | `Resolution` | property | The sun's shadow map size in pixels (the quality tier's unless set) |
 | `Strength` | property | How dark shadows are, 0 (none) to 1 (1 unless the room sets another) |

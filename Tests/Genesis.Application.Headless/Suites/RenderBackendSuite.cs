@@ -566,38 +566,42 @@ internal static class RenderBackendSuite
                 "A distant small light must retain bounded tile coverage.");
         });
 
-        // R7.11: practical frustum splits + texel-scaled bias (still two cascades; AF1.1 owns a third).
+        // R7.11: practical frustum splits + texel-scaled bias; since 29 Oct each cascade is the
+        // sphere round its slice of the view and the reach follows the view (C7, C10).
         HeadlessHarness.RunCase(ctx.Report, "Render.Shadows.AutoCascadeSplitsAndBias", () =>
         {
             CascadeShadowFrame tight = CascadeShadowMath.Compute(
                 cameraNear: 0.1f,
                 cameraFar: 80f,
-                orthoSize: 26f,
                 fieldOfViewY: MathF.PI / 3f,
                 aspectRatio: 16f / 9f,
-                farMapSize: 1024,
-                nearMapSize: 1024,
-                authoredBias: 0.0015f);
+                mapSize: 1024,
+                authoredBias: 0.0015f,
+                cascadeCount: 2,
+                shadowDistance: 0f);
             CascadeShadowFrame wide = CascadeShadowMath.Compute(
                 cameraNear: 0.1f,
                 cameraFar: 400f,
-                orthoSize: 80f,
                 fieldOfViewY: MathF.PI / 3f,
                 aspectRatio: 16f / 9f,
-                farMapSize: 1024,
-                nearMapSize: 1024,
-                authoredBias: 0.0015f);
+                mapSize: 1024,
+                authoredBias: 0.0015f,
+                cascadeCount: 2,
+                shadowDistance: 0f);
 
             HeadlessHarness.Assert(
-                tight.NearExtent >= 8f && tight.NearExtent <= tight.FarExtent * 0.5f + 0.01f,
+                tight.NearExtent >= 6f && tight.NearExtent < tight.FarExtent,
                 $"Near cascade extent out of range ({tight.NearExtent} vs far {tight.FarExtent}).");
             HeadlessHarness.Assert(
-                tight.NearSplitDistance > 0f && tight.FarExtent >= 16f,
-                "Cascade frame must publish a positive near split and far extent.");
+                tight.NearSplitDistance > 0f && MathF.Abs(tight.ShadowDistance - 80f) < 0.01f,
+                $"A view 80 m deep must cast shadows to 80 m with a positive near split (got {tight.ShadowDistance}).");
             HeadlessHarness.Assert(
-                wide.NearSplitDistance > tight.NearSplitDistance
-                || wide.FarExtent > tight.FarExtent,
-                "Wider camera far / ortho must grow cascade coverage.");
+                MathF.Abs(wide.ShadowDistance - CascadeShadowMath.AutomaticDistanceCap) < 0.01f && wide.FarExtent > tight.FarExtent,
+                $"A deeper view must reach further, up to the automatic cap (got {wide.ShadowDistance}).");
+            HeadlessHarness.Assert(
+                tight.NearCentreDistance + tight.NearExtent * 0.5f >= tight.NearSplitDistance
+                && tight.FarCentreDistance + tight.FarExtent * 0.5f >= tight.ShadowDistance,
+                "Each cascade's sphere must reach the end of its slice of the view.");
             HeadlessHarness.Assert(
                 CascadeShadowMath.AdaptiveDepthBias(0.0015f, 0.2f)
                 > CascadeShadowMath.AdaptiveDepthBias(0.0015f, 0.05f),
@@ -611,14 +615,14 @@ internal static class RenderBackendSuite
         HeadlessHarness.RunCase(ctx.Report, "Render.Shadows.ThreeCascadeSplitsAndTexelSnap", () =>
         {
             CascadeShadowFrame two = CascadeShadowMath.Compute(
-                0.1f, 200f, 80f, MathF.PI / 3f, 16f / 9f, 1024, 1024, 0.0015f, cascadeCount: 2);
+                0.1f, 200f, MathF.PI / 3f, 16f / 9f, 1024, 0.0015f, 2, 0f);
             CascadeShadowFrame three = CascadeShadowMath.Compute(
-                0.1f, 200f, 80f, MathF.PI / 3f, 16f / 9f, 1024, 1024, 0.0015f, cascadeCount: 3);
+                0.1f, 200f, MathF.PI / 3f, 16f / 9f, 1024, 0.0015f, 3, 0f);
 
-            HeadlessHarness.Assert(two.CascadeCount == 2, "Default cascade count must stay 2.");
+            HeadlessHarness.Assert(two.CascadeCount == 2, "Two cascades asked for must stay 2.");
             HeadlessHarness.Assert(
-                MathF.Abs(two.NearExtent - three.NearExtent) < 0.05f,
-                "Near extent must stay stable when enabling the third cascade.");
+                three.NearExtent <= two.NearExtent + 0.01f && MathF.Abs(two.ShadowDistance - three.ShadowDistance) < 0.01f,
+                "A third cascade must sharpen the near one, never widen it, over the same distance.");
             HeadlessHarness.Assert(
                 three.CascadeCount == 3
                 && three.NearExtent < three.MidExtent
@@ -648,6 +652,151 @@ internal static class RenderBackendSuite
             HeadlessHarness.Assert(
                 Vector3.Distance(snapped, stepped) > texel * 0.5f,
                 "A >1-texel light-space move must advance the snapped centre.");
+        });
+
+        // C10: a cascade never resizes as the camera turns, and its texel grid never moves under a
+        // still scene: only whole-texel steps, so shadows neither swim nor change shape.
+        HeadlessHarness.RunCase(ctx.Report, "Render.Shadows.CascadeTexelGridStaysPutWhenTheCameraTurns", () =>
+        {
+            CascadeShadowFrame frame = CascadeShadowMath.Compute(0.1f, 500f, 1.2f, 16f / 9f, 1024, 0.0015f, 3, 0f);
+            Vector3 light = Vector3.Normalize(new Vector3(-0.4f, -0.85f, -0.35f));
+            Vector3 camera = new(3.3f, 1.7f, -12.9f);
+            Vector3 point = new(5.17f, 0.4f, -4.61f);
+            Vector3[] looks =
+            {
+                Vector3.Normalize(new Vector3(0f, 0f, 1f)),
+                Vector3.Normalize(new Vector3(0.6f, -0.3f, 0.74f)),
+                Vector3.Normalize(new Vector3(-0.8f, 0.45f, 0.1f)),
+                Vector3.Normalize(new Vector3(0.1f, -0.98f, 0.05f)),
+            };
+            float[] extents = { frame.NearExtent, frame.MidExtent, frame.FarExtent };
+            float[] texels = { frame.NearTexelWorld, frame.MidTexelWorld, frame.FarTexelWorld };
+            float[] centres = { frame.NearCentreDistance, frame.MidCentreDistance, frame.FarCentreDistance };
+            for (int cascade = 0; cascade < 3; cascade++)
+            {
+                Vector2 firstFraction = default;
+                for (int i = 0; i < looks.Length; i++)
+                {
+                    Matrix4x4 vp = ForwardRenderer.CascadeLightViewProjection(camera, looks[i], light, extents[cascade], texels[cascade], centres[cascade]);
+                    Vector4 clip = Vector4.Transform(new Vector4(point, 1f), vp);
+                    // Shadow-map texels: the map is 1024 across the cascade's width.
+                    Vector2 texel = new((clip.X * 0.5f + 0.5f) * 1024f, (-clip.Y * 0.5f + 0.5f) * 1024f);
+                    Vector2 fraction = new(texel.X - MathF.Floor(texel.X), texel.Y - MathF.Floor(texel.Y));
+                    if (i == 0) { firstFraction = fraction; continue; }
+                    HeadlessHarness.Assert(Vector2.Distance(fraction, firstFraction) < 2e-3f,
+                        $"Cascade {cascade}: turning the camera moved a still point within its texel ({firstFraction} -> {fraction}).");
+                }
+                Matrix4x4 still = ForwardRenderer.CascadeLightViewProjection(camera, looks[1], light, extents[cascade], texels[cascade], centres[cascade]);
+                Matrix4x4 crept = ForwardRenderer.CascadeLightViewProjection(camera + new Vector3(0.0004f, 0f, 0.0003f), looks[1], light,
+                    extents[cascade], texels[cascade], centres[cascade]);
+                HeadlessHarness.Assert(still == crept, $"Cascade {cascade}: a sub-texel camera move changed the light matrix (the cached map would redraw).");
+            }
+            CascadeShadowFrame again = CascadeShadowMath.Compute(0.1f, 500f, 1.2f, 16f / 9f, 1024, 0.0015f, 3, 0f);
+            HeadlessHarness.Assert(again.NearExtent == frame.NearExtent && again.FarExtent == frame.FarExtent,
+                "The cascades' sizes depend on the lens and the distance only.");
+        });
+
+        // C7: shadows reach as far as the view (up to 300 m unless a room says otherwise) and fade
+        // out smoothly at the end instead of stopping at a cascade's edge.
+        HeadlessHarness.RunCase(ctx.Report, "Render.Shadows.DefaultDistanceFollowsTheViewAndFades", () =>
+        {
+            HeadlessHarness.Assert(CascadeShadowMath.ResolveDistance(0f, 120f) == 120f
+                && CascadeShadowMath.ResolveDistance(0f, 2000f) == CascadeShadowMath.AutomaticDistanceCap
+                && CascadeShadowMath.ResolveDistance(150f, 2000f) == 150f
+                && CascadeShadowMath.ResolveDistance(4000f, 500f) == 4000f,
+                "The shadow distance must follow the view up to 300 m, and a room's own distance must win.");
+            CascadeShadowFrame frame = CascadeShadowMath.Compute(0.1f, 1000f, 1.05f, 16f / 9f, 1024, 0.0015f, 3, 0f);
+            float start = frame.FadeStart, end = frame.ShadowDistance;
+            HeadlessHarness.Assert(MathF.Abs(end - 300f) < 0.01f && MathF.Abs(start - end * (1f - CascadeShadowMath.DefaultFade)) < 0.01f,
+                $"Default fade must cover the last {CascadeShadowMath.DefaultFade:P0} of the distance (start {start}, end {end}).");
+            float half = CascadeShadowMath.FadeAt(frame, (start + end) * 0.5f);
+            HeadlessHarness.Assert(CascadeShadowMath.FadeAt(frame, start - 1f) == 1f && CascadeShadowMath.FadeAt(frame, end) == 0f
+                && half > 0.3f && half < 0.7f && CascadeShadowMath.FadeAt(frame, start + 2f) > CascadeShadowMath.FadeAt(frame, end - 2f),
+                "Shadows must fade smoothly from full to none over the fade.");
+        });
+
+        // C10: something outside the view (a roof above the camera, a wall behind it) still casts
+        // into it, so culling keeps it for the shadow maps; what cannot reach the view stays culled.
+        HeadlessHarness.RunCase(ctx.Report, "Render.Shadows.CastersOutsideTheViewStillShadowIt", () =>
+        {
+            Matrix4x4 view = Matrix4x4.CreateLookAt(Vector3.Zero, new Vector3(0f, 0f, -1f), Vector3.UnitY);
+            Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(1.0f, 16f / 9f, 0.1f, 500f);
+            var frustum = new Genesis.Shared.Rendering.CameraFrustum(view * projection);
+            Vector3 sun = Vector3.Normalize(new Vector3(0f, -1f, -0.6f)); // falling forward, into the view
+            try
+            {
+                Genesis.Shared.Rendering.ShadowCasterCulling.Publish(sun, 100f, Vector3.Zero, ReadOnlySpan<Vector4>.Empty);
+                Vector3 roof = new(0f, 12f, 4f);            // above and behind the camera
+                Vector3 aside = new(60f, 2f, 10f);          // off to the side, its shadow going further away
+                Vector3 distant = new(0f, 30f, 400f);       // further than any shadow reaches
+                HeadlessHarness.Assert(!frustum.ContainsSphere(roof, 2f) && !frustum.ContainsSphere(aside, 2f),
+                    "The test's casters must start outside the view.");
+                HeadlessHarness.Assert(Genesis.Shared.Rendering.ShadowCasterCulling.CastsIntoView(frustum, roof, 2f),
+                    "A roof above and behind the camera shadows the floor in front of it: it must be kept.");
+                HeadlessHarness.Assert(!Genesis.Shared.Rendering.ShadowCasterCulling.CastsIntoView(frustum, aside, 2f)
+                    && !Genesis.Shared.Rendering.ShadowCasterCulling.CastsIntoView(frustum, distant, 2f),
+                    "A caster whose shadow cannot reach the view must stay culled.");
+                Genesis.Shared.Rendering.ShadowCasterCulling.Publish(Vector3.Zero, 0f, Vector3.Zero, new[] { new Vector4(58f, 2f, 10f, 6f) });
+                HeadlessHarness.Assert(Genesis.Shared.Rendering.ShadowCasterCulling.CastsIntoView(frustum, aside, 2f)
+                    && !Genesis.Shared.Rendering.ShadowCasterCulling.CastsIntoView(frustum, roof, 2f),
+                    "Without the sun, only what lies in a shadowed lamp's reach is kept.");
+            }
+            finally
+            {
+                Genesis.Shared.Rendering.ShadowCasterCulling.Clear();
+            }
+        });
+
+        // C8: the scene's depth is set up one way for every backend: reversed, a 32-bit float buffer
+        // cleared to 0 where the greater depth is nearer; and each backend maps it to its own 32-bit
+        // float depth-stencil format and a greater-than test.
+        HeadlessHarness.RunCase(ctx.Report, "Render.Depth.SceneDepthIsTheSameOnEveryBackend", () =>
+        {
+            var reversed = ForwardRenderer.SceneDepthSetup(true);
+            var standard = ForwardRenderer.SceneDepthSetup(false);
+            HeadlessHarness.Assert(reversed.Format == GpuFormat.D32FloatS8UInt && reversed.Nearer == GpuCompare.Greater && reversed.Clear == 0f,
+                $"Reversed depth must be 32-bit float, Greater, cleared to 0 (got {reversed}).");
+            HeadlessHarness.Assert(standard.Format == GpuFormat.D24UNormS8UInt && standard.Nearer == GpuCompare.Less && standard.Clear == 1f,
+                $"Standard depth must be 24-bit, Less, cleared to 1 (got {standard}).");
+            HeadlessHarness.Assert((int)Genesis.Rendering.SilkNet.DX11.Dx11GpuFormats.ToDxgi(reversed.Format) == 20
+                && (int)Genesis.Rendering.SilkNet.DX12.Dx12GpuFormats.ToDxgi(reversed.Format) == 20
+                && Genesis.Rendering.SilkNet.Vulkan.VulkanGpuFormats.ToVulkan(reversed.Format).ToString() == "D32SfloatS8Uint"
+                && (int)Genesis.Rendering.SilkNet.OpenGL.OpenGLGpuFormats.ToInternal(reversed.Format) == 0x8CAD,
+                "Every backend must store reversed scene depth as 32-bit float with stencil (DXGI D32_FLOAT_S8X24_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT, GL_DEPTH32F_STENCIL8).");
+            HeadlessHarness.Assert(Genesis.Rendering.SilkNet.DX11.Dx11GpuFormats.ToComparison(reversed.Nearer).ToString() == "Greater"
+                && Genesis.Rendering.SilkNet.DX12.Dx12GpuFormats.ToComparison(reversed.Nearer).ToString() == "Greater"
+                && Genesis.Rendering.SilkNet.Vulkan.VulkanGpuFormats.ToCompare(reversed.Nearer).ToString() == "Greater"
+                && Genesis.Rendering.SilkNet.OpenGL.OpenGLGpuFormats.ToCompare(reversed.Nearer).ToString() == "Greater",
+                "Every backend must test reversed depth with greater-than.");
+        });
+
+        // T2/C2: a light probe that captured a dark room or a black background no longer takes every
+        // shaded surface to black: bounced light and reflections keep a share of the room's own.
+        HeadlessHarness.RunCase(ctx.Report, "Render.Lighting.DarkProbeKeepsAShareOfTheRoomAmbient", () =>
+        {
+            float before = Genesis.Shared.Rendering.LightProbes.AmbientFloor;
+            try
+            {
+                HeadlessHarness.Assert(Genesis.Shared.Rendering.LightProbes.DefaultAmbientFloor == 0.35f,
+                    "The default floor under bounced light must be 0.35 of the room's ambient.");
+                PgslCommands.LightingApiBounceFloor = 2.0;
+                HeadlessHarness.Assert(Genesis.Shared.Rendering.LightProbes.AmbientFloor == 1f,
+                    "Engine.Lighting.Bounce.Floor must clamp to 0..1.");
+                PgslCommands.LightingApiBounceFloor = 0.1;
+                Genesis.Shared.Rendering.LightProbes.ResetForRoom();
+                HeadlessHarness.Assert(Genesis.Shared.Rendering.LightProbes.AmbientFloor == 0.35f,
+                    "A room's start must restore the floor.");
+                string shader = ForwardShaders.Source;
+                HeadlessHarness.Assert(shader.Contains("max(LightProbeAmbientFrom(n), roomAmbient * LightProbeFloorParams.x)", StringComparison.Ordinal)
+                    && shader.Contains("max(LightProbeMirror(reflected), envMirror * probeFloor)", StringComparison.Ordinal),
+                    "The forward shader must keep the floor under both bounced light and reflections.");
+                foreach (ConstantBufferComparison comparison in ShaderLayoutAudit.CompareAll())
+                    HeadlessHarness.Assert(comparison.IsConsistent, "Constant buffer drift: " + comparison);
+            }
+            finally
+            {
+                Genesis.Shared.Rendering.LightProbes.AmbientFloor = before;
+            }
         });
 
         // AF1.2: GTAO math + enable wiring (default off; Software skip).
@@ -1134,8 +1283,8 @@ internal static class RenderBackendSuite
 
             PgslCommands.OmniShadowBudget = 99;
             HeadlessHarness.Assert(
-                RenderCapacityDefaults.OmniShadowBudget == 4 && PgslCommands.OmniShadowBudget == 4,
-                "OmniShadowBudget must clamp to 0–4.");
+                RenderCapacityDefaults.OmniShadowBudget == 8 && PgslCommands.OmniShadowBudget == 8,
+                "OmniShadowBudget must clamp to 0–8.");
             PgslCommands.OmniShadowBudget = -3;
             HeadlessHarness.Assert(
                 RenderCapacityDefaults.OmniShadowBudget == 0,
@@ -1231,7 +1380,7 @@ internal static class RenderBackendSuite
                 && !MeshLightingDefaults.BloomEnabled
                 && !MeshLightingDefaults.AtmosphereLutEnabled
                 && MeshLightingDefaults.ShadowCascadeCount == 2
-                && RenderCapacityDefaults.OmniShadowBudget == 1
+                && RenderCapacityDefaults.OmniShadowBudget == RenderCapacityDefaults.DefaultOmniShadowBudget
                 && RenderCapacityDefaults.LocalVolumetricLightBudget == 1
                 && MathF.Abs(MeshLightingDefaults.Exposure - 1f) < 1e-5f,
                 "AF1.8 gate must restore default-off quality and default budgets.");
@@ -2082,13 +2231,13 @@ internal static class RenderBackendSuite
         HeadlessHarness.RunCase(ctx.Report, "Render.OmniShadows.BudgetAndFaceSchedule", () =>
         {
             HeadlessHarness.Assert(
-                RenderCapacityDefaults.DefaultOmniShadowBudget == 1
-                && OmniShadowMath.DefaultBudget == 1,
-                "Default omni-shadow budget must be one campfire-class cubemap.");
+                RenderCapacityDefaults.DefaultOmniShadowBudget == 4
+                && OmniShadowMath.DefaultBudget == 4,
+                "Default lamp-shadow budget must be four (one let the nearest lamp take every other's shadow, C7).");
             HeadlessHarness.Assert(
-                OmniShadowMath.ClampBudget(99) == OmniShadowMath.MaxBudget
+                OmniShadowMath.ClampBudget(99) == OmniShadowMath.MaxBudget && OmniShadowMath.MaxBudget == 8
                 && OmniShadowMath.ClampBudget(-3) == OmniShadowMath.MinBudget,
-                "Omni-shadow budget must clamp to 0..4.");
+                "Lamp-shadow budget must clamp to 0..8.");
 
             // Five locals; budget 1 → strongest by camera weight (nearest bright torch).
             var lights = new ClusterPointLightGpu[5];

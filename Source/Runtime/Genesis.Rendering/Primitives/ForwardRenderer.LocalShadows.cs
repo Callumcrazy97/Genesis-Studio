@@ -26,6 +26,8 @@ internal sealed partial class ForwardRenderer
         public Vector4 SpotDirCos;
         public float Far;
         public bool Active;
+        /// <summary>When the light now in the slot took it (<see cref="LampClockSeconds"/>), so its shadow fades in.</summary>
+        public double AssignedAt = double.NegativeInfinity;
         public readonly bool[] FaceValid = new bool[6];
         public readonly ulong[] FaceSignature = new ulong[6];
         public readonly Matrix4x4[] FaceVP = new Matrix4x4[6];
@@ -45,13 +47,20 @@ internal sealed partial class ForwardRenderer
     private unsafe struct LocalShadowCB
     {
         public fixed float FaceVP[OmniShadowMath.MaxBudget * 6 * 16];
-        public Vector4 Slot0, Slot1, Slot2, Slot3; // xyz = light position, w = far plane
-        public Vector4 Kinds;                      // per slot: 0 = point (cube faces), 1 = spot
-        public Vector4 Params;                     // x = active, y = atlas rows, z = 1 / tile size
+        public fixed float Slots[OmniShadowMath.MaxBudget * 4]; // per slot: xyz = light position, w = far plane
+        public fixed float Kinds[OmniShadowMath.MaxBudget];     // per slot (four to a float4): 0 = point, 1 = spot
+        public fixed float Strengths[OmniShadowMath.MaxBudget]; // per slot: how much of its shadow shows
+        public Vector4 Params;                                   // x = active, y = atlas rows, z = 1 / tile size
     }
 
-    private readonly LocalShadowSlot[] _localShadowSlots =
-        { new LocalShadowSlot(), new LocalShadowSlot(), new LocalShadowSlot(), new LocalShadowSlot() };
+    private readonly LocalShadowSlot[] _localShadowSlots = CreateLocalShadowSlots();
+
+    private static LocalShadowSlot[] CreateLocalShadowSlots()
+    {
+        var slots = new LocalShadowSlot[OmniShadowMath.MaxBudget];
+        for (int i = 0; i < slots.Length; i++) slots[i] = new LocalShadowSlot();
+        return slots;
+    }
     private GpuRenderTargetHandle _localShadowAtlas;
     private GpuTextureHandle _localShadowAtlasTexture;
     private int _localShadowAtlasRows;
@@ -178,7 +187,7 @@ internal sealed partial class ForwardRenderer
         for (int s = 0; s < OmniShadowMath.MaxBudget; s++)
             previous[s] = s < budget ? _localShadowSlots[s].Identity : Vector4.Zero;
         Span<int> assignment = stackalloc int[OmniShadowMath.MaxBudget];
-        OmniShadowMath.AssignSlots(_pointLights.AsSpan(0, _pointLightCount), budget, _cameraPos, previous, assignment);
+        OmniShadowMath.AssignSlots(_pointLights.AsSpan(0, _pointLightCount), budget, _cameraPos, previous, assignment, _frustum.Shared);
 
         _gpu.SetDepthState(_dssShadow);
         // Unbind the atlas before writing depth into it.
@@ -210,6 +219,10 @@ internal sealed partial class ForwardRenderer
                 || MathF.Abs(farPlane - slot.Far) > 1e-4f
                 || Vector4.DistanceSquared(light.SpotDirCos, slot.SpotDirCos) > 1e-8f;
             if (lightChanged) slot.Invalidate();
+            // A lamp taking another's slot (not the same one moved, as a carried torch is) fades its
+            // shadow in; one taking an empty slot (a room's first frame) shows it at once.
+            if (!OmniShadowMath.SameLight(slot.Identity, lightPos, light.PosRadius.W))
+                slot.AssignedAt = slot.Identity.W > 0f ? LampClockSeconds() : double.NegativeInfinity;
             slot.Identity = new Vector4(lightPos, light.PosRadius.W);
             slot.SpotDirCos = light.SpotDirCos;
             slot.Far = farPlane;
@@ -388,16 +401,46 @@ internal sealed partial class ForwardRenderer
         _gpu.EndRenderPass();
     }
 
+    /// <summary>
+    /// Tells the culling that runs before the next frame's submit which light shadows this view
+    /// (ShadowCasterCulling), so things outside the view that cast into it are still submitted.
+    /// </summary>
+    private void PublishShadowReach()
+    {
+        Span<Vector4> lamps = stackalloc Vector4[Genesis.Shared.Rendering.ShadowCasterCulling.MaxLamps];
+        int count = 0;
+        if (_localShadowsActiveThisFrame)
+        {
+            foreach (LocalShadowSlot slot in _localShadowSlots)
+            {
+                if (!slot.Active || count == lamps.Length) continue;
+                lamps[count++] = new Vector4(slot.Identity.X, slot.Identity.Y, slot.Identity.Z, slot.Far);
+            }
+        }
+        bool sun = _state.ShadowsEnabled && _state.LightingEnabled;
+        Genesis.Shared.Rendering.ShadowCasterCulling.Publish(_state.LightDirection,
+            sun ? _cascade.ShadowDistance : 0f, _cameraPos, lamps[..count]);
+    }
+
+    /// <summary>Wall-clock seconds for lamp shadows fading in (paused games and tests still fade).</summary>
+    private static double LampClockSeconds() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+
     private unsafe void UploadLocalShadowCB()
     {
         var data = new LocalShadowCB();
-        Span<Vector4> slots = stackalloc Vector4[OmniShadowMath.MaxBudget];
-        Span<float> kinds = stackalloc float[OmniShadowMath.MaxBudget];
+        double now = LampClockSeconds();
         for (int s = 0; s < OmniShadowMath.MaxBudget; s++)
         {
             LocalShadowSlot slot = _localShadowSlots[s];
-            slots[s] = new Vector4(slot.Identity.X, slot.Identity.Y, slot.Identity.Z, slot.Far);
-            kinds[s] = slot.IsSpot ? 1f : 0f;
+            data.Slots[s * 4 + 0] = slot.Identity.X;
+            data.Slots[s * 4 + 1] = slot.Identity.Y;
+            data.Slots[s * 4 + 2] = slot.Identity.Z;
+            data.Slots[s * 4 + 3] = slot.Far;
+            data.Kinds[s] = slot.IsSpot ? 1f : 0f;
+            data.Strengths[s] = slot.Active
+                ? OmniShadowMath.ShadowStrength((float)Math.Min(now - slot.AssignedAt, 3600.0),
+                    Vector3.Distance(_cameraPos, new Vector3(slot.Identity.X, slot.Identity.Y, slot.Identity.Z)))
+                : 0f;
             for (int face = 0; face < 6; face++)
             {
                 Matrix4x4 vp = slot.FaceVP[face];
@@ -405,11 +448,6 @@ internal sealed partial class ForwardRenderer
                 *(Matrix4x4*)dst = vp;
             }
         }
-        data.Slot0 = slots[0];
-        data.Slot1 = slots[1];
-        data.Slot2 = slots[2];
-        data.Slot3 = slots[3];
-        data.Kinds = new Vector4(kinds[0], kinds[1], kinds[2], kinds[3]);
         data.Params = new Vector4(
             _localShadowsActiveThisFrame ? 1f : 0f,
             Math.Max(1, _localShadowAtlasRows),

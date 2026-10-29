@@ -97,6 +97,12 @@ namespace Genesis.Rendering.Primitives
             // The light probe (ForwardRenderer.LightProbes.cs), appended: x = reflections, y = bounced
             // light, z = face pixels, w = 1 when captured. Only ForwardShaders declares it.
             public Vector4 LightProbeParams;
+            // The sun's shadows end (CascadeShadowMath), appended: x = where they start fading, y =
+            // the distance they reach, z = 1 / the fade's length (0 = none). Only ForwardShaders declares it.
+            public Vector4 ShadowFadeParams;
+            // The floor under bounced light (LightProbes.AmbientFloor), appended: x = share of the
+            // room's own ambient kept when the probe saw little light. Only ForwardShaders declares it.
+            public Vector4 LightProbeFloorParams;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -271,7 +277,8 @@ namespace Genesis.Rendering.Primitives
             public uint      SkinMatrixOffset;
             public float     GpuSkinningFlag;
             public float     NoReceiveShadowFlag;
-            public float     SkinPad1;
+            // 1 for a MeshDrawFlags.InFront draw: the vertex shader moves it a hair towards the camera.
+            public float     DepthNudge;
             // The colour of the material's own light (MeshDrawCall.EmissionColor); zero is as before.
             public Vector4   MaterialEmissionColor;
         }
@@ -850,9 +857,17 @@ namespace Genesis.Rendering.Primitives
         // With temporal anti-aliasing the scene's projection carries this frame's nudge (Jittered).
         private Matrix4x4 SceneProj => Jittered(_reversedDepth ? _proj * ReverseDepthClip : _proj);
         private Matrix4x4 SceneViewProj => _view * SceneProj;
-        private float SceneClearDepth => _reversedDepth ? 0f : 1f;
+        private float SceneClearDepth => SceneDepthSetup(_reversedDepth).Clear;
         private float SceneDepthFlag => _reversedDepth ? 1f : 0f;
-        private GpuFormat SceneDepthFormat => _reversedDepth ? GpuFormat.D32FloatS8UInt : GpuFormat.D24UNormS8UInt;
+        private GpuFormat SceneDepthFormat => SceneDepthSetup(_reversedDepth).Format;
+
+        /// <summary>
+        /// The scene depth every backend is given (C8): reversed, a 32-bit float buffer cleared to 0
+        /// where the greater depth is nearer (precision nearly even to the far plane); standard, 24-bit
+        /// cleared to 1 where the lesser is nearer. One description, so no backend or pass differs.
+        /// </summary>
+        internal static (GpuFormat Format, GpuCompare Nearer, float Clear) SceneDepthSetup(bool reversed) =>
+            reversed ? (GpuFormat.D32FloatS8UInt, GpuCompare.Greater, 0f) : (GpuFormat.D24UNormS8UInt, GpuCompare.Less, 1f);
 
         private bool WantsReversedDepth =>
             Genesis.Shared.Rendering.DepthPrecision.ReversedDepthRequested
@@ -1020,7 +1035,7 @@ namespace Genesis.Rendering.Primitives
         private float       _time;
         private Frustum     _frustum;
         private CascadeShadowFrame _cascade = CascadeShadowMath.Compute(
-            0.1f, 200f, 80f, MathF.PI / 3f, 16f / 9f, 1024, 1024, 0.0015f);
+            0.1f, 200f, MathF.PI / 3f, 16f / 9f, 1024, 0.0015f, 2, 0.86f * 80f);
         private Vector3     _sortCameraPos;
         private readonly Comparison<Batch>     _batchDistCompare;
         private readonly Comparison<WorldMesh>   _worldMeshDistCompare;
@@ -1645,7 +1660,7 @@ namespace Genesis.Rendering.Primitives
         private void CreateDepthStencilStates()
         {
             // Nearer wins: a smaller depth as usual, a larger one when depth is reversed.
-            GpuCompare nearer = _reversedDepth ? GpuCompare.Greater : GpuCompare.Less;
+            GpuCompare nearer = SceneDepthSetup(_reversedDepth).Nearer;
             _dssDefault = new GpuDepthState
             {
                 TestEnabled = true,
@@ -2644,17 +2659,21 @@ namespace Genesis.Rendering.Primitives
             float farPlane = _state.CameraFarPlane > 0f ? _state.CameraFarPlane : 200f;
             float fovY = EstimateVerticalFov(_proj);
             float aspect = EstimateAspect(_proj);
+            // A view that sets no distance (an editor, a preview) keeps its old reach: 0.86 of the
+            // far cascade's width, which was centred a third of its width ahead of the camera.
+            float distance = _state.ShadowDistance > 0f
+                ? _state.ShadowDistance
+                : MathF.Min(farPlane, 0.86f * (_state.ShadowOrthoSize > 0f ? _state.ShadowOrthoSize : 80f));
             _cascade = CascadeShadowMath.Compute(
                 _nearPlane,
                 farPlane,
-                _state.ShadowOrthoSize > 0f ? _state.ShadowOrthoSize : 80f,
                 fovY,
                 aspect,
                 ShadowMapSize,
-                ShadowMapSizeNear,
                 _state.ShadowBias > 0f ? _state.ShadowBias : 0.0015f,
                 _state.ShadowCascadeCount >= 3 ? 3 : 2,
-                _state.ShadowFarExtent);
+                distance,
+                _state.ShadowFade > 0f ? _state.ShadowFade : CascadeShadowMath.DefaultFade);
         }
 
         private static float EstimateVerticalFov(in Matrix4x4 proj)
@@ -2943,14 +2962,17 @@ namespace Genesis.Rendering.Primitives
             }
 
             // Chunk-level frustum rejection: if the chunk is registered and fully outside frustum,
-            // skip the entire submit (no per-instance test needed).
+            // skip the entire submit (no per-instance test needed). A chunk that can shadow the view
+            // (a roof above the camera, a hill behind it) goes on to the shadow lists only.
             if (chunkId > 0 && _state.FrustumCullingEnabled
                 && _chunkBounds.TryGetValue(chunkId, out var chunkBox))
             {
+                Vector3 chunkCentre = (chunkBox.Min + chunkBox.Max) * .5f;
+                float chunkRadius = Vector3.Distance(chunkBox.Min, chunkBox.Max) * .5f;
                 if (!_frustum.ContainsBox(chunkBox.Min, chunkBox.Max)
                     && !(_hasReflectionFrustum && _reflectionFrustum.ContainsBox(chunkBox.Min, chunkBox.Max))
-                    && !Genesis.Shared.Rendering.LightProbes.KeepsForCapture((chunkBox.Min + chunkBox.Max) * .5f,
-                        Vector3.Distance(chunkBox.Min, chunkBox.Max) * .5f))
+                    && !Genesis.Shared.Rendering.LightProbes.KeepsForCapture(chunkCentre, chunkRadius)
+                    && (noShadow || !Genesis.Shared.Rendering.ShadowCasterCulling.CastsIntoView(_frustum.Shared, chunkCentre, chunkRadius)))
                 {
                     LastInstancesCulled++;
                     return;
@@ -3669,6 +3691,7 @@ namespace Genesis.Rendering.Primitives
                 LocalShadowPass();
             else
                 SkipLocalShadows();
+            PublishShadowReach();
 
             // Froxel volumetric fog: after every shadow map it samples, before any pass that fogs a
             // surface (reflection, main, water and the post composite all read the integrated volume).
@@ -4221,9 +4244,13 @@ namespace Genesis.Rendering.Primitives
         }
 
         // Reference geometry needs its own batch so it can bypass the authored preview program.
+        // InFront rides along with the raster overrides: it keeps such draws in batches of their own
+        // and reaches every draw site, which hands it to the vertex shader (DrawCB.DepthNudge).
         private const MeshDrawFlags RasterOverrideMask = MeshDrawFlags.NoCull | MeshDrawFlags.EditorReference
             | MeshDrawFlags.CullFront | MeshDrawFlags.CullBack
-            | MeshDrawFlags.FrontCounterClockwise | MeshDrawFlags.FrontClockwise;
+            | MeshDrawFlags.FrontCounterClockwise | MeshDrawFlags.FrontClockwise | MeshDrawFlags.InFront;
+
+        private static bool InFront(MeshDrawFlags rasterOverride) => (rasterOverride & MeshDrawFlags.InFront) != 0;
 
         private static MeshDrawFlags RasterOverride(MeshDrawFlags flags) =>
             flags & RasterOverrideMask;
@@ -4767,7 +4794,8 @@ namespace Genesis.Rendering.Primitives
                     subsurfaceColorSteps: b.SubsurfaceColorSteps,
                     materialFeatures: new Vector4(b.Orm.IsValid ? 1f : 0f, (float)b.HeightMode,
                         b.Emission.IsValid ? 1f : 0f, (b.Extras.IsValid ? 1f : 0f) + (b.Flow.IsValid ? 2f : 0f)),
-                    noReceiveShadow: b.NoReceiveShadow, materialFactors: b.MaterialFactors, emissionColor: b.EmissionColor);
+                    noReceiveShadow: b.NoReceiveShadow, materialFactors: b.MaterialFactors, emissionColor: b.EmissionColor,
+                    inFront: InFront(b.RasterOverride));
                 // Culled on the GPU: only the instances in view, counted there.
                 if (!TryDrawCulledBatch(batchIndex))
                     _gpu.DrawIndexedInstanced(mesh.IndexCount, drawCount);
@@ -4831,7 +4859,7 @@ namespace Genesis.Rendering.Primitives
                     instOffset: (uint)skinInstOffset, noFog: b.NoFog, gpuSkinning: true,
                     skinMatrixOffset: 0, noReceiveShadow: b.NoReceiveShadow, detailParams: b.DetailParams,
                     materialFeatures: new Vector4(b.Orm.IsValid ? 1f : 0f, 0f, b.Emission.IsValid ? 1f : 0f, 0f),
-                    materialFactors: b.MaterialFactors, emissionColor: b.EmissionColor);
+                    materialFactors: b.MaterialFactors, emissionColor: b.EmissionColor, inFront: InFront(b.RasterOverride));
                 _gpu.DrawIndexedInstanced(mesh.IndexCount, drawCount);
                 _worldDrawBudgetLeft--;
                 skinInstOffset += b.Instances.Count;
@@ -4921,7 +4949,7 @@ namespace Genesis.Rendering.Primitives
                         isFloor: wm.IsFloor ? 1f : 0f, useInstancing: 0, instOffset: 0, noFog: wm.NoFog,
                         terrainGround: wm.TerrainGround, gpuSkinning: skinned, skinMatrixOffset: 0,
                         noReceiveShadow: wm.NoReceiveShadow, materialFactors: wm.MaterialFactors, emissionColor: wm.EmissionColor,
-                        detailParams: wm.DetailParams);
+                        detailParams: wm.DetailParams, inFront: InFront(wm.RasterOverride));
 
                     _gpu.DrawIndexed(mesh.IndexCount);
                     _worldDrawBudgetLeft--;
@@ -5027,7 +5055,7 @@ namespace Genesis.Rendering.Primitives
                     isFloor: 0f, useInstancing: 0, instOffset: 0,
                     noFog: wm.NoFog, noDepthWrite: wm.NoDepthWrite,
                     noReceiveShadow: wm.NoReceiveShadow, materialFactors: wm.MaterialFactors, emissionColor: wm.EmissionColor,
-                    detailParams: wm.DetailParams);
+                    detailParams: wm.DetailParams, inFront: InFront(wm.RasterOverride));
 
                 _gpu.DrawIndexed(mesh.IndexCount);
                 _worldDrawBudgetLeft--;
@@ -6176,9 +6204,24 @@ namespace Genesis.Rendering.Primitives
                 SkyLightHorizon = skyLightHorizon,
                 SkyLightGround = skyLightGround,
                 LightProbeParams = LightProbeParams(),
+                ShadowFadeParams = new Vector4(_cascade.FadeStart, _cascade.ShadowDistance,
+                    _cascade.ShadowDistance > _cascade.FadeStart ? 1f / (_cascade.ShadowDistance - _cascade.FadeStart) : 0f, 0f),
+                LightProbeFloorParams = LightProbeFloorParams(),
             };
             _gpu.UpdateConstantBuffer(_cbEngine, data);
         }
+
+        /// <summary>
+        /// Lamps left out of the shading this frame although their reach covers part of the view:
+        /// over the scene's light cap, or left out of a full cluster (F6's culled-lights count).
+        /// </summary>
+        public int LastLightsCulled { get; private set; }
+
+        /// <summary>Lamps submitted this frame whose reach covers nothing in view.</summary>
+        public int LastLightsOutOfView { get; private set; }
+
+        /// <summary>How far from the camera the sun's shadows reached this frame, in metres.</summary>
+        public float LastShadowDistance => _cascade.ShadowDistance;
 
         private long _submitFrameId;
         private long _lightGridFrameId = -1;
@@ -6209,6 +6252,8 @@ namespace Genesis.Rendering.Primitives
 
             _clusterLightUploadCount = 0;
             _clusteredLights.Clear();
+            LastLightsCulled = 0;
+            LastLightsOutOfView = 0;
             if (!lightingEnabled || _pointLightCount <= 0)
             {
                 UploadEmptyClusterBuffers();
@@ -6232,6 +6277,8 @@ namespace Genesis.Rendering.Primitives
                 _rtWidth > 0 ? _rtWidth : 1,
                 _rtHeight > 0 ? _rtHeight : 1,
                 _cameraPos);
+            LastLightsCulled = _pointLightCount - count + _clusteredLights.LightsDroppedFromClusters;
+            LastLightsOutOfView = _clusteredLights.LightsOutsideView;
 
             UploadClusterBuffer(count);
             UploadTileIndexBuffer();
@@ -6272,7 +6319,8 @@ namespace Genesis.Rendering.Primitives
             Vector4 surfaceParams = default, Vector4 detailParams = default,
             Vector4 subsurfaceColorSteps = default, Vector4 materialFeatures = default,
             bool gpuSkinning = false, uint skinMatrixOffset = 0,
-            bool noReceiveShadow = false, Vector4 materialFactors = default, Vector4 emissionColor = default)
+            bool noReceiveShadow = false, Vector4 materialFactors = default, Vector4 emissionColor = default,
+            bool inFront = false)
         {
             bool factors = materialFactors.W > 0.5f;
             // _cbDraw is Dynamic — use Map(WriteDiscard) which never stalls the GPU pipeline.
@@ -6293,6 +6341,7 @@ namespace Genesis.Rendering.Primitives
                 SkinMatrixOffset   = skinMatrixOffset,
                 GpuSkinningFlag    = gpuSkinning ? 1f : 0f,
                 NoReceiveShadowFlag = noReceiveShadow ? 1f : 0f,
+                DepthNudge        = inFront ? 1f : 0f,
                 MaterialMetallic  = factors ? Math.Clamp(materialFactors.X, 0f, 1f) : 0f,
                 MaterialRoughness = factors ? 1f + Math.Clamp(materialFactors.Y, 0f, 1f) : 0f,
                 MaterialCutoff    = factors ? Math.Clamp(materialFactors.Z, 0f, 1f) : 0f,
@@ -6393,54 +6442,51 @@ namespace Genesis.Rendering.Primitives
 
         private Matrix4x4 ComputeLightViewProj(ShadowCascadeKind cascade)
         {
-            Vector3 lightDir = Vector3.Normalize(_state.LightDirection);
+            Vector3 lightDir = _state.LightDirection.LengthSquared() > 1e-8f
+                ? Vector3.Normalize(_state.LightDirection)
+                : Mesh3DState.GetDefaultSunDirection();
             float extent;
             float texelWorld;
-            float forwardOffset;
+            float centreDistance;
             switch (cascade)
             {
                 case ShadowCascadeKind.Near:
                     extent = _cascade.NearExtent;
                     texelWorld = _cascade.NearTexelWorld;
-                    forwardOffset = extent * 0.35f;
+                    centreDistance = _cascade.NearCentreDistance;
                     break;
                 case ShadowCascadeKind.Mid:
                     extent = _cascade.MidExtent;
                     texelWorld = _cascade.MidTexelWorld;
-                    forwardOffset = extent * 0.38f;
+                    centreDistance = _cascade.MidCentreDistance;
                     break;
                 default:
                     extent = _cascade.FarExtent;
                     texelWorld = _cascade.FarTexelWorld;
-                    forwardOffset = extent * 0.36f;
+                    centreDistance = _cascade.FarCentreDistance;
                     break;
             }
+            return CascadeLightViewProjection(_cameraPos, ViewForwardForShadows(), lightDir, extent, texelWorld, centreDistance);
+        }
 
-            int mapSize = cascade switch
-            {
-                ShadowCascadeKind.Near => ShadowMapSizeNear,
-                ShadowCascadeKind.Mid => ShadowMapSizeMid,
-                _ => ShadowMapSize,
-            };
-            if (texelWorld <= 0f)
-                texelWorld = (2f * extent) / Math.Max(64, mapSize);
+        /// <summary>The camera's viewing direction for placing the sun's cascades (never zero).</summary>
+        private Vector3 ViewForwardForShadows()
+        {
+            Vector3 forward = _viewForward.LengthSquared() > 0.5f ? _viewForward : _state.CameraForward;
+            return forward.LengthSquared() > 1e-6f ? Vector3.Normalize(forward) : -Vector3.UnitZ;
+        }
 
-            // ForestLight-style: bias the focus along horizontal camera forward, then snap in
-            // light space so static receivers do not crawl (AF1.1).
-            Vector3 cameraForward = _viewForward.LengthSquared() > 0.5f ? _viewForward : _state.CameraForward;
-            Vector3 horizontalForward = new(cameraForward.X, 0f, cameraForward.Z);
-            if (horizontalForward.LengthSquared() < 1e-6f)
-                horizontalForward = -Vector3.UnitZ;
-            else
-                horizontalForward = Vector3.Normalize(horizontalForward);
-
-            Vector3 focus = _cameraPos + horizontalForward * forwardOffset;
-            focus = CascadeShadowMath.SnapCascadeCentre(focus, lightDir, texelWorld);
-
+        /// <summary>
+        /// One sun cascade's light view-projection: the sphere round its slice of the view, centred
+        /// <paramref name="centreDistance"/> along it and snapped to whole texels in the light's
+        /// space, so neither turning nor moving the camera makes a still shadow crawl or shimmer.
+        /// </summary>
+        internal static Matrix4x4 CascadeLightViewProjection(Vector3 camera, Vector3 forward, Vector3 lightDir,
+            float extent, float texelWorld, float centreDistance)
+        {
+            Vector3 focus = CascadeShadowMath.SnapCascadeCentre(camera + forward * centreDistance, lightDir, texelWorld);
             Vector3 lightEye = focus - lightDir * extent;
-            Vector3 up = MathF.Abs(Vector3.Dot(lightDir, Vector3.UnitY)) > 0.95f
-                ? Vector3.UnitZ
-                : Vector3.UnitY;
+            Vector3 up = CascadeShadowMath.LightViewUp(lightDir);
             Matrix4x4 lightView = D3dMatrixHelper.CreateLookAtLh(lightEye, focus, up);
             Matrix4x4 lightProj = D3dMatrixHelper.CreateOrthographicLh(extent, extent, 0.5f, extent * 4f);
             return lightView * lightProj;

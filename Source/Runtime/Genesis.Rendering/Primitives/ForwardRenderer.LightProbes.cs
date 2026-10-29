@@ -85,6 +85,9 @@ namespace Genesis.Rendering.Primitives
                 Probes.BouncedLight ? Probes.BouncedLightStrength : 0f, _probeFaceSize, 1f);
         }
 
+        /// <summary>EngineCB's LightProbeFloorParams: x the least share of the room's own ambient and reflection kept.</summary>
+        private static Vector4 LightProbeFloorParams() => new(Probes.AmbientFloor, 0f, 0f, 0f);
+
         /// <summary>Binds the probe in use for the main pass (t18 atlas, t19 ambient row), or nothing.</summary>
         private void BindLightProbe()
         {

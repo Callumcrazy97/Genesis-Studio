@@ -58,6 +58,15 @@ public sealed class ClusteredLightGrid
     /// <summary>Light indices written after the headers.</summary>
     public int IndexCount => _indexCount;
 
+    /// <summary>Lights of the last build that reach nothing in view (behind the camera or off screen).</summary>
+    public int LightsOutsideView { get; private set; }
+
+    /// <summary>
+    /// Lights of the last build left out of at least one cluster their reach covers, because the
+    /// cluster or the buffer was full: pixels there go without them (the F6 culled-lights count).
+    /// </summary>
+    public int LightsDroppedFromClusters { get; private set; }
+
     /// <summary>Lights listed by the cluster at (tile x, tile y, slice).</summary>
     public ReadOnlySpan<uint> ClusterLights(int tileX, int tileY, int slice)
     {
@@ -74,6 +83,8 @@ public sealed class ClusteredLightGrid
     {
         Array.Clear(_buffer, 0, ClusteredLightDefaults.HeaderWords);
         _indexCount = 0;
+        LightsOutsideView = 0;
+        LightsDroppedFromClusters = 0;
     }
 
     public void Build(
@@ -125,6 +136,7 @@ public sealed class ClusteredLightGrid
             _rank[visible] = visible;
             visible++;
         }
+        LightsOutsideView = lights.Length - visible;
         if (visible == 0)
             return;
 
@@ -160,22 +172,26 @@ public sealed class ClusteredLightGrid
         _indexCount = (int)(next - ClusteredLightDefaults.HeaderWords);
 
         // Pass 2: fill in rank order.
+        int dropped = 0;
         for (int n = 0; n < visible; n++)
         {
             int visibleIndex = _rank[n];
             uint lightIndex = (uint)_order[visibleIndex];
             int box = visibleIndex * 6;
+            bool left = false;
             for (int slice = _boxes[box + 4]; slice <= _boxes[box + 5]; slice++)
                 for (int ty = _boxes[box + 2]; ty <= _boxes[box + 3]; ty++)
                     for (int tx = _boxes[box + 0]; tx <= _boxes[box + 1]; tx++)
                     {
                         int cluster = ClusterIndex(tx, ty, slice);
                         uint written = _buffer[cluster * 2 + 1];
-                        if (written >= (uint)_counts[cluster]) continue;
+                        if (written >= (uint)_counts[cluster]) { left = true; continue; }
                         _buffer[_buffer[cluster * 2] + written] = lightIndex;
                         _buffer[cluster * 2 + 1] = written + 1;
                     }
+            if (left) dropped++;
         }
+        LightsDroppedFromClusters = dropped;
     }
 
     private void EnsureScratch(int lights)
