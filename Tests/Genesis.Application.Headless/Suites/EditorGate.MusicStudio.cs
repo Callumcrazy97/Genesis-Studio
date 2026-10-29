@@ -427,6 +427,37 @@ internal static partial class EditorGate
                     editor.Save();
                     HeadlessHarness.Assert(MusicDocumentSerializer.Load(path).Tracks.Count == 3, "The imported piece did not save.");
                 });
+                HeadlessHarness.Step("the piano roll's mouse: click places a note, edge-drag resizes, drag moves, the lane sets velocity, right-click deletes", () =>
+                {
+                    Control roll = SurfaceControls(editor).Single(control => control.Name == "MusicPianoRoll");
+                    float X(long tick) => (float)roll.GetType().GetMethod("TickToX")!.Invoke(roll, [tick])!;
+                    int Top(int pitch) => (int)roll.GetType().GetMethod("PitchToY")!.Invoke(roll, [pitch])!;
+                    int Y(int pitch) => Top(pitch) + (Top(pitch - 1) - Top(pitch)) / 2;
+                    void Mouse(string name, float x, int y, MouseButtons button = MouseButtons.Left) =>
+                        typeof(Control).GetMethod(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                            .Invoke(roll, [new MouseEventArgs(button, 1, (int)x, y, 0)]);
+                    editor.SelectedTrackIndex = 0;
+                    editor.SetSnap(MusicSnap.Beat);
+                    MusicTrack track = editor.SelectedTrack;
+                    HeadlessHarness.Assert(X(4800) < roll.ClientSize.Width - 30 && Y(62) > 30 && Y(62) < roll.ClientSize.Height - 100,
+                        $"The test's notes are not in view: x {X(4800)}, y {Y(62)} in {roll.ClientSize}.");
+                    int notes = track.Notes.Count;
+                    Mouse("OnMouseDown", X(3840) + 5, Y(62)); Mouse("OnMouseUp", X(3840) + 5, Y(62));
+                    MusicNote placed = track.Notes.Single(note => note.Pitch == 62 && note.Start == 3840);
+                    HeadlessHarness.Assert(track.Notes.Count == notes + 1 && placed.Length == 480, $"A click placed {track.Notes.Count - notes} notes, {placed.Length} ticks long.");
+                    Mouse("OnMouseDown", X(4320) - 2, Y(62)); Mouse("OnMouseMove", X(4800) + 3, Y(62)); Mouse("OnMouseUp", X(4800) + 3, Y(62));
+                    HeadlessHarness.Assert(placed.Length == 960, $"Dragging the right edge a beat on made the note {placed.Length} ticks long.");
+                    Mouse("OnMouseDown", X(3840) + 20, Y(62)); Mouse("OnMouseMove", X(4320) + 20, Y(64)); Mouse("OnMouseUp", X(4320) + 20, Y(64));
+                    HeadlessHarness.Assert(placed.Start == 4320 && placed.Pitch == 64, $"Dragging moved the note to {placed.Pitch}@{placed.Start}, not 64@4320.");
+                    int laneTop = roll.ClientSize.Height - SystemInformation.HorizontalScrollBarHeight - (Top(0) - Top(1)) * 6;
+                    Mouse("OnMouseDown", X(4320) + 1, laneTop + 1); Mouse("OnMouseUp", X(4320) + 1, laneTop + 1);
+                    HeadlessHarness.Assert(placed.Velocity == 127, $"Clicking the top of the velocity lane set velocity {placed.Velocity}.");
+                    Mouse("OnMouseDown", X(4320) + 20, Y(64), MouseButtons.Right);
+                    HeadlessHarness.Assert(!track.Notes.Contains(placed) && track.Notes.Count == notes, "Right-click did not delete the note.");
+                    for (int step = 0; step < 5; step++) editor.Undo();
+                    HeadlessHarness.Assert(editor.SelectedTrack.Notes.Count == notes && !editor.SelectedTrack.Notes.Any(note => note.Pitch is 62 or 64 && note.Start is 3840 or 4320),
+                        "Five undos did not take back the place, resize, move, velocity and delete, one step each.");
+                });
                 HeadlessHarness.Step("an unreadable piece is kept as it was and Save refuses", () =>
                 {
                     string broken = Path.Combine(Path.GetDirectoryName(path)!, "Broken.music.json");

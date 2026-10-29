@@ -65,8 +65,9 @@ attack, release and filter replace the preset's on every layer.
 scaled by velocity, track volume and a fixed headroom), side by side in batches of 64 and summed in
 order, so the same piece always gives the same samples. A mix louder than 0.95 is turned down as a
 whole. Solo wins over mute: when any track is soloed only soloed tracks are heard. Rendering runs
-on the editor's thread when Play or Render is pressed; the tests hold a minute of four busy tracks
-(960 notes) to under 20 seconds.
+on the editor's thread when Play or Render is pressed: a minute of four busy tracks (960 notes of
+piano, bass, pad and drums) took about 0.13 s on the development PC (29 October 2026); the tests
+allow 20 s.
 
 - **Play** renders from the play-head to the end (or the loop range when **Loop** is on, exactly
   that long, repeating) and plays it on the game's own mixer (`XAudioSystem`, music bus) while a
