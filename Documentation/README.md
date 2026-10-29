@@ -10138,6 +10138,12 @@ the game all use what it made; a game never reads the graph.
   (`#include "GenesisSurface.hlsl"`, [Mesh shaders](MeshShaders.md)), so the engine lights it as its
   own materials. For an Image, Particle or 2D Object a sprite `MainPS`; for Full screen a post-effect
   `MainPS` reading `SceneColor`. Changing the target writes the new kind at once.
+- **Texture registers.** A graph may have four Texture parameters, declared in the order of their
+  nodes. A Mesh graph's take t17, t21, t22 and t23: the engine's lighting reads the light probe at
+  t18 and t19 and the placed probes at t20 ([register map](MeshShaders.md#registers-a-surface-shader-leaves-alone)),
+  and a texture there would replace them. Image, Particle and 2D Object graphs use t17-t20, Full
+  screen t5-t8. (Until 29 October a Mesh graph's second to fourth textures were at t18-t20; a graph
+  saved then moves to the new registers the next time it is changed.)
 - **Nodes.** Inputs: UV, World position, Object position, Normal, View direction, Vertex colour,
   Time, Screen UV, Main texture (the target's own picture). Constants: Number, Vector. Parameters:
   Number, Colour, Vector and Texture, shown in the Inspector and the Parameters page like any
@@ -10170,7 +10176,7 @@ the game all use what it made; a game never reads the graph.
   instanced batch give their world position (the surface input has no object position yet). There
   are no groups, comments or sub-graphs, and no copy and paste yet.
 - **Preview fix (any shader).** A previewed model now carries the shader's own textures (t17 and
-  up), as the sphere always did; until 29 October a Model shader sampling a texture of its own
+  t21-t23), as the sphere always did; until 29 October a Model shader sampling a texture of its own
   previewed black on a model asset, though it drew correctly in the game.
 - **Automation.** `shader.graph` writes a resource's graph and the code it makes, checked by
   compiling for DX11 and SPIR-V; `shader.nodes` lists the node kinds and their ports
@@ -10182,7 +10188,8 @@ Code: `Source/Runtime/Genesis.Shared/Assets/ShaderGraph.cs` (the document),
 `ShaderEditorControl.Nodes.cs`. Checks: `Build.bat --test shader-nodes`
 (`Editor.Shader.Nodes.*`): every node kind compiles for DXBC and SPIR-V on Mesh, Sprite and
 Fullscreen targets; graph errors are reported, not thrown; texture × tint + fresnel emission saves
-and reopens with its graph and code; a code shader saves without a graph; and the editor builds,
+and reopens with its graph and code; four textures sit at t17 and t21-t23, never on the light probes'
+t18-t20; a code shader saves without a graph; and the editor builds,
 undoes, previews on a model, saves, reopens on its graph and detaches it (DX11, with captures).
 
 #### Model Editor

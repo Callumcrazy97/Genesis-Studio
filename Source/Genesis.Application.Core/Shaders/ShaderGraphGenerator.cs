@@ -121,6 +121,13 @@ public static class ShaderGraphGenerator
     /// <summary>Most textures a graph may declare (the engine binds four of a draw's own).</summary>
     public const int MaxTextures = 4;
 
+    /// <summary>
+    /// The registers a Mesh (surface) shader's own textures take, in order. The engine's lighting
+    /// owns t0-t16 and t18-t20 (the light probe at the camera at t18 and t19, the probes placed in
+    /// the room at t20), so a graph's textures go at t17, then t21 to t23 (Documentation/MeshShaders.md).
+    /// </summary>
+    private static readonly int[] MeshTextureSlots = [17, 21, 22, 23];
+
     private static readonly Regex Identifier = new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
     private static readonly Regex TypeLike = new(@"^(float|int|uint|bool|half|double|dword|min\d+\w*)([1-4](x[1-4])?)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -263,7 +270,8 @@ public static class ShaderGraphGenerator
         public required string MainTextureCode { get; init; }
         public required string MainTextureReference { get; init; }
         public required string Sampler { get; init; }
-        public required int FirstTextureSlot { get; init; }
+        /// <summary>The registers the graph's textures take, in order (<see cref="MaxTextures"/> of them).</summary>
+        public required IReadOnlyList<int> TextureSlots { get; init; }
 
         /// <summary>
         /// Inside <c>void Vertex(GenesisVertexInput i, inout GenesisVertex v)</c>: the vertex's own UV,
@@ -274,7 +282,7 @@ public static class ShaderGraphGenerator
             Mesh = true, Vertex = true, Uv = "v.UV", WorldPosition = "i.WorldPosition", ObjectPosition = "v.Position",
             Normal = "v.Normal", ViewDirection = "normalize(i.CameraPosition - i.WorldPosition)", Time = "i.Time",
             ScreenUv = "float2(0.0, 0.0)", VertexColourCode = "v.Color", MainTextureCode = "float4(1.0, 1.0, 1.0, 1.0)",
-            MainTextureReference = "AlbedoTex|AlbedoSamp", Sampler = "GenesisLinearWrap", FirstTextureSlot = 17,
+            MainTextureReference = "AlbedoTex|AlbedoSamp", Sampler = "GenesisLinearWrap", TextureSlots = MeshTextureSlots,
         };
 
         public static TargetNames For(ShaderAssetPipeline pipeline) => pipeline switch
@@ -284,14 +292,14 @@ public static class ShaderGraphGenerator
                 Mesh = true, Uv = "i.UV", WorldPosition = "i.WorldPosition", ObjectPosition = "i.WorldPosition",
                 Normal = "i.Normal", ViewDirection = "i.ViewDirection", Time = "i.Time", ScreenUv = "i.ScreenUV",
                 VertexColourCode = "float4(GenesisColor(i.Color.rgb), i.Color.a)", MainTextureCode = "i.BaseColorTexture",
-                MainTextureReference = "AlbedoTex|AlbedoSamp", Sampler = "GenesisLinearWrap", FirstTextureSlot = 17,
+                MainTextureReference = "AlbedoTex|AlbedoSamp", Sampler = "GenesisLinearWrap", TextureSlots = MeshTextureSlots,
             },
             ShaderAssetPipeline.Fullscreen => new TargetNames
             {
                 Mesh = false, Uv = "IN.UV", WorldPosition = "float3(IN.UV, 0.0)", ObjectPosition = "float3(IN.UV, 0.0)",
                 Normal = "float3(0.0, 0.0, -1.0)", ViewDirection = "float3(0.0, 0.0, -1.0)", Time = "Time", ScreenUv = "IN.UV",
                 VertexColourCode = "float4(1.0, 1.0, 1.0, 1.0)", MainTextureCode = "SceneColor.Sample(GsgClamp, IN.UV)",
-                MainTextureReference = "SceneColor|GsgClamp", Sampler = "GsgClamp", FirstTextureSlot = 5,
+                MainTextureReference = "SceneColor|GsgClamp", Sampler = "GsgClamp", TextureSlots = [5, 6, 7, 8],
             },
             _ => new TargetNames
             {
@@ -299,7 +307,7 @@ public static class ShaderGraphGenerator
                 Normal = "float3(0.0, 0.0, -1.0)", ViewDirection = "float3(0.0, 0.0, -1.0)", Time = "Time",
                 ScreenUv = "(IN.SvPos.xy / max(Resolution, 1.0))",
                 VertexColourCode = "IN.Color", MainTextureCode = "SpriteTex.Sample(SpriteSamp, IN.UV)",
-                MainTextureReference = "SpriteTex|SpriteSamp", Sampler = "SpriteSamp", FirstTextureSlot = 17,
+                MainTextureReference = "SpriteTex|SpriteSamp", Sampler = "SpriteSamp", TextureSlots = [17, 18, 19, 20],
             },
         };
     }
@@ -677,7 +685,7 @@ public static class ShaderGraphGenerator
 
             for (int index = 0; index < textures.Count && index < MaxTextures; index++)
             {
-                int slot = Target.FirstTextureSlot + index;
+                int slot = Target.TextureSlots[index];
                 code.Append("Texture2D ").Append(textures[index].Name).Append(" : register(t")
                     .Append(slot.ToString(CultureInfo.InvariantCulture)).Append(");\n");
                 _result.Textures.Add(new ShaderGraphTextureInfo(textures[index].Name, slot, textures[index].Texture ?? string.Empty));

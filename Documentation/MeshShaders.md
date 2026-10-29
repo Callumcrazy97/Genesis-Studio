@@ -61,7 +61,8 @@ without a shader. The engine then lights the result.
 
 The include is built into the engine (there is no file to copy); the line must be on a line of its
 own. The resource's entry point is ignored: the engine's own pixel shader is the entry. Declare
-`GenesisParameters` (b5) and textures at t17-t23 as for any mesh shader; the Shader editor and the
+`GenesisParameters` (b5) and textures at t17 and t21-t23 as for any mesh shader (t18-t20 are the
+engine's, see [the registers](#registers-a-surface-shader-leaves-alone)); the Shader editor and the
 Object editor show and set them the same way.
 
 ### What the surface returns
@@ -114,10 +115,25 @@ engine's declarations come before the surface (its constant buffers, `AlbedoTex`
 material maps, `SrgbToLinear3`, `Hash21`, `InterleavedGradientNoise`), so their names are taken:
 give your own functions names of their own.
 
-Registers a surface shader leaves alone: b0-b4, b6 and b7 are the engine's (its `GenesisFrame` is read
-through the input, not declared); t0-t16 and s0-s2 likewise, and t18-t20, where the engine's lighting
-reads the light probe at the camera (t18, t19) and the probes placed in the room (t20, b7): a surface's
-own textures go at t17 and t21-t23.
+#### Registers a surface shader leaves alone
+
+b0-b4, b6 and b7 are the engine's (its `GenesisFrame` is read through the input, not declared);
+t0-t16 and s0-s2 likewise, and t18-t20, where the engine's lighting reads the light probe at the
+camera (t18, t19) and the probes placed in the room (t20, b7): a surface's own textures go at t17
+and t21-t23. A texture declared at t18-t20 replaces the probe's texture, so the lighting reads the
+shader's image as the probe (the engine binds the probe once for the pass and does not put it back
+after a shader's textures). The Shader editor's node view therefore never writes one: a Mesh
+graph's Texture parameters take t17, t21, t22 and t23 in the order of the nodes in the graph (four
+at most). Its Image, Particle and 2D Object targets use t17-t20 and Full screen t5-t8, as those
+draws have no light probe.
+
+| Register | Owner |
+|---|---|
+| t0-t16, s0-s2, b0-b4, b6 | The engine's forward shader (material maps, shadows, lights, the froxel volume at t16). |
+| **t17** | Free: a shader's first texture. |
+| t18, t19 | The light probe at the camera (atlas of six views, then the light arriving from each side). |
+| t20, b7 | The probes placed in the room (atlas, and their rows). |
+| **t21, t22, t23** | Free: a shader's second to fourth textures (painted terrain's own layer shaders use them). |
 
 ### Examples
 
@@ -242,7 +258,7 @@ replaces the engine's pixel shader and its output is the pixel's colour. The eng
 |---|---|
 | `b4` `GenesisFrame` | `float Time; float Frame; float2 Resolution;`: seconds since the game started, the frame number and the target size, in the game as in the Shader editor (placed Objects, model materials, `DrawModelShader3D`, `DrawMeshShader3D`). |
 | `b5` `GenesisParameters` | Your parameters, up to 16 floats (four `float4` rows). Their names are what the Object editor shows and what the commands below set. |
-| `t17`–`t20` | Free for your own textures (set in the Shader editor's Resources; an Object can override them). `t21`–`t23` are free except on terrain. They are bound the same way for a placed Object, a model material's shader and a script's `DrawModelShader3D`. |
+| `t17`, `t21`–`t23` | Free for your own textures (set in the Shader editor's Resources; an Object can override them). `t18`–`t20` are the engine's light probes (the camera's at t18 and t19, the room's placed probes at t20): a texture there replaces the probe. `t21`–`t23` are free except on terrain. They are bound the same way for a placed Object, a model material's shader and a script's `DrawModelShader3D`. |
 
 A full pixel shader built on the engine's own forward shader, one that declares its
 `cbuffer LocalShadowConstants : register(b4)` (as painted terrain's layer shaders do), is given the
@@ -345,3 +361,8 @@ from the same shader without its Vertex function (DX11, captures `shader-vertex-
 `shader-vertex-none.png`). `shader-workspace` previews both presets on DX11, DX12, Vulkan, OpenGL and
 Software with the other presets. Not yet checked in a running game, with instancing or on a skinned
 model.
+
+The same target checks the node view's textures (`Editor.Shader.Nodes.TexturesAvoidTheEnginesLightProbeRegisters`):
+a Mesh graph with four Sample texture nodes declares its textures at exactly t17, t21, t22 and t23
+(never t18-t20), in the code, in the result and in the Shader's resources, and compiles for DXBC and
+SPIR-V; a fifth texture is refused.

@@ -108,6 +108,7 @@ internal static class ShaderNodeGraphSuite
                 "The Tint parameter did not take the node's colour.");
             Assert(document.Resources.Single(resource => resource.Name == "Pattern").Binding == imageName,
                 "The texture parameter's Image was not bound.");
+            Assert(document.Resources.Single(resource => resource.Name == "Pattern").Slot == 17, "The texture parameter is not at t17.");
             File.WriteAllText(shader, JsonSerializer.Serialize(document, ResourceJson));
             File.WriteAllText(Path.Combine(logs, "texture-tint-fresnel.shader.json"), File.ReadAllText(shader));
 
@@ -121,6 +122,53 @@ internal static class ShaderNodeGraphSuite
             Assert(ShaderGraphGenerator.Generate(reopened.Graph, reopened.Pipeline).Source == reopened.Source,
                 "The reopened graph makes different code from what was saved.");
             Compile(reopened.Source, "texture × tint + fresnel");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Shader.Nodes.TexturesAvoidTheEnginesLightProbeRegisters", () =>
+        {
+            // The engine's lighting reads the light probe at the camera at t18 and t19 and the probes
+            // placed in the room at t20: a Mesh graph's own textures go at t17, then t21 to t23, or a
+            // texture there would replace the probe for that draw.
+            int[] meshSlots = [17, 21, 22, 23];
+            string[] names = ["LayerA", "LayerB", "LayerC", "LayerD"];
+
+            ShaderGraphGenerationResult mesh = ShaderGraphGenerator.Generate(FourTextureGraph(names), ShaderAssetPipeline.Mesh);
+            File.WriteAllText(Path.Combine(logs, "four-textures-Mesh.hlsl"), mesh.Source);
+            Assert(mesh.Succeeded, "Four Sample texture nodes did not generate: " + string.Join(" | ", mesh.Errors));
+            foreach (string name in names)
+                Assert(mesh.Source.Contains(name + ".Sample(GenesisLinearWrap", StringComparison.Ordinal), $"{name} is declared but never sampled.");
+            Assert(MeshSurfaceShaders.IsSurfaceSource(mesh.Source), "A Mesh graph did not make a surface shader.");
+            Assert(RegistersDeclared(mesh.Source, names).SequenceEqual(meshSlots),
+                "The Mesh graph's textures were declared at t" + string.Join(", t", RegistersDeclared(mesh.Source, names)) + ", expected t17, t21, t22, t23.");
+            Assert(!Regex.IsMatch(mesh.Source, @"register\(t(18|19|20)\)"), "A Mesh graph's texture took t18, t19 or t20, the light probes.");
+            Assert(mesh.Textures.Select(texture => texture.Slot).SequenceEqual(meshSlots) && mesh.Textures.Select(texture => texture.Name).SequenceEqual(names),
+                "The result's textures are not LayerA to LayerD at t17, t21, t22, t23.");
+            // What the engine binds by is what the code declares, as the editor's resources read it back.
+            Assert(ShaderResourceReflection.Reflect(mesh.Source).Where(resource => resource.IsTexture)
+                    .Select(resource => resource.Slot).SequenceEqual(meshSlots), "Reflecting the code did not find the textures at t17, t21, t22, t23.");
+            ShaderAssetDocument document = new() { TargetType = ShaderTargetType.Model, Pipeline = ShaderAssetPipeline.Mesh, Graph = FourTextureGraph(names) };
+            Assert(ShaderGraphDocuments.Apply(document).Succeeded, "Applying the four-texture graph to a Shader failed.");
+            Assert(names.Select(name => document.Resources.Single(resource => resource.Name == name).Slot).SequenceEqual(meshSlots),
+                "The Shader's resources did not take t17, t21, t22, t23.");
+            Compile(mesh.Source, "four textures, Mesh");
+
+            // The other targets keep the registers they had.
+            foreach ((ShaderAssetPipeline pipeline, int[] slots) in new[] { (ShaderAssetPipeline.Sprite, new[] { 17, 18, 19, 20 }), (ShaderAssetPipeline.Fullscreen, new[] { 5, 6, 7, 8 }) })
+            {
+                ShaderGraphGenerationResult other = ShaderGraphGenerator.Generate(FourTextureGraph(names), pipeline);
+                File.WriteAllText(Path.Combine(logs, "four-textures-" + pipeline + ".hlsl"), other.Source);
+                Assert(other.Succeeded, $"Four textures did not generate for {pipeline}: " + string.Join(" | ", other.Errors));
+                Assert(RegistersDeclared(other.Source, names).SequenceEqual(slots), $"{pipeline}: the textures were declared at t" + string.Join(", t", RegistersDeclared(other.Source, names)) + ".");
+                Compile(other.Source, "four textures, " + pipeline);
+            }
+
+            // One texture still takes t17 (the saved test graph), and a fifth is refused.
+            Assert(ShaderGraphGenerator.Generate(TextureTintFresnel("Checker"), ShaderAssetPipeline.Mesh).Textures.Single().Slot == 17, "A single texture did not stay at t17.");
+            ShaderGraphDocument five = FourTextureGraph(names);
+            ShaderGraphDocuments.AddNode(five, "TextureParameter", 0, 900);
+            ShaderGraphGenerationResult tooMany = ShaderGraphGenerator.Generate(five, ShaderAssetPipeline.Mesh);
+            Assert(!tooMany.Succeeded && tooMany.Errors.Any(error => error.Contains("5 texture parameters", StringComparison.Ordinal)),
+                "A fifth texture parameter was not refused: " + string.Join(" | ", tooMany.Errors));
         });
 
         HeadlessHarness.RunCase(ctx.Report, "Editor.Shader.Nodes.CodeShaderSavesWithoutGraph", () =>
@@ -157,6 +205,7 @@ internal static class ShaderNodeGraphSuite
                 && ShaderGraphGenerator.Generate(saved.Graph, saved.Pipeline).Source == saved.Source, "The saved code is not what the graph makes.");
             Assert(saved.Resources.Single(resource => resource.Name == "Pattern").Binding == ResourceNames.Name(project.RootPath, image),
                 "The texture parameter's Image was not bound.");
+            Assert(saved.Resources.Single(resource => resource.Name == "Pattern").Slot == 17, "The Cookbook graph's texture is not at t17.");
             Assert(saved.Parameters.Single(parameter => parameter.Name == "RimColour").Value.SequenceEqual(new[] { .2f, .7f, 1f, 1f }),
                 "The rim colour was not kept.");
             File.WriteAllText(Path.Combine(logs, "automation-rim.shader.json"), File.ReadAllText(path));
@@ -427,6 +476,44 @@ internal static class ShaderNodeGraphSuite
         Wire(graph, glow, "Out", output, "Emission");
         return graph;
     }
+
+    /// <summary>Four texture parameters, each read by a Sample texture node, summed into the Output's colour.</summary>
+    private static ShaderGraphDocument FourTextureGraph(string[] names)
+    {
+        ShaderGraphDocument graph = new();
+        ShaderGraphNode output = ShaderGraphDocuments.AddNode(graph, "Output", 900, 80);
+        ShaderGraphNode? total = null;
+        string totalPort = "RGB";
+        for (int index = 0; index < names.Length; index++)
+        {
+            ShaderGraphNode texture = ShaderGraphDocuments.AddNode(graph, "TextureParameter", 0, index * 200);
+            texture.Name = names[index];
+            ShaderGraphNode sample = ShaderGraphDocuments.AddNode(graph, "SampleTexture", 240, index * 200);
+            Wire(graph, texture, "Texture", sample, "Texture");
+            if (total is null)
+            {
+                total = sample;
+                continue;
+            }
+            ShaderGraphNode add = ShaderGraphDocuments.AddNode(graph, "Add", 480, index * 200);
+            Wire(graph, total, totalPort, add, "A");
+            Wire(graph, sample, "RGB", add, "B");
+            total = add;
+            totalPort = "Out";
+        }
+        Wire(graph, total!, totalPort, output, "Colour");
+        return graph;
+    }
+
+    /// <summary>
+    /// The registers of the graph's own <c>Texture2D</c> declarations in generated code, in the order
+    /// written (not the target's picture, <c>SpriteTex</c> or <c>SceneColor</c> at t0).
+    /// </summary>
+    private static int[] RegistersDeclared(string source, string[] names) =>
+        Regex.Matches(source, @"Texture2D\s+(\w+)\s*:\s*register\(t(\d+)\)")
+            .Where(match => names.Contains(match.Groups[1].Value))
+            .Select(match => int.Parse(match.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture))
+            .ToArray();
 
     /// <summary>One node of every kind, all reaching the Output, with a few wires that change types.</summary>
     private static ShaderGraphDocument EveryNodeGraph(out int expectedVariables)
