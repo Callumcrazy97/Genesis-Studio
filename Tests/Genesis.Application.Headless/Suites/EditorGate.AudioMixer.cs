@@ -145,13 +145,18 @@ internal static partial class EditorGate
             });
             HeadlessHarness.Step("a loop render is exactly as long as asked and its end leads on to its start", () =>
             {
+                // The join must be no bigger than the sound's own steps from one sample to the next (wind is
+                // noise, so a few of those are large: 0.05 at the join against 0.09 for its 99.9th step and
+                // 0.83 for the same sound cut at 3 s without the loop render, measured 29 October).
                 foreach (string preset in new[] { "Wind", "Drone" })
                 {
                     float[] samples = SynthSounds.Render(new SynthRecipe { Preset = preset, LoopSeconds = 3 }).Samples;
-                    double step = Enumerable.Range(1, samples.Length - 1).Average(index => Math.Abs((double)samples[index] - samples[index - 1]));
-                    double join = Math.Abs(samples[^1] - samples[0]);
-                    HeadlessHarness.Assert(samples.Length == 3 * SoundSynth.SampleRate && join <= Math.Max(4 * step, 0.002),
-                        $"{preset} as a 3 s loop: {samples.Length} samples, the join jumps {join:0.0000} where a sample to the next moves {step:0.0000} on average.");
+                    float[] plain = SynthSounds.Render(new SynthRecipe { Preset = preset }).Samples;
+                    double[] steps = [.. Enumerable.Range(1, samples.Length - 1).Select(index => Math.Abs((double)samples[index] - samples[index - 1])).Order()];
+                    double usual = steps[(int)(steps.Length * 0.999)];
+                    double join = Math.Abs(samples[^1] - samples[0]), cut = Math.Abs(plain[3 * SoundSynth.SampleRate - 1] - plain[0]);
+                    HeadlessHarness.Assert(samples.Length == 3 * SoundSynth.SampleRate && join <= usual && join < cut * 0.25,
+                        $"{preset} as a 3 s loop: {samples.Length} samples, the join jumps {join:0.0000}; the sound's 99.9th step is {usual:0.0000}, a plain cut jumps {cut:0.0000}.");
                 }
             });
             HeadlessHarness.Step("more than 512 layers make a sound", () =>
