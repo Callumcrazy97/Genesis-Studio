@@ -174,7 +174,8 @@ public sealed class GrassPushers
             if (distanceSquared >= point.Radius * point.Radius) continue;
             float distance = MathF.Sqrt(distanceSquared);
             float near = 1f - distance / point.Radius;
-            float amount = near * near * (3f - 2f * near) * point.Strength;
+            // Eased out: most of the circle lies well over, fading only towards its rim.
+            float amount = near * (2f - near) * point.Strength;
             // Right under the pusher there is no "away": lean along a direction picked by the spot.
             Vector2 direction = distance > 0.001f ? away / distance
                 : new Vector2(MathF.Cos(root.X * 12.9898f + root.Z * 78.233f), MathF.Sin(root.X * 12.9898f + root.Z * 78.233f));

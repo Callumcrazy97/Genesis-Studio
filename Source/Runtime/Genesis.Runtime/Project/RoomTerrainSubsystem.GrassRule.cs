@@ -128,6 +128,18 @@ public sealed partial class RoomTerrainSubsystem
     /// <summary>Whether animated characters part the grass by themselves (Engine.Terrain.Grass.Pushers.Characters).</summary>
     public bool GrassCharactersPush { get; set; } = true;
 
+    /// <summary>
+    /// How far round an animated character's feet grass bends, in metres at scale 1, 0.1 to 8
+    /// (Engine.Terrain.Grass.Pushers.CharacterRadius): wide enough to read from a third-person camera.
+    /// </summary>
+    public float GrassCharacterRadius
+    {
+        get => _grassCharacterRadius;
+        set => _grassCharacterRadius = float.IsFinite(value) ? Math.Clamp(value, 0.1f, 8f) : _grassCharacterRadius;
+    }
+
+    private float _grassCharacterRadius = 1.2f;
+
     /// <summary>The points that bend grass this frame (for checks).</summary>
     public IReadOnlyList<GrassPushPoint> GrassPushPoints => _grassPushers.Points;
 
@@ -186,7 +198,7 @@ public sealed partial class RoomTerrainSubsystem
     private float _pusherReach;
     private ComponentAction<Transform3DComponent, ModelAnimatorComponent> _collectCharacterPusher;
 
-    /// <summary>An animated model near the camera parts the grass round its feet, about a stride across.</summary>
+    /// <summary>An animated model near the camera parts the grass round its feet, <see cref="GrassCharacterRadius"/> across.</summary>
     private void CollectCharacterPusher(Entity entity, ref Transform3DComponent transform, ref ModelAnimatorComponent animator)
     {
         // Only a model actually animated (a clip or a controller): a prop that merely could be is not a character.
@@ -194,7 +206,7 @@ public sealed partial class RoomTerrainSubsystem
         float distance = Vector3.Distance(transform.Position, _pusherCamera);
         if (!(distance <= _pusherReach)) return;
         float size = MathF.Max(MathF.Abs(transform.Scale.X), MathF.Abs(transform.Scale.Z));
-        float radius = Math.Clamp(0.55f * (size > 0f ? size : 1f), 0.25f, 3f);
+        float radius = Math.Clamp(_grassCharacterRadius * (size > 0f ? size : 1f), 0.1f, 16f);
         _characterPushers.Add((((long)entity.Version << 32) | (uint)entity.Id, transform.Position, radius, distance));
     }
 

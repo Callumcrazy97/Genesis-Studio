@@ -670,6 +670,13 @@ public static partial class PgslCommands
         set => ForTerrains(terrains => terrains.GrassCharactersPush = value);
     }
 
+    [PgslCommand("CharacterRadius", "Engine.Terrain.Grass.Pushers.CharacterRadius = 2.5", "How far round each animated character's feet the grass bends, 0.1 to 8 metres at the character's scale (1.2 unless set): wider for a stylised game seen from above", "Terrain", Namespace = "Engine.Terrain.Grass.Pushers", Flat = false)]
+    public static double TerrainGrassPushersCharacterRadius
+    {
+        get => FirstTerrains()?.GrassCharacterRadius ?? 1.2;
+        set { if (double.IsFinite(value)) ForTerrains(terrains => terrains.GrassCharacterRadius = (float)value); }
+    }
+
     [PgslCommand("Strength", "Engine.Terrain.Grass.Pushers.Strength = 1", "How far pushed grass bends, 0 to 1 (each terrain's own rule unless set; 0.8 for new grass, 1 lays it nearly flat)", "Terrain", Namespace = "Engine.Terrain.Grass.Pushers", Flat = false)]
     public static double TerrainGrassPushersStrength
     {

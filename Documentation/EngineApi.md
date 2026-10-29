@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1775 names: 493 properties (420 can be set), 1282 commands.
+1776 names: 494 properties (421 can be set), 1282 commands.
 
 ## Engine.Alarm
 
@@ -2121,6 +2121,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
 | Name | Kind | What it is |
 |---|---|---|
+| `CharacterRadius` | property | How far round each animated character's feet the grass bends, 0.1 to 8 metres at the character's scale (1.2 unless set): wider for a stylised game seen from above |
 | `Characters` | property | Whether every animated character (a model playing an animation) near the camera parts the grass round its feet by itself (true unless set) |
 | `Clear` | command | Removes every pusher scripts have set |
 | `Count` | property | How many pushers scripts have set (read; animated characters are not counted) |
