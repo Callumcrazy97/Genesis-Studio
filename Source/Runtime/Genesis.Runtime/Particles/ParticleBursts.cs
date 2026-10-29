@@ -52,11 +52,19 @@ public static class ParticleBursts
     /// For an effect that emits continuously, how long it emits before it is left to die away
     /// (a quarter of a second when 0). An effect that is a single burst ignores it.
     /// </param>
+    /// <param name="direction">
+    /// Where the effect points: its up (+Y, the axis of an authored cone) is turned to this direction,
+    /// of any length. Null, zero or not a number leaves the effect upright as it was authored. Honoured
+    /// where the effect is drawn on the graphics card (the emitter's turn carries its particles).
+    /// </param>
     /// <returns>The emitter, which removes itself; <see cref="Entity.Null"/> when nothing could be made.</returns>
-    public static Entity Play(EcsWorld world, string asset, Vector3 position, float scale = 1f, float emitSeconds = 0f)
+    public static Entity Play(EcsWorld world, string asset, Vector3 position, float scale = 1f, float emitSeconds = 0f, Vector3? direction = null)
     {
         if (world == null || string.IsNullOrWhiteSpace(asset) || !Genesis.Runtime.ECS.Components.ParticleQuality.Bursts) return Entity.Null;
         float size = float.IsFinite(scale) && scale > 0f ? scale : 1f;
+        JObject transform = new() { ["Position"] = new JArray(position.X, position.Y, position.Z), ["Scale"] = new JArray(size, size, size) };
+        if (direction is Vector3 aim && AimRotation(aim, out Vector3 degrees))
+            transform["Rotation"] = new JArray(degrees.X, degrees.Y, degrees.Z);
         var prefab = new JObject
         {
             ["dimension"] = "ThreeD",
@@ -64,7 +72,7 @@ public static class ParticleBursts
                 new JObject
                 {
                     ["type"] = "TransformComponent",
-                    ["props"] = new JObject { ["Position"] = new JArray(position.X, position.Y, position.Z), ["Scale"] = new JArray(size, size, size) },
+                    ["props"] = transform,
                 },
                 new JObject
                 {
@@ -79,6 +87,25 @@ public static class ParticleBursts
         particles.EmitSeconds = float.IsFinite(emitSeconds) ? System.Math.Clamp(emitSeconds, 0f, 60f) : 0f;
         Track(world, entity);
         return entity;
+    }
+
+    /// <summary>
+    /// The turns about X and then Y, in degrees (Z is 0), that carry an emitter's up (+Y) to a direction,
+    /// as an emitter's world matrix is made (rotate about X, then Y, then Z). False for a zero, infinite
+    /// or not-a-number direction, which leaves the emitter upright.
+    /// </summary>
+    public static bool AimRotation(Vector3 direction, out Vector3 degrees)
+    {
+        degrees = Vector3.Zero;
+        float length = direction.Length();
+        if (!float.IsFinite(length) || length < 1e-6f) return false;
+        Vector3 unit = direction / length;
+        // (0, 1, 0) turned about X by a is (0, cos a, sin a), then about Y by b: (sin a sin b, cos a, sin a cos b).
+        degrees = new Vector3(
+            System.MathF.Acos(System.Math.Clamp(unit.Y, -1f, 1f)) * (180f / System.MathF.PI),
+            System.MathF.Atan2(unit.X, unit.Z) * (180f / System.MathF.PI),
+            0f);
+        return true;
     }
 
     /// <summary>

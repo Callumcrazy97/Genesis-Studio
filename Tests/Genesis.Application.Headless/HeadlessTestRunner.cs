@@ -1805,6 +1805,11 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.SkyLayerSuite.Run(ctx);
                 break;
+            case "glowing-beam":
+                // DrawBeam3D: an unlit, added line of light between two points, on every renderer.
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.GlowingBeamSuite.Run(ctx);
+                break;
             case "flash-lights":
                 // LightFlash: bright at once, fading over its life, lit on every renderer, never shadowed, and its cost at 1080p on DX11.
                 Suites.FlashLightSuite.Run(ctx);

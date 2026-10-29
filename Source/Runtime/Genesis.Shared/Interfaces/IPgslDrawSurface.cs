@@ -144,6 +144,13 @@ namespace Genesis.Shared.Interfaces
             Color color,
             float alpha) => QueueModel3D(modelName, x, y, z, MathF.Max(MathF.Abs(sx), MathF.Max(MathF.Abs(sy), MathF.Abs(sz))), color, alpha);
 
+        /// <summary>
+        /// A thin glowing beam between two points (PGSL DrawBeam3D): <paramref name="width"/> metres across,
+        /// not lit and added to what is behind it, in <paramref name="color"/> at <paramref name="alpha"/>
+        /// strength. Surfaces that cannot draw one ignore it.
+        /// </summary>
+        void QueueBeam3D(float x1, float y1, float z1, float x2, float y2, float z2, float width, Color color, float alpha) { }
+
         /// <summary>Add an omnidirectional light during the active 3D draw pass.</summary>
         void QueuePointLight3D(
             float x, float y, float z,

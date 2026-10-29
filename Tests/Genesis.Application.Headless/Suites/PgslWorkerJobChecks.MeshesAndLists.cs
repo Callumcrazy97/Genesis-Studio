@@ -80,9 +80,39 @@ internal static partial class PgslWorkerJobChecks
         }
         """;
 
+    // Loops that run a long body now and then and skip it the rest of the time (GenesisCraft's seam edge,
+    // 28 Oct), one working with numbers, one with text (compiled with values), and a loop followed by a
+    // straight run of statements. Each is far under the 100 000 limit in the instructions that run, and
+    // far over it in the length of the loop.
+    private static readonly string CountLibrary = $$"""
+        function GcSeam(n) {
+            var s = 0;
+            for (var i = 0; i < n; i = i + 1) {
+                if (i % 50 == 0) { {{string.Concat(Enumerable.Repeat("s = s + 1; ", 100))}} }
+                s = s + 1;
+            }
+            return s;
+        }
+        function GcSeamText(n) {
+            var s = 0; var k = "";
+            for (var i = 0; i < n; i = i + 1) {
+                if (i % 50 == 0) { {{string.Concat(Enumerable.Repeat("k = StringOf(i) + \",\"; s = s + StringLength(k); ", 30))}} }
+                s = s + 1;
+            }
+            return s;
+        }
+        function GcTail(n) {
+            var k = 0; var s = 0;
+            while (k < n) { k = k + 1; }
+            {{string.Concat(Enumerable.Repeat("s = s + 1; ", 500))}}
+            return k + s;
+        }
+        """;
+
     private static void RunMeshesAndLists(HeadlessContext ctx, Action<string, string, string, string> row)
     {
         ScriptAssetRegistry.Register("MeshJobLibrary", MeshLibrary);
+        ScriptAssetRegistry.Register("CountJobLibrary", CountLibrary);
 
         // Numbers kept as numbers, worked on a range at a time.
         HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.NumberListsWorkOnRangesWithoutBoxing", () =>
@@ -225,6 +255,69 @@ internal static partial class PgslWorkerJobChecks
                 // A function called from a compiled function runs inside it: its time is its caller's.
             }
             finally { Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled = before; }
+        });
+
+        // The compiled tier charged a loop's whole length at every jump back, so a function that skips
+        // most of its body hit the per-call limit compiled and ran fine interpreted. Both tiers now count
+        // the instructions that run: the same total under the limit, and both stop over it (also when the
+        // limit is passed after the last jump back).
+        HeadlessHarness.RunCase(ctx.Report, "Engine.Pgsl.Logic.CompiledTierCountsWhatTheInterpreterCounts", () =>
+        {
+            using Bench bench = new();
+            PgslCommands.ScriptInstructionLimit(0);
+            bool before = Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled;
+            List<string> found = [];
+            try
+            {
+                (long Instructions, string Error) Call(string source)
+                {
+                    long start = bench.Vm.InstructionsExecuted;
+                    try { bench.Run(source); return (bench.Vm.InstructionsExecuted - start, ""); }
+                    catch (Exception error) { return (bench.Vm.InstructionsExecuted - start, error.Message); }
+                }
+                foreach ((string function, int under, int over) in new[] { ("GcSeam", 3000, 4500), ("GcSeamText", 3000, 5000), ("GcTail", 10000, 11000) })
+                {
+                    Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled = true;
+                    for (int i = 0; i < 60; i++) bench.Run($"r = {function}(3);");
+                    string why = Genesis.Runtime.Scripting.VM.PgslCompiledTier.ReasonFor(function) ?? "never looked at";
+                    (long compiledUnder, string compiledUnderError) = Call($"r = {function}({under});");
+                    (_, string compiledOverError) = Call($"r = {function}({over});");
+                    Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled = false;
+                    (long interpretedUnder, string interpretedUnderError) = Call($"r = {function}({under});");
+                    (_, string interpretedOverError) = Call($"r = {function}({over});");
+                    bool pass = why.Length == 0 && compiledUnderError.Length == 0 && interpretedUnderError.Length == 0
+                        && compiledUnder == interpretedUnder && interpretedUnder < Genesis.Runtime.Scripting.VM.PgslVm.DefaultCallInstructionLimit
+                        && compiledOverError.Contains("Maximum instruction limit", StringComparison.Ordinal)
+                        && interpretedOverError.Contains("Maximum instruction limit", StringComparison.Ordinal);
+                    string detail = $"{function}({under}): compiled {compiledUnder}, interpreted {interpretedUnder} instructions (compiled: '{why}', errors '{compiledUnderError}' / '{interpretedUnderError}'); "
+                        + $"{function}({over}): compiled '{(compiledOverError.Length > 40 ? compiledOverError[..40] : compiledOverError)}', interpreted '{(interpretedOverError.Length > 40 ? interpretedOverError[..40] : interpretedOverError)}'";
+                    found.Add(detail);
+                    row("Compiled functions", $"{function}: the same instructions counted compiled and interpreted, both stopped over the limit", pass ? "PASS" : "FAIL", detail);
+                    HeadlessHarness.Assert(pass, "The compiled tier does not count what the interpreter counts: " + detail);
+                }
+
+                // The opt-in way past the cap (Engine.Game.Scripts.InstructionLimit, the same as ScriptInstructionLimit)
+                // holds for a function running compiled: the call that was stopped at 100 000 now runs.
+                Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled = true;
+                bench.Run("Engine.Game.Scripts.InstructionLimit = 5000000;");
+                double limit = bench.Number("r = Engine.Game.Scripts.InstructionLimit;");
+                (long raisedCount, string raisedError) = Call("r = GcSeam(4500);");
+                bench.Run("Engine.Game.Scripts.InstructionLimit = 0;");
+                double restored = bench.Number("r = Engine.Game.Scripts.InstructionLimit;");
+                (_, string againError) = Call("r = GcSeam(4500);");
+                bool raised = limit == 5_000_000 && raisedError.Length == 0 && raisedCount > Genesis.Runtime.Scripting.VM.PgslVm.DefaultCallInstructionLimit
+                    && restored == Genesis.Runtime.Scripting.VM.PgslVm.DefaultCallInstructionLimit
+                    && againError.Contains("Maximum instruction limit", StringComparison.Ordinal);
+                row("Compiled functions", "Engine.Game.Scripts.InstructionLimit lets a compiled function run past 100 000, and puts the cap back", raised ? "PASS" : "FAIL",
+                    $"limit {limit}, ran {raisedCount} instructions ('{raisedError}'), restored to {restored}, then '{(againError.Length > 40 ? againError[..40] : againError)}'");
+                HeadlessHarness.Assert(raised, $"The raised limit did not hold for a compiled function: limit {limit}, ran {raisedCount} ('{raisedError}'), restored {restored}, again '{againError}'.");
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.VM.PgslCompiledTier.Enabled = before;
+                PgslCommands.ScriptInstructionLimit(0);
+            }
+            Console.WriteLine("Instruction counts, compiled against interpreted:\n" + string.Join("\n", found));
         });
 
         // Functions reading the instance's numbers compile and read them live; a callee that would see

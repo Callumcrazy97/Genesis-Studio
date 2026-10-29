@@ -38,7 +38,37 @@ public static partial class PgslCommands
         int next = store.TryGetValue(key, out object existing) && existing is int value
             ? checked(value + 1) : 1;
         store[key] = next;
+        if (_dataOwnerChecks && !InJob) OwnedHandles.AddOrUpdate((family, next), 1, static (_, count) => count + 1);
         return next;
+    }
+
+    // ── Who owns a handle (Engine.Game.Scripts.DataOwnerChecks) ─────────────────
+    //
+    // A structure lives in the instance that made it and each instance numbers its own from 1, so a
+    // handle used in another instance reads as empty (or is a different structure of that number),
+    // with no word said. With the check on, the handle numbers made by every instance are counted, and
+    // a read, write or free that finds nothing under a number some instance holds is an error saying so.
+    // Off by default: a game that has always worked this way is not stopped by it, and nothing is counted.
+    private static volatile bool _dataOwnerChecks;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Family, int Handle), int> OwnedHandles = new();
+
+    /// <summary>Whether a handle used where it was not made is an error (false unless a game asks).</summary>
+    public static bool DataOwnerChecks
+    {
+        get => _dataOwnerChecks;
+        set { if (value && !_dataOwnerChecks) OwnedHandles.Clear(); _dataOwnerChecks = value; }
+    }
+
+    // A worker job has stores of its own (copies of what it was given): never checked.
+    private static bool InJob => GetContext()?.ActiveVm is VM.PgslVm { JobBudget: not null };
+
+    // Nothing under this handle here: with the check on, a number another instance holds is an error.
+    private static void NotThisInstancesHandle(string family, double handle, string what)
+    {
+        if (!double.IsFinite(handle) || InJob || !OwnedHandles.TryGetValue((family, (int)handle), out int holders) || holders <= 0) return;
+        throw new InvalidOperationException($"This instance has no {family} {(int)handle} to {what}, but another instance has a {family} numbered {(int)handle}: "
+            + "data structures belong to the instance that made them, and a handle given to another instance names that instance's own. "
+            + "Run the code in the owner (with (owner) { ... }) or share the data another way (GlobalSet values, a [ ] list, an Object that keeps it).");
     }
 
     // A structure to change (or one whose command may change it). One shared with a worker job is
@@ -48,7 +78,11 @@ public static partial class PgslCommands
         Dictionary<string, object> store = Store;
         if (store is null) return null;
         string key = DsKey(family, (int)handle);
-        if (!store.TryGetValue(key, out object existing)) return null;
+        if (!store.TryGetValue(key, out object existing))
+        {
+            if (_dataOwnerChecks) NotThisInstancesHandle(family, handle, "change");
+            return null;
+        }
         T result = existing is SharedData shared ? Unshare<T>(store, key, shared) : existing as T;
         // A grid lent in part to jobs not started yet: their copies are made before it changes.
         if (result is PgslGrid { Pending: not null } lent) SettleAll(lent);
@@ -63,8 +97,11 @@ public static partial class PgslCommands
 
     private static void Unbind(string family, double handle)
     {
-        Store?.Remove(DsKey(family, (int)handle));
+        bool had = Store?.Remove(DsKey(family, (int)handle)) ?? false;
         ForgetDsKey(family, (int)handle);
+        if (!_dataOwnerChecks) return;
+        if (had) { if (!InJob) OwnedHandles.AddOrUpdate((family, (int)handle), 0, static (_, count) => Math.Max(0, count - 1)); }
+        else NotThisInstancesHandle(family, handle, "free");
     }
 
     // Every list or grid read looks its structure up by key; each handle's key is made once instead of

@@ -902,6 +902,16 @@ The canvas passed to `OnDrawHud` gained:
 Filled shapes are drawn as one rectangle for each row of pixels, so their edges are not smoothed.
 A ring is one line for about every six pixels of its length.
 
+## A glowing beam in 3D
+
+`DrawBeam3D(x1, y1, z1, x2, y2, z2, width)` draws a thin beam of light between two points in a 3D
+room, `width` metres across: tracers, a rail rifle's trace, a laser, a bolt of lightning (a few
+beams along a jagged path). It is not lit and its colour is added to what is behind it, so it reads
+as a streak of light and brightens the haze it crosses, where `DrawLine3D` is a chain of small lit
+cubes that reads as a row of beads. The colour is the draw colour (`DrawSetColorRgb`) and its
+strength the draw alpha (`DrawSetAlpha`, 0 to 1). Like every `Draw*3D` command it is called each
+frame it should show, from a Draw event. C#: `IPgslDrawSurface.QueueBeam3D`.
+
 ## Particles: a burst that cleans up after itself
 
 `Game.PlayParticleBurst(asset, position, scale, emitSeconds)` (events: `ParticleBurstAt`) plays a
@@ -925,6 +935,17 @@ Export Game ships the Image with the effect. A file path inside the project stil
 The same holds for 3D effects, `ParticleBurstAt` and batched bursts, the Particle editor's preview
 and, newly, the 2D script effects (`Particle2DBurst`, `Particle2DStream`, `Particle2DFlow`), which
 took only a file path. C#: `ParticleTextureResolver.ResolveFile(project, reference)`.
+
+### A burst with a direction
+
+`ParticleBurstAtDir(particle, x, y, z, dx, dy, dz, scale, seconds)` plays a burst like
+`ParticleBurstAt`, turned so the effect's up (the axis of an authored cone, +Y) points along the
+direction `(dx, dy, dz)`, of any length: an impact's dust and sparks leaving the surface along its
+normal, a blood spray along the round, a muzzle flash along the barrel. It returns the emitter's id,
+or -1. A zero or broken direction plays the effect upright, exactly as `ParticleBurstAt` does.
+The emitter's turn carries its particles, so it is honoured wherever the effect is drawn on the
+graphics card; the Software renderer plays it upright. A batched burst shares one emitter and has no
+direction. C#: `ParticleBursts.Play(world, asset, position, scale, emitSeconds, direction)`.
 
 ### Hundreds of bursts: batching and a limit
 

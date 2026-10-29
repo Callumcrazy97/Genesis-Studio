@@ -26,6 +26,19 @@ public static partial class PgslCommands
         return entity.IsNull ? -1 : entity.Id;
     }
 
+    [PgslCommand("ParticleBurstAtDir", "ParticleBurstAtDir(particle, x, y, z, dx, dy, dz, scale, seconds) -> id",
+        "Play a Particle resource once at a place like ParticleBurstAt, turned so the effect's up (the axis of its cone) points along the direction (dx, dy, dz; any length): "
+        + "an impact's dust leaving the surface along its normal, a muzzle flash along the barrel, a jet's puffs along the jet. A zero direction leaves the effect upright, as ParticleBurstAt plays it. "
+        + "Drawn on the graphics card (the Software renderer plays the effect upright)", "Particles")]
+    public static int ParticleBurstAtDir(string particle, double x, double y, double z, double dx, double dy, double dz, double scale = 1, double seconds = 0)
+    {
+        if (ActiveGameContext?.World is not { } world) return -1;
+        var entity = Genesis.Runtime.Particles.ParticleBursts.Play(world, particle,
+            new System.Numerics.Vector3((float)x, (float)y, (float)z), (float)scale, (float)seconds,
+            new System.Numerics.Vector3((float)dx, (float)dy, (float)dz));
+        return entity.IsNull ? -1 : entity.Id;
+    }
+
     [PgslCommand("ParticleBurstBatched", "ParticleBurstBatched(particle, x, y, z, scale) -> bool",
         "Play a Particle resource once at a place like ParticleBurstAt, but every batched burst of that resource shares one emitter: hundreds of them (falling leaves, sparks) cost one simulation and one draw a frame. "
         + "No id is returned. An effect that loops, follows the camera, simulates in its own space, links emitters or lights the scene, and the Software renderer, play it as ParticleBurstAt", "Particles")]

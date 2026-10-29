@@ -83,6 +83,8 @@ internal sealed class OffsetDrawSurface : IPgslDrawSurface
     public void QueueModelTransform3D(string modelName, string shaderName, float x, float y, float z, float sx, float sy, float sz,
         float xrot, float yrot, float zrot, Color color, float alpha) =>
         _inner.QueueModelTransform3D(modelName, shaderName, x, y, z, sx, sy, sz, xrot, yrot, zrot, color, alpha);
+    public void QueueBeam3D(float x1, float y1, float z1, float x2, float y2, float z2, float width, Color color, float alpha) =>
+        _inner.QueueBeam3D(x1, y1, z1, x2, y2, z2, width, color, alpha);
     public void QueuePointLight3D(float x, float y, float z, float radius, float intensity, Color color, float falloff = 2f) =>
         _inner.QueuePointLight3D(x, y, z, radius, intensity, color, falloff);
     public void DrawText3D(string text, float x, float y, float z, string font, float size, Color color, Matrix4x4 view, Matrix4x4 projection) =>

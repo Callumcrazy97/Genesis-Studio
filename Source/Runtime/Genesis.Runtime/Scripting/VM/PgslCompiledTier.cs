@@ -14,8 +14,10 @@ namespace Genesis.Runtime.Scripting.VM;
 /// noise, and calls to other such functions) is compiled to a .NET delegate, so it runs as machine
 /// code rather than one interpreted instruction at a time. What it computes is exactly what the
 /// interpreter computes; anything else (text, instance variables, lists of values, a debugger
-/// attached) stays interpreted. The per-call instruction limit and a job's budget still apply:
-/// instructions are counted at every jump back, as the interpreter counts them in a loop.
+/// attached) stays interpreted. The per-call instruction limit and a job's budget still apply, and
+/// count what the interpreter counts: every instruction that runs. Each block of straight-line code
+/// is charged as it is entered (<see cref="BlockLengths"/>), the limit is tested at each jump back
+/// and when the function returns, so a loop that skips most of its body is not charged for it.
 /// GENESIS_PGSL_TIER2=0 turns it off.
 /// </summary>
 internal static partial class PgslCompiledTier
@@ -175,7 +177,60 @@ internal static partial class PgslCompiledTier
         return spent + PgslJobBudget.Slice;
     }
 
-    public static void Spent(PgslVm vm, long spent) => vm.AddInstructions(spent);
+    /// <summary>
+    /// A call ended: its instructions are added to the VM's count, and a call that ran past the per-call
+    /// limit since its last jump back (its last block) is stopped as the interpreter would have stopped it.
+    /// </summary>
+    public static void Spent(PgslVm vm, long spent, string name)
+    {
+        vm.AddInstructions(spent);
+        if (spent > PgslVm.CallInstructionLimit && vm.JobBudget is null) vm.ThrowInstructionLimitFor(name);
+    }
+
+    /// <summary>
+    /// How many instructions run when a block begins at each place, 0 where none does. A block begins at
+    /// the first instruction, at each jump's target and after each jump or return, and always runs to
+    /// its end (the next jump or return, or the next block's start). The compiled code adds a block's
+    /// length as it enters it, so what it has spent is what the interpreter counts: one for every
+    /// instruction that runs, not the length of a loop each time round.
+    /// </summary>
+    internal static int[] BlockLengths(VmOp[] ops)
+    {
+        int n = ops.Length;
+        var starts = new bool[n + 1];
+        if (n > 0) starts[0] = true;
+        for (int pc = 0; pc < n; pc++)
+        {
+            switch (ops[pc].Code)
+            {
+                case Opcode.JUMP: case Opcode.JUMP_IF_FALSE: case Opcode.JUMP_IF_TRUE:
+                    if (ops[pc].A >= 0 && ops[pc].A <= n) starts[ops[pc].A] = true;
+                    starts[pc + 1] = true;
+                    break;
+                case Opcode.RETURN:
+                    starts[pc + 1] = true;
+                    break;
+            }
+        }
+        var lengths = new int[n];
+        int begin = -1;
+        for (int pc = 0; pc <= n; pc++)
+        {
+            if (!starts[pc] && pc < n) continue;
+            if (begin >= 0) lengths[begin] = pc - begin;
+            begin = pc < n ? pc : -1;
+        }
+        return lengths;
+    }
+
+    /// <summary>The test at a jump from one place to another: only a jump back (a loop's end) can run on for ever, so only it tests the limit.</summary>
+    private static Expression TestAtJumpBack(int from, int to, ParameterExpression spent, ParameterExpression check, ParameterExpression vm, string functionName)
+    {
+        if (to > from) return Expression.Empty();
+        return Expression.IfThen(
+            Expression.GreaterThan(spent, check),
+            Expression.Assign(check, Expression.Call(CheckpointMethod, vm, spent, Expression.Constant(functionName))));
+    }
 
     public static double FloorMod(double a, double b) => Math.Abs(b) < 1e-12 ? 0 : a - (Math.Floor(a / b) * b);
 
@@ -417,14 +472,17 @@ internal static partial class PgslCompiledTier
         Expression Int(Expression value) => Expression.Convert(value, typeof(int));
         Expression Return(Expression value, bool noValue) => Expression.Block(
             Expression.Assign(Expression.Field(null, NoValueField), Expression.Constant(noValue)),
-            Expression.Call(SpentMethod, vm, spent),
+            Expression.Call(SpentMethod, vm, spent, Expression.Constant(functionName)),
             Expression.Return(done, value));
 
+        int[] blockLengths = BlockLengths(ops);
         for (int pc = 0; pc < n; pc++)
         {
             body.Add(Expression.Label(labels[pc]));
             int d = depth[pc];
             if (d < 0) continue;
+            // A block is charged as it is entered, by what the interpreter would count for it.
+            if (blockLengths[pc] > 0) body.Add(Expression.AddAssign(spent, Expression.Constant((long)blockLengths[pc])));
             ref VmOp op = ref ops[pc];
             ParameterExpression Top(int below) => stack[d - 1 - below];
             switch (op.Code)
@@ -479,13 +537,13 @@ internal static partial class PgslCompiledTier
                 case Opcode.NOT: body.Add(Expression.Assign(Top(0), Num(Expression.Equal(Top(0), Expression.Constant(0.0))))); break;
                 case Opcode.BIT_NOT: body.Add(Expression.Assign(Top(0), Expression.Convert(Expression.Not(Int(Top(0))), typeof(double)))); break;
                 case Opcode.JUMP:
-                    body.Add(Charge(pc, op.A));
+                    body.Add(TestAtJumpBack(pc, op.A, spent, check, vm, functionName));
                     body.Add(Expression.Goto(labels[op.A])); break;
                 case Opcode.JUMP_IF_FALSE:
                 case Opcode.JUMP_IF_TRUE:
                 {
                     Expression test = op.Code == Opcode.JUMP_IF_FALSE ? Expression.Equal(Top(0), Expression.Constant(0.0)) : Expression.NotEqual(Top(0), Expression.Constant(0.0));
-                    body.Add(Expression.IfThen(test, Expression.Block(Charge(pc, op.A), Expression.Goto(labels[op.A]))));
+                    body.Add(Expression.IfThen(test, Expression.Block(TestAtJumpBack(pc, op.A, spent, check, vm, functionName), Expression.Goto(labels[op.A]))));
                     break;
                 }
                 case Opcode.RETURN:
@@ -532,15 +590,6 @@ internal static partial class PgslCompiledTier
             Expression.TryFinally(Expression.Block(typeof(double), variables, body), Expression.Call(ExitMethod)));
         freeReads = [.. free];
         return Expression.Lambda<Compiled>(guarded, functionName, [arguments, vm]).Compile();
-
-        // A jump back counts the instructions of the loop it closes, as the interpreter would.
-        Expression Charge(int from, int to)
-        {
-            if (to > from) return Expression.Empty();
-            return Expression.IfThen(
-                Expression.GreaterThan(Expression.AddAssign(spent, Expression.Constant((long)(from - to + 1))), check),
-                Expression.Assign(check, Expression.Call(CheckpointMethod, vm, spent, Expression.Constant(functionName))));
-        }
     }
 
     private static bool HasText(VmValue[] texts, int from, int to)

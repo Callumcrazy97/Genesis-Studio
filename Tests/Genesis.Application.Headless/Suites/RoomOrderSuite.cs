@@ -1,6 +1,12 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Genesis.Application.Core.Automation;
+using Genesis.Application.Core.Diagnostics;
 using Genesis.Application.Core.Projects;
 using Genesis.Application.Core.Resources;
+using Genesis.Application.Core.Settings;
+using Genesis.Application.Studio;
+using Genesis.Application.Studio.Forms;
 using Genesis.Runtime.Project;
 
 namespace Genesis.Application.Headless.Suites;
@@ -77,6 +83,90 @@ internal static class RoomOrderSuite
             ProjectSession reopened = projects.OpenProject(project.RootPath);
             Check(ProjectRoomOrder.First(reopened) == "Tavern" && reopened.Manifest.StartRoom == "Tavern",
                 "An older project no longer starts in the Room it used to.");
+        });
+
+        // OrderSaved is raised only inside the process that saved: automation (room.create with start,
+        // room.makeStart) run beside an open Studio saves the order in a process of its own.
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Rooms.Order.AnOrderAnotherProcessSavedIsAdoptedFromTheFile", () =>
+        {
+            string parent = Path.Combine(ctx.Workspace, "RoomOrderDisk");
+            Directory.CreateDirectory(parent);
+            ProjectService projects = new();
+            ProjectSession window = projects.CreateProject(parent, "Disk", "Blank");
+            ResourceService resources = new(window);
+            string rooms = Path.Combine(window.AssetsPath, "Rooms");
+            foreach (string name in new[] { "Bravo", "Alpha" })
+                resources.CreateResource(rooms, ResourceKind.Room, name);
+            projects.Save(window);
+
+            Check(!ProjectRoomOrder.AdoptFromFile(window), "A file this copy saved itself was taken as a change.");
+
+            // Another process saves a new start room.
+            ProjectSession other = projects.OpenProject(window.RootPath);
+            other.Manifest.StartRoom = "Bravo";
+            projects.Save(other);
+            Check(ProjectRoomOrder.AdoptFromFile(window) && window.Manifest.StartRoom == "Bravo" && ProjectRoomOrder.First(window) == "Bravo"
+                && window.Manifest.RoomOrder.SequenceEqual(other.Manifest.RoomOrder),
+                "The order and start room another process saved were not taken: " + window.Manifest.StartRoom + ", " + string.Join(", ", window.Manifest.RoomOrder));
+            Check(!ProjectRoomOrder.AdoptFromFile(window), "The same order was taken twice.");
+
+            // Only the order is taken: what the window holds unsaved stays as it is.
+            window.Manifest.Description = "an unsaved note";
+            other.Manifest.StartRoom = "Alpha";
+            projects.Save(other);
+            Check(ProjectRoomOrder.AdoptFromFile(window) && window.Manifest.StartRoom == "Alpha" && window.Manifest.Description == "an unsaved note",
+                "Taking the saved order changed something else in this copy.");
+
+            // A file being written (cut off, or empty) changes nothing.
+            string whole = File.ReadAllText(window.ProjectFile);
+            File.WriteAllText(window.ProjectFile, whole[..(whole.Length / 2)]);
+            Check(!ProjectRoomOrder.AdoptFromFile(window) && window.Manifest.StartRoom == "Alpha", "A half-written project file changed the order.");
+            File.WriteAllText(window.ProjectFile, string.Empty);
+            Check(!ProjectRoomOrder.AdoptFromFile(window) && window.Manifest.StartRoom == "Alpha", "An empty project file changed the order.");
+            File.WriteAllText(window.ProjectFile, whole);
+
+            // The window's next save keeps the adopted order, and the real automation command does the same.
+            projects.Save(window);
+            Check(projects.OpenProject(window.RootPath).Manifest.StartRoom == "Alpha", "The window's next save wrote the old order back.");
+            AutomationContext automation = AutomationContext.Open(window.RootPath);
+            AutomationResult made = AutomationRegistry.CreateDefault().Invoke(automation, "room.create",
+                JsonNode.Parse("""{ "name": "Fresh", "folder": "Assets/Rooms", "start": true }""") as JsonObject);
+            Check(made.Ok && ProjectRoomOrder.AdoptFromFile(window) && window.Manifest.StartRoom == "Fresh" && ProjectRoomOrder.First(window) == "Fresh",
+                "room.create with start was not taken from the file: " + made.Message + " / " + window.Manifest.StartRoom);
+        });
+
+        // The open window watches the project file, so Run plays the new first Room and the window's own
+        // next save keeps it.
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Shell.TakesTheRoomOrderAutomationSavedOnDisk", () =>
+        {
+            string parent = Path.Combine(ctx.Workspace, "RoomOrderShell");
+            Directory.CreateDirectory(parent);
+            ProjectSession project = new ProjectService().CreateProject(parent, "Shell Disk", "Blank");
+            var services = new StudioServices(new SettingsService(Path.Combine(project.RootPath, "shell.settings.json")),
+                new ProjectService(), new ProjectValidator(), new StudioLog(Path.Combine(ctx.Logs, "shell-disk-order.log")));
+            services.Settings.Current.Runtime.VSyncInPreview = false;
+            using var shell = new StudioShellForm(services, project, persistLayout: false);
+            GateSuite.ShowHost(shell);
+            GateSuite.Pump(4, 10);
+            Check(shell.Project.Manifest.StartRoom == "Start", "The window did not begin with Start as its start room.");
+
+            // Automation opens a copy of its own and saves the project file: nothing is raised in this process.
+            AutomationContext automation = AutomationContext.Open(project.RootPath);
+            AutomationResult made = AutomationRegistry.CreateDefault().Invoke(automation, "room.create",
+                JsonNode.Parse("""{ "name": "Auto Room", "folder": "Assets/Rooms", "start": true }""") as JsonObject);
+            Check(made.Ok, "room.create failed: " + made.Message);
+            for (int wait = 0; wait < 100 && shell.Project.Manifest.StartRoom != "Auto Room"; wait++) GateSuite.Pump(1, 50);
+            Check(shell.Project.Manifest.StartRoom == "Auto Room" && ProjectRoomOrder.First(shell.Project) == "Auto Room",
+                "The window kept its old first Room after automation saved a new one: " + shell.Project.Manifest.StartRoom);
+
+            // Editor work not saved is not disturbed, and the window's next save keeps the new order.
+            shell.Project.Manifest.Description = "an unsaved note";
+            new ProjectService().Save(shell.Project);
+            GateSuite.Pump(8, 50);
+            Check(shell.Project.Manifest.Description == "an unsaved note" && shell.Project.Manifest.StartRoom == "Auto Room",
+                "The window's own save was taken as a change and disturbed it.");
+            Check(new ProjectService().OpenProject(project.RootPath).Manifest.StartRoom == "Auto Room",
+                "The window's next save wrote the old Room order back.");
         });
     }
 

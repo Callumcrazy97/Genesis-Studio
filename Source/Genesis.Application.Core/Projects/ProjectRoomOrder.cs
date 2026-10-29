@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Genesis.Shared.Assets;
 
 namespace Genesis.Application.Core.Projects;
@@ -26,6 +27,49 @@ public static class ProjectRoomOrder
         ArgumentNullException.ThrowIfNull(saved);
         project.Manifest.RoomOrder = [.. saved.Manifest.RoomOrder ?? []];
         project.Manifest.StartRoom = saved.Manifest.StartRoom;
+    }
+
+    /// <summary>
+    /// Takes the Room order and starting Room another process saved in the project file (automation's
+    /// <c>room.create</c> with <c>start</c>, <c>room.makeStart</c>; <see cref="OrderSaved"/> is raised
+    /// only inside the process that saved), so the window's next save does not write the old order
+    /// back. Only those two values are read: the rest of this copy, and any unsaved editor work,
+    /// is left as it is. A file that cannot be read (being written) or has no order changes nothing.
+    /// </summary>
+    /// <returns>True when this copy took a different order or starting Room.</returns>
+    public static bool AdoptFromFile(ProjectSession project)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        List<string> order = [];
+        string? start = null;
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(project.ProjectFile));
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
+            foreach (JsonProperty property in document.RootElement.EnumerateObject())
+            {
+                if (string.Equals(property.Name, "startRoom", StringComparison.OrdinalIgnoreCase) && property.Value.ValueKind == JsonValueKind.String)
+                    start = property.Value.GetString();
+                else if (string.Equals(property.Name, "roomOrder", StringComparison.OrdinalIgnoreCase) && property.Value.ValueKind == JsonValueKind.Array)
+                    foreach (JsonElement room in property.Value.EnumerateArray())
+                        if (room.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(room.GetString())) order.Add(room.GetString()!);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return false;
+        }
+
+        // A file with a start room but no order (an older tool): keep this copy's order, and let the
+        // next save move that Room to the top (Normalize).
+        if (order.Count == 0) order = [.. project.Manifest.RoomOrder ?? []];
+        start = string.IsNullOrWhiteSpace(start) ? project.Manifest.StartRoom : start;
+        bool same = string.Equals(start, project.Manifest.StartRoom, StringComparison.OrdinalIgnoreCase)
+            && order.SequenceEqual(project.Manifest.RoomOrder ?? [], StringComparer.OrdinalIgnoreCase);
+        if (same) return false;
+        project.Manifest.RoomOrder = order;
+        project.Manifest.StartRoom = start;
+        return true;
     }
 
     /// <summary>

@@ -468,14 +468,17 @@ internal static partial class PgslCompiledTier
             if (set[parameterSlots[i]] != null) body.Add(Expression.Assign(set[parameterSlots[i]], Expression.Constant(true)));
         }
         body.Add(Expression.Assign(check, Expression.Call(FirstCheckpointMethod, vm)));
-        Expression Return(Expression value) => Expression.Block(Expression.Call(SpentMethod, vm, spent), Expression.Return(done, value));
+        Expression Return(Expression value) => Expression.Block(Expression.Call(SpentMethod, vm, spent, Expression.Constant(functionName)), Expression.Return(done, value));
         Expression Nothing() => Expression.Default(typeof(VmValue));
 
+        int[] blockLengths = BlockLengths(ops);
         for (int pc = 0; pc < n; pc++)
         {
             body.Add(Expression.Label(labels[pc]));
             int d = depth[pc];
             if (d < 0) continue;
+            // A block is charged as it is entered, by what the interpreter would count for it.
+            if (blockLengths[pc] > 0) body.Add(Expression.AddAssign(spent, Expression.Constant((long)blockLengths[pc])));
             ref VmOp op = ref ops[pc];
             ParameterExpression Top(int below) => stack[d - 1 - below];
             switch (op.Code)
@@ -513,14 +516,14 @@ internal static partial class PgslCompiledTier
                 case Opcode.NEG: case Opcode.NOT: case Opcode.BIT_NOT:
                     body.Add(Expression.Assign(Top(0), Expression.Call(UnaryOps[op.Code], Top(0)))); break;
                 case Opcode.JUMP:
-                    body.Add(Charge(pc, op.A));
+                    body.Add(TestAtJumpBack(pc, op.A, spent, check, vm, functionName));
                     body.Add(Expression.Goto(labels[op.A])); break;
                 case Opcode.JUMP_IF_FALSE:
                 case Opcode.JUMP_IF_TRUE:
                 {
                     Expression truth = Expression.Call(TruthMethod, Top(0));
                     Expression test = op.Code == Opcode.JUMP_IF_FALSE ? Expression.Not(truth) : truth;
-                    body.Add(Expression.IfThen(test, Expression.Block(Charge(pc, op.A), Expression.Goto(labels[op.A]))));
+                    body.Add(Expression.IfThen(test, Expression.Block(TestAtJumpBack(pc, op.A, spent, check, vm, functionName), Expression.Goto(labels[op.A]))));
                     break;
                 }
                 case Opcode.RETURN:
@@ -584,15 +587,6 @@ internal static partial class PgslCompiledTier
         CompiledValues compiled = Expression.Lambda<CompiledValues>(guarded, functionName, [arguments, vm]).Compile();
         if (waitsOn.Count > 0) _pending.Waiting[compiled] = waitsOn;
         return compiled;
-
-        // A jump back counts the instructions of the loop it closes, as the interpreter would.
-        Expression Charge(int from, int to)
-        {
-            if (to > from) return Expression.Empty();
-            return Expression.IfThen(
-                Expression.GreaterThan(Expression.AddAssign(spent, Expression.Constant((long)(from - to + 1))), check),
-                Expression.Assign(check, Expression.Call(CheckpointMethod, vm, spent, Expression.Constant(functionName))));
-        }
     }
 
     /// <summary>

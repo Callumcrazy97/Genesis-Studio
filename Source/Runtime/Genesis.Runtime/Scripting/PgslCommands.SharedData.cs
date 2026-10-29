@@ -34,7 +34,11 @@ public static partial class PgslCommands
         Dictionary<string, object> store = Store;
         if (store is null) return null;
         string key = DsKey(family, (int)handle);
-        if (!store.TryGetValue(key, out object existing)) return null;
+        if (!store.TryGetValue(key, out object existing))
+        {
+            if (_dataOwnerChecks) NotThisInstancesHandle(family, handle, "read");
+            return null;
+        }
         if (existing is not SharedData shared) return existing as T;
         // Held by no job any more: the Object has it back as it was (reads stay quick from now on).
         if (Volatile.Read(ref shared.Holders) == 0) store[key] = shared.Value;
