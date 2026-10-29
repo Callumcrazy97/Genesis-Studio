@@ -35,8 +35,10 @@ internal static class SeeThroughCoverageSuite
 
     private const int Width = 640, Height = 480;
 
-    // Window pixels: the wall alone, under the skinned layer, under the unskinned layer.
-    private static readonly Point WallOnly = new(160, 120), UnderSkinned = new(480, 120), UnderPlain = new(160, 360);
+    // Window pixels: the wall alone, under the skinned layer, under the unskinned layer. The room
+    // camera looks down -Z, so +X is on the left of the picture: the skinned layer (x > 0, y > 0)
+    // is top left and the unskinned one (x < 0, y < 0) bottom right.
+    private static readonly Point WallOnly = new(480, 120), UnderSkinned = new(160, 120), UnderPlain = new(480, 360);
 
     public static void ViewportKeepsCoverage(HeadlessContext ctx)
     {
@@ -83,8 +85,14 @@ internal static class SeeThroughCoverageSuite
 
         var (cubeVertices, cubeIndices) = MeshGeometry.BuildCube(RenderColor.White, 1f);
         MeshHandle cube = renderer.RegisterMesh(cubeVertices, cubeIndices);
-        // A quad over the top right quarter of the view, modelled fifty metres above it and posed
-        // down into it by joint 1.
+        // The unskinned layer: one quad (see-through draws are two-sided, so a box would blend twice).
+        MeshVertex Plain(float x, float y) => new()
+        {
+            Position = new Vector3(x, y, 0f), Normal = Vector3.UnitZ, Color = Vector4.One, UV = new Vector2(x / 10f, y / 10f),
+        };
+        MeshHandle plain = renderer.RegisterMesh([Plain(-10f, -10f), Plain(-0.2f, -10f), Plain(-0.2f, -0.2f), Plain(-10f, -0.2f)], [0, 1, 2, 0, 2, 3]);
+        // The skinned layer: a quad over another quarter of the view, modelled fifty metres above
+        // it and posed down into it by joint 1.
         const float lift = 50f;
         SkinnedMeshVertex Corner(float x, float y) => new()
         {
@@ -117,11 +125,10 @@ internal static class SeeThroughCoverageSuite
                     Mesh = layer, SkinPalette = palette, World = Matrix4x4.Identity,
                     Tint = RenderColor.White, Alpha = 0.5f, Flags = seeThrough | MeshDrawFlags.NoCull,
                 });
-                // The same layer unskinned, over the bottom left quarter: a box seen from the front only.
                 renderer.DrawMesh(new MeshDrawCall
                 {
-                    Mesh = cube, World = Matrix4x4.CreateScale(9.6f, 9.6f, 0.02f) * Matrix4x4.CreateTranslation(-5f, -5f, 0f),
-                    Tint = RenderColor.White, Alpha = 0.5f, Flags = seeThrough,
+                    Mesh = plain, World = Matrix4x4.Identity,
+                    Tint = RenderColor.White, Alpha = 0.5f, Flags = seeThrough | MeshDrawFlags.NoCull,
                 });
             }), "The room's 3D viewport was not rendered.");
             renderer.EndFrame();
@@ -145,6 +152,7 @@ internal static class SeeThroughCoverageSuite
         finally
         {
             renderer.ReleaseMesh(cube);
+            renderer.ReleaseMesh(plain);
             renderer.ReleaseMesh(layer);
             renderer.ReleaseSkinPalette(palette);
         }
