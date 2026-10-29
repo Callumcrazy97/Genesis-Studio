@@ -422,8 +422,10 @@ float4 PS(VSOut IN) : SV_Target
     // double up with the GTAO multiply above wherever both find the same crease. The contact term
     // only removes direct sunlight, so it is gated on the pixel actually being sun-lit (the same
     // cascaded shadow lookup the volumetric fog uses) and scaled by a strength the renderer
-    // already reduced when GTAO is on.
-    if (ContactParams.x > 0.5)
+    // already reduced when GTAO is on. Pixels an authored shader lit itself (aux.r 0) have no engine
+    // sunlight to remove: darkening them drew the sun maps' coverage edge across a game's own-lit
+    // walls, moving as the camera turned (GenesisCraft's house, 28 Oct).
+    if (ContactParams.x > 0.5 && aux.r > 0.25)
     {
         float contactDepth = FetchSceneDepth(IN.uv, pixel);
         if (!SceneDepthIsSky(contactDepth))

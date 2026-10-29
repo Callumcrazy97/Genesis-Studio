@@ -25,7 +25,7 @@ at small scale, or an opt-in setting whose default is the old behaviour.
 | Shared worlds | A host shares Objects with the players joined to it, each player is sent only what is near it, and each player's own character is shown to the others. See [Multiplayer](#multiplayer). |
 | Sea | An ocean water body follows the camera to the horizon and has a dark floor under open water. |
 | Rivers | Rivers are traced downhill to the sea and cut into the terrain when a world is generated. |
-| Sun shadows | With a shadow distance set, a third shadow cascade covers kilometres, so mountains shade valleys. |
+| Sun shadows | Three cascades spread over the shadow distance (the view distance up to 300 m unless set); with a distance set, the far one covers kilometres, so mountains shade valleys. |
 | Haze | With a visibility set, haze is defined by how far you can see instead of a fixed short-range density. |
 | Scripts | With an activity distance set, scripted objects far from the camera skip their step events. |
 | Depth | Scene depth is stored reversed in 32-bit floating point, so a view of 16 km keeps a near plane of 10 cm without distant surfaces flickering through each other. On unless turned off. See [Depth](#depth). |
@@ -38,7 +38,9 @@ These are in the Room editor under **Lighting & atmosphere**, and in the room fi
 |---|---|---|---|
 | Visibility (km) | `visibilityKilometres` | 0 | Distance at which haze has removed about 95% of contrast. 0 keeps the short-range haze. 20 to 50 suits an island. |
 | Weather fog | `weatherFogScale` | 1 | Multiplies the fog that rain, overcast, storm and fog weather bring. At 1, rain leaves about 10% contrast at 50 m, which suits a street and hides a valley. Lower it to keep the rain, the wet ground and the cloud with a longer view; 0 leaves only the clear-day haze. Scripts can change `Atmosphere.Options.WeatherFogScale` while the game runs. |
-| Sun shadow distance (m) | `shadowDistance` | 0 | How far from the camera the sun casts shadows. 0 keeps close-range shadows only. 2000 to 4000 shades mountainsides. |
+| Sun shadow distance (m) | `shadowDistance` | 0 | How far from the camera the sun casts shadows. 0 follows the view distance (the camera's far plane) up to 300 m. 2000 to 4000 shades mountainsides. |
+| Sun shadow cascades | `shadowCascades` | 3 | How many shadow maps share that distance: 3 keeps near shadows sharpest, 2 is cheaper. |
+| Sun shadow fade | `shadowFade` | 0 | The share of the distance over which shadows fade out at its end (0 = 0.15), so they never stop at a hard line. |
 | Object activity distance (m) | `simulationDistance` | 0 | Scripted objects with a 3D model further than this skip Step events. 0 runs everything. |
 | Ambient intensity | `ambientIntensity` | 1 | Now also scales the dynamic sky's ambient light. Raise it when shaded slopes are too dark. |
 | Sky light | `skyLight` | `"zenith"` | `"hemisphere"` lights shade with the whole drawn sky dome and the sunlit ground: brighter, and pale blue-grey rather than deep blue. Under **Sky light & exposure**; see [Sky light and eye adaptation](GameFeatures.md#sky-light-and-eye-adaptation). |

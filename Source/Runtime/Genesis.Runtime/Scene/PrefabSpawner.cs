@@ -214,6 +214,7 @@ namespace Genesis.Runtime.Scene
                             ScaleX = modelScaleX, ScaleY = modelScaleY, ScaleZ = modelScaleZ,
                             CastShadows = B(props, "CastShadows", true),
                             ReceiveShadows = B(props, "ReceiveShadows", true),
+                            InFront = B(props, "InFront", false),
                             KeepPreviousTransform = B(props, "KeepPreviousTransform", false),
                             LodPolicy = (int)F(props, "LodPolicy", 0f),
                             Culling = culling,

@@ -78,9 +78,10 @@ cbuffer FroxelConstants : register(b2)
 
 cbuffer LocalShadowConstants : register(b4)
 {
-    row_major float4x4 LocalShadowFaceVP[24];
-    float4             LocalShadowSlots[4];
-    float4             LocalShadowKinds;
+    row_major float4x4 LocalShadowFaceVP[48];
+    float4             LocalShadowSlots[8];
+    float4             LocalShadowKinds[2];    // four slots to a float4
+    float4             LocalShadowStrength[2];
     float4             LocalShadowParams;
 };
 
@@ -299,16 +300,21 @@ int OmniCubeFaceIndex(float3 dir)
     return dir.z >= 0.0 ? 4 : 5;
 }
 
-// Same lookup as ForwardShaders' SampleLocalShadow, single tap (fog is soft already).
+// Same lookup as ForwardShaders' SampleLocalShadow (its bias in metres), single tap (fog is soft already).
 float SampleLocalShadow(int slot, float3 worldPos, float3 lightPos)
 {
     float3 toPoint = worldPos - lightPos;
     float len = length(toPoint);
     if (len < 1e-5)
         return 1.0;
-    float kind = dot(LocalShadowKinds, float4(slot == 0, slot == 1, slot == 2, slot == 3));
-    int face = kind > 0.5 ? 0 : OmniCubeFaceIndex(toPoint / len);
-    float4 clip = mul(float4(worldPos, 1.0), LocalShadowFaceVP[slot * 6 + face]);
+    float3 dir = toPoint / len;
+    int lane = slot & 3;
+    float4 lanes = float4(lane == 0, lane == 1, lane == 2, lane == 3);
+    float kind = dot(LocalShadowKinds[slot >> 2], lanes);
+    int face = kind > 0.5 ? 0 : OmniCubeFaceIndex(dir);
+    float texel = LocalShadowParams.z;
+    float3 biased = worldPos - dir * (0.01 + 3.0 * len * texel);
+    float4 clip = mul(float4(biased, 1.0), LocalShadowFaceVP[slot * 6 + face]);
     if (clip.w <= 1e-5)
         return 1.0;
     float3 proj = clip.xyz / clip.w;
@@ -317,11 +323,10 @@ float SampleLocalShadow(int slot, float3 worldPos, float3 lightPos)
     float2 tileUv = float2(proj.x * 0.5 + 0.5, -proj.y * 0.5 + 0.5);
     if (tileUv.x < 0.0 || tileUv.x > 1.0 || tileUv.y < 0.0 || tileUv.y > 1.0)
         return 1.0;
-    float texel = LocalShadowParams.z;
     float2 uv = clamp(tileUv, texel, 1.0 - texel);
     float2 atlasScale = float2(1.0 / 6.0, 1.0 / max(LocalShadowParams.y, 1.0));
-    float bias = max(0.0015, 0.02 * (1.0 - saturate(len / max(LocalShadowSlots[slot].w, 0.001))));
-    return LocalShadowAtlas.SampleCmpLevelZero(ShadowSamp, (float2(face, slot) + uv) * atlasScale, proj.z - bias);
+    float visibility = LocalShadowAtlas.SampleCmpLevelZero(ShadowSamp, (float2(face, slot) + uv) * atlasScale, proj.z);
+    return lerp(1.0, visibility, saturate(dot(LocalShadowStrength[slot >> 2], lanes)));
 }
 
 // Point and spot lights scattering at a froxel, from the same clustered lists forward shading uses.

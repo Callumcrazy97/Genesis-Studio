@@ -34,6 +34,13 @@ public static partial class PgslCommands
         set { if (ThisModel(out var world, out var entity)) world.GetRef<ModelRendererComponent>(entity).ReceiveShadows = value; }
     }
 
+    [PgslCommand("InFront", "Engine.Model.InFront = true", "Draws this instance's model a hair nearer the camera, so where it lies on or in another surface (a window set into a wall, a sign on a door) it shows instead of flickering with it (false unless set)", "Models", Namespace = "Engine.Model", Flat = false)]
+    public static bool ModelApiInFront
+    {
+        get => ThisModel(out var world, out var entity) && world.GetRef<ModelRendererComponent>(entity).InFront;
+        set { if (ThisModel(out var world, out var entity)) world.GetRef<ModelRendererComponent>(entity).InFront = value; }
+    }
+
     [PgslCommand("Glow", "Engine.Model.Glow = amount", "How brightly this instance's model glows (0 none to 32)", "Models", Namespace = "Engine.Model", Flat = false)]
     public static double ModelApiGlow
     {
@@ -254,6 +261,18 @@ public static partial class PgslCommands
         set
         {
             if (double.IsFinite(value)) Genesis.Shared.Rendering.LightProbes.BouncedLightStrength = (float)value;
+        }
+    }
+
+    [PgslCommand("Floor", "Engine.Lighting.Bounce.Floor = amount",
+        "The least light bounced light and reflections leave a surface, as a share of the room's own ambient light, 0 to 1 (0.35 unless set): a dark capture shades a room instead of blacking it out",
+        "Lighting", Namespace = "Engine.Lighting.Bounce", Flat = false)]
+    public static double LightingApiBounceFloor
+    {
+        get => Genesis.Shared.Rendering.LightProbes.AmbientFloor;
+        set
+        {
+            if (double.IsFinite(value)) Genesis.Shared.Rendering.LightProbes.AmbientFloor = (float)value;
         }
     }
 

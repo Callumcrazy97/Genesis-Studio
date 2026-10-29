@@ -190,7 +190,9 @@ namespace Genesis.Runtime.Rendering
             foreach (Cell cell in Cells)
             {
                 if (cell.Dirty || cell.HasUnknown) Measure(cell, projectPath);
-                if (!cell.HasUnknown && !frustum.IntersectsAabb(cell.Min, cell.Max))
+                // Outside the view, a cell can still shadow it (a building behind the camera).
+                if (!cell.HasUnknown && !frustum.IntersectsAabb(cell.Min, cell.Max)
+                    && !ShadowCasterCulling.CastsIntoView(frustum, (cell.Min + cell.Max) * 0.5f, Vector3.Distance(cell.Min, cell.Max) * 0.5f))
                 {
                     LastCellsCulled++;
                     LastCulled += cell.Entries.Count;
@@ -201,7 +203,8 @@ namespace Genesis.Runtime.Rendering
                 foreach (Entry entry in cell.Entries)
                 {
                     if (!entry.BoundsKnown) continue; // its model is not loaded yet
-                    if (!inside && !frustum.IntersectsAabb(entry.Min, entry.Max)) { LastCulled++; continue; }
+                    if (!inside && !frustum.IntersectsAabb(entry.Min, entry.Max)
+                        && !(entry.Group.Shadows && ShadowCasterCulling.CastsIntoView(frustum, entry.Centre, entry.Radius))) { LastCulled++; continue; }
                     int level = 0;
                     if (detail)
                     {

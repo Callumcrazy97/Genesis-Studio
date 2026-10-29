@@ -208,7 +208,7 @@ public static class EngineSettings
     };
     private static readonly string[] ModelValues =
     {
-        "Engine.Model.Glow", "Engine.Model.EmissionScale", "Engine.Model.CastShadows", "Engine.Model.ReceiveShadows", "Engine.Model.Layer",
+        "Engine.Model.Glow", "Engine.Model.EmissionScale", "Engine.Model.CastShadows", "Engine.Model.ReceiveShadows", "Engine.Model.InFront", "Engine.Model.Layer",
     };
     private static readonly string[] AnimationValues = { "Engine.Animation.Speed", "Engine.Animation.Loop" };
     private static readonly string[] ImageValues =
@@ -219,8 +219,10 @@ public static class EngineSettings
     {
         "Engine.Physics.AirDrag", "Engine.Physics.GravityStrength", "Engine.Physics.MaxVelocity", "Engine.Audio.MasterVolume",
         "Engine.Audio.MusicVolume", "Engine.Audio.SfxVolume", "Engine.Game.Speed", "Engine.Game.Threads",
-        "Engine.Lighting.Enabled", "Engine.Lighting.Bounce.Enabled", "Engine.Lighting.Bounce.Strength",
+        "Engine.Lighting.Enabled", "Engine.Lighting.Bounce.Enabled", "Engine.Lighting.Bounce.Strength", "Engine.Lighting.Bounce.Floor",
         "Engine.Lighting.Reflections.Enabled", "Engine.Lighting.Reflections.Strength",
+        "Engine.Rendering.Shadows.Enabled", "Engine.Rendering.Shadows.Distance", "Engine.Rendering.Shadows.Cascades",
+        "Engine.Rendering.Shadows.Fade", "Engine.Rendering.Shadows.LampBudget",
     };
 
     /// <summary>

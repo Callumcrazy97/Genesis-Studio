@@ -86,6 +86,12 @@ cbuffer EngineConstants : register(b1)
     // The light probe (ForwardRenderer.LightProbes.cs): x = reflections' strength (0 off), y = bounced
     // light (0-1), z = pixels a side of each view, w = 1 while bound. Zero leaves the lighting as it was.
     float4       LightProbeParams;
+    // The end of the sun's shadows: x = where they start fading, y = how far they reach, z = 1 / the
+    // fade's length (0 = no fade).
+    float4       ShadowFadeParams;
+    // x = the share of the room's own ambient light and reflection a light probe never takes a
+    // surface below (a probe that captured a dark room or a black background).
+    float4       LightProbeFloorParams;
 };
 
 cbuffer DrawConstants : register(b2)
@@ -128,7 +134,7 @@ cbuffer DrawConstants : register(b2)
     uint               SkinMatrixOffset;
     float              GpuSkinning;
     float              NoReceiveShadow;
-    float              SkinPad1;
+    float              DepthNudge;         // 1 = MeshDrawFlags.InFront: a hair towards the camera
     // The colour of the material's own light (MeshDrawCall.EmissionColor): rgb multiplies the
     // emission map and the w share of MaterialParams.x that is the material's (the rest is a
     // whole-model glow). w = 0 leaves the light as it was.
@@ -205,13 +211,22 @@ float3 LightProbeMirror(float3 d)
 }
 
 // Local light shadow atlas: a row of six 512² tiles per slot (cube faces; a spot light uses face 0).
+// Eight slots; per-slot scalars are packed four to a float4 (slot >> 2, lane slot & 3).
 cbuffer LocalShadowConstants : register(b4)
 {
-    row_major float4x4 LocalShadowFaceVP[24]; // slot * 6 + face
-    float4             LocalShadowSlots[4];   // xyz = light position, w = far plane
-    float4             LocalShadowKinds;      // per slot: 0 = point, 1 = spot
-    float4             LocalShadowParams;     // x = active, y = atlas rows, z = 1 / tile size
+    row_major float4x4 LocalShadowFaceVP[48];  // slot * 6 + face
+    float4             LocalShadowSlots[8];    // xyz = light position, w = far plane
+    float4             LocalShadowKinds[2];    // per slot: 0 = point, 1 = spot
+    float4             LocalShadowStrength[2]; // per slot: how much of its shadow shows (fades in and with distance)
+    float4             LocalShadowParams;      // x = active, y = atlas rows, z = 1 / tile size
 };
+
+// One slot's lane of a float4 holding four slots' values.
+float LocalShadowLane(float4 v, int slot)
+{
+    int lane = slot & 3;
+    return dot(v, float4(lane == 0, lane == 1, lane == 2, lane == 3));
+}
 
 // ── Vertex structs ───────────────────────────────────────────────────────────
 
@@ -247,6 +262,21 @@ struct VSOut
 };
 
 // ── Vertex shaders ───────────────────────────────────────────────────────────
+
+// MeshDrawFlags.InFront: drawn a hair towards the camera along its own view ray (its place on
+// screen is unchanged), about 1.5 mm plus 0.05% of the distance, so a window set into a wall or a
+// sign on a door wins the depth test where the two surfaces meet instead of flickering with it.
+float3 NudgeTowardsCamera(float3 worldPos)
+{
+    if (DepthNudge < 0.5)
+        return worldPos;
+    float3 toCamera = CameraPosTime.xyz - worldPos;
+    float distanceToCamera = length(toCamera);
+    if (distanceToCamera < 1e-4)
+        return worldPos;
+    float nudge = min(0.0015 + 0.0005 * distanceToCamera, distanceToCamera * 0.5);
+    return worldPos + toCamera * (nudge / distanceToCamera);
+}
 
 VSOut VS(VSIn IN, uint instanceId : SV_InstanceID)
 {
@@ -302,7 +332,7 @@ VSOut VS(VSIn IN, uint instanceId : SV_InstanceID)
     float3 shadowSamplePos = worldPos.xyz + worldNrm * 0.08;
 
     VSOut OUT;
-    OUT.SvPos       = mul(worldPos, ViewProjection);
+    OUT.SvPos       = mul(float4(NudgeTowardsCamera(worldPos.xyz), 1.0), ViewProjection);
     OUT.WorldPos    = worldPos.xyz;
     OUT.Normal      = worldNrm;
     OUT.Color       = IN.Color * instColor;
@@ -378,7 +408,7 @@ VSOut VS_Skinned(VSInSkinned IN, uint instanceId : SV_InstanceID)
     float3 shadowSamplePos = worldPos.xyz + worldNrm * 0.08;
 
     VSOut OUT;
-    OUT.SvPos       = mul(worldPos, ViewProjection);
+    OUT.SvPos       = mul(float4(NudgeTowardsCamera(worldPos.xyz), 1.0), ViewProjection);
     OUT.WorldPos    = worldPos.xyz;
     OUT.Normal      = worldNrm;
     OUT.Color       = IN.Color * instColor;
@@ -720,6 +750,19 @@ float SampleShadowCSM(float4 shadowPosFar, float4 shadowPosNear, float4 shadowPo
     return lerp(outerVis, nearVis, nearWeight);
 }
 
+// The sun's shadows fade out over the end of their reach (ShadowFadeParams) instead of stopping
+// where a cascade's square happens to end; past the reach nothing is shadowed by the sun.
+float SunShadowFade(float3 worldPos, float visibility)
+{
+    if (ShadowFadeParams.y <= 0.0)
+        return visibility;
+    float d = distance(worldPos, CameraPosTime.xyz);
+    if (d >= ShadowFadeParams.y)
+        return 1.0;
+    float t = saturate((d - ShadowFadeParams.x) * ShadowFadeParams.z);
+    return lerp(visibility, 1.0, t * t * (3.0 - 2.0 * t));
+}
+
 // Compat overload for call sites that only pass far+near (terrain/fog self-shadow helpers).
 float SampleShadowCSM(float4 shadowPosFar, float4 shadowPosNear,
     float3 normal, float3 lightDir)
@@ -737,23 +780,25 @@ int OmniCubeFaceIndex(float3 dir)
     return dir.z >= 0.0 ? 4 : 5;
 }
 
-static const float2 LocalShadowTaps[4] =
-{
-    float2(-0.75, -0.25), float2(0.25, -0.75), float2(0.75, 0.25), float2(-0.25, 0.75),
-};
-
 // Visibility of worldPos from a local shadow slot: the cube face the pixel lies in for a point
-// light, the single tile for a spot light. Four bilinear comparison taps are clamped inside the
-// tile so filtering never reads a neighbouring face or light.
-float SampleLocalShadow(int slot, float3 worldPos, float3 lightPos)
+// light, the single tile for a spot light. The bias is in metres, about a texel and a half of the
+// map where the pixel is, applied by moving the point towards the light and off its surface. It used
+// to be a fixed share of the map's non-linear depth, which a few metres from the lamp meant half a
+// metre or more, so a candle stand before a wall cast no shadow on it. Twelve Poisson comparison
+// taps, a texel and a half across and kept inside the tile, give the edge a soft penumbra.
+float SampleLocalShadow(int slot, float3 worldPos, float3 lightPos, float3 normal)
 {
     float3 toPixel = worldPos - lightPos;
     float len = length(toPixel);
     if (len < 1e-5)
         return 1.0;
-    float kind = dot(LocalShadowKinds, float4(slot == 0, slot == 1, slot == 2, slot == 3));
-    int face = kind > 0.5 ? 0 : OmniCubeFaceIndex(toPixel / len);
-    float4 clip = mul(float4(worldPos, 1.0), LocalShadowFaceVP[slot * 6 + face]);
+    float3 dir = toPixel / len;
+    float kind = LocalShadowLane(LocalShadowKinds[slot >> 2], slot);
+    int face = kind > 0.5 ? 0 : OmniCubeFaceIndex(dir);
+    float texel = LocalShadowParams.z;
+    float texelWorld = 2.0 * len * texel;
+    float3 biased = worldPos - dir * (0.01 + 1.5 * texelWorld) + normal * texelWorld;
+    float4 clip = mul(float4(biased, 1.0), LocalShadowFaceVP[slot * 6 + face]);
     if (clip.w <= 1e-5)
         return 1.0;
     float3 proj = clip.xyz / clip.w;
@@ -762,18 +807,16 @@ float SampleLocalShadow(int slot, float3 worldPos, float3 lightPos)
     float2 tileUv = float2(proj.x * 0.5 + 0.5, -proj.y * 0.5 + 0.5);
     if (tileUv.x < 0.0 || tileUv.x > 1.0 || tileUv.y < 0.0 || tileUv.y > 1.0)
         return 1.0;
-    float bias = max(0.0015, 0.02 * (1.0 - saturate(len / max(LocalShadowSlots[slot].w, 0.001))));
-    float texel = LocalShadowParams.z;
     float2 atlasScale = float2(1.0 / 6.0, 1.0 / max(LocalShadowParams.y, 1.0));
     float2 origin = float2(face, slot);
     float sum = 0.0;
     [unroll]
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 12; i++)
     {
-        float2 uv = clamp(tileUv + LocalShadowTaps[i] * texel, texel, 1.0 - texel);
-        sum += LocalShadowAtlas.SampleCmpLevelZero(ShadowSamp, (origin + uv) * atlasScale, proj.z - bias);
+        float2 uv = clamp(tileUv + ShadowPoisson12[i] * (texel * 1.5), texel, 1.0 - texel);
+        sum += LocalShadowAtlas.SampleCmpLevelZero(ShadowSamp, (origin + uv) * atlasScale, proj.z);
     }
-    return sum * 0.25;
+    return lerp(1.0, sum / 12.0, saturate(LocalShadowLane(LocalShadowStrength[slot >> 2], slot)));
 }
 
 // Point lights use the same GGX/Schlick response as the sun. They used to be diffuse-only (and
@@ -818,7 +861,7 @@ float3 ShadeOnePointLight(ClusterPointLight L, float3 worldPos, float3 n, float3
 
     // FalloffPad.Y / _pad0 carries the light's local shadow slot + 1 when it holds one.
     if (L._pad0 > 0.5 && LocalShadowParams.x > 0.5)
-        lit *= SampleLocalShadow((int)(L._pad0 - 0.5), worldPos, L.Pos);
+        lit *= SampleLocalShadow((int)(L._pad0 - 0.5), worldPos, L.Pos, n);
     return lit;
 }
 
@@ -1252,7 +1295,7 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         float foliageDiffuse = saturate(dot(foliageNormal, toSun) * 0.6 + 0.4);
         float foliageShadow = NoReceiveShadow > 0.5
             ? 1.0
-            : lerp(1.0, SampleShadowCSM(IN.ShadowPos, IN.ShadowPosNr, IN.ShadowPosMd, foliageNormal, lightDir),
+            : lerp(1.0, SunShadowFade(IN.WorldPos, SampleShadowCSM(IN.ShadowPos, IN.ShadowPosNr, IN.ShadowPosMd, foliageNormal, lightDir)),
                 saturate(ShadowCascadeParams.w) * saturate(LightDirEnabled.w));
         float3 foliageAmbient = lerp(AmbientGroundColor.rgb, AmbientColor.rgb, 0.75);
         float3 litFoliage = base * (foliageAmbient + SunColorIntensity.rgb * SunColorIntensity.w * foliageDiffuse * foliageShadow)
@@ -1280,7 +1323,7 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     float shadow  = NoReceiveShadow > 0.5
         ? 1.0
         : lerp(1.0,
-            SampleShadowCSM(IN.ShadowPos, IN.ShadowPosNr, IN.ShadowPosMd, n, lightDir),
+            SunShadowFade(IN.WorldPos, SampleShadowCSM(IN.ShadowPos, IN.ShadowPosNr, IN.ShadowPosMd, n, lightDir)),
             saturate(ShadowCascadeParams.w) * saturate(LightDirEnabled.w));
 
     // ── Non-Lambertian surface response ──────────────────────────────────────
@@ -1311,8 +1354,11 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     float3 hemiAmbient = lerp(AmbientGroundColor.rgb, AmbientColor.rgb, hemiBlend);
     // Bounced light: the light around the surface, as the light probe caught it (the sky where
     // nothing is in the way, the lit walls and ground where something is), for the flat colours.
+    // A probe that saw little light (a room with a black background, a capture made before its lamps
+    // were lit) never takes a surface below a share of the room's own ambient: shade, not holes.
+    float3 roomAmbient = hemiAmbient;
     if (LightProbeParams.y > 0.0)
-        hemiAmbient = lerp(hemiAmbient, LightProbeAmbientFrom(n), LightProbeParams.y);
+        hemiAmbient = lerp(hemiAmbient, max(LightProbeAmbientFrom(n), roomAmbient * LightProbeFloorParams.x), LightProbeParams.y);
 #ifdef GENESIS_SURFACE
     float3 orm = gsOrm;
 #else
@@ -1372,8 +1418,10 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
         // light arriving from that side.
         if (LightProbeParams.w > 0.5)
         {
-            envMirror = LightProbeMirror(reflected);
-            envRough = LightProbeAmbientFrom(reflected);
+            // The floor is the room's own ambient, not the sky: a dark hall must not mirror a blue sky.
+            float3 probeFloor = roomAmbient * LightProbeFloorParams.x;
+            envMirror = max(LightProbeMirror(reflected), probeFloor);
+            envRough = max(LightProbeAmbientFrom(reflected), probeFloor);
         }
         float3 envLight = lerp(envMirror, envRough, roughness);
         float4 envC0 = float4(-1.0, -0.0275, -0.572, 0.022);

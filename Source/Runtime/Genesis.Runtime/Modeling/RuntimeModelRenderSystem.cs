@@ -376,6 +376,7 @@ namespace Genesis.Runtime.Modeling
                     if (!draw3d.CastShadows || !rendererComponent.CastShadows || rendererComponent.ModelLayer > 0) flags |= MeshDrawFlags.NoShadow;
                     if (!draw3d.ReceiveShadows || !rendererComponent.ReceiveShadows)
                         flags |= MeshDrawFlags.NoReceiveShadow;
+                    if (rendererComponent.InFront) flags |= MeshDrawFlags.InFront;
                     if (material?.DoubleSided == true) flags |= MeshDrawFlags.NoCull;
                     if (material?.Unlit == true) flags |= MeshDrawFlags.Unlit | MeshDrawFlags.NoReceiveShadow;
                     if (material?.AlphaMode == GModelAlphaMode.Blend)

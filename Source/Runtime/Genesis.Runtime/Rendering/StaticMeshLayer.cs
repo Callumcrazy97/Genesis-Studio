@@ -174,7 +174,8 @@ namespace Genesis.Runtime.Rendering
             foreach (Cell cell in Cells)
             {
                 if (cell.Dirty) Measure(cell);
-                if (!cell.HasUnknown && !frustum.IntersectsAabb(cell.Min, cell.Max))
+                // Outside the view, a cell can still shadow it (a roof above the camera, a wall behind it).
+                if (!cell.HasUnknown && !frustum.IntersectsAabb(cell.Min, cell.Max) && !CastsIntoView(frustum, cell.Min, cell.Max))
                 {
                     LastCellsCulled++;
                     LastCulled += cell.Entries.Count;
@@ -185,7 +186,9 @@ namespace Genesis.Runtime.Rendering
                 foreach (Entry entry in cell.Entries)
                 {
                     // Bounds already known are tested before the mesh is looked up (most of a big world is out of view).
-                    if (entry.BoundsKnown && !inside && !frustum.IntersectsAabb(entry.Min, entry.Max)) { LastCulled++; continue; }
+                    // One outside it that casts a shadow into it is drawn all the same: the renderer keeps it for the shadow maps.
+                    if (entry.BoundsKnown && !inside && !frustum.IntersectsAabb(entry.Min, entry.Max)
+                        && ((entry.Call.Flags & MeshDrawFlags.NoShadow) != 0 || !CastsIntoView(frustum, entry.Min, entry.Max))) { LastCulled++; continue; }
                     MeshHandle mesh = ScriptMeshes.Resolve(entry.Mesh, renderer, out int uploads);
                     if (!mesh.IsValid) continue;
                     if (!ReferenceEquals(entry.Renderer, renderer))
@@ -202,7 +205,8 @@ namespace Genesis.Runtime.Rendering
                         entry.Uploads = uploads;
                         entry.BoundsKnown = true;
                         cell.Dirty = true;
-                        if (!frustum.IntersectsAabb(entry.Min, entry.Max)) { LastCulled++; continue; }
+                        if (!frustum.IntersectsAabb(entry.Min, entry.Max)
+                            && ((entry.Call.Flags & MeshDrawFlags.NoShadow) != 0 || !CastsIntoView(frustum, entry.Min, entry.Max))) { LastCulled++; continue; }
                     }
                     entry.Call.Mesh = mesh;
                     if (sink != null) sink.DrawMesh(entry.Call);
@@ -211,6 +215,9 @@ namespace Genesis.Runtime.Rendering
                 }
             }
         }
+
+        private static bool CastsIntoView(in CameraFrustum frustum, Vector3 min, Vector3 max) =>
+            ShadowCasterCulling.CastsIntoView(frustum, (min + max) * 0.5f, Vector3.Distance(min, max) * 0.5f);
 
         private static (Vector3, Vector3) Transform(Vector3 min, Vector3 max, Matrix4x4 world)
         {

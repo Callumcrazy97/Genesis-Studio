@@ -41,6 +41,24 @@ namespace Genesis.Shared.Rendering
             return true;
         }
 
+        /// <summary>
+        /// Whether a sphere moved from <paramref name="center"/> along unit <paramref name="direction"/>
+        /// by up to <paramref name="length"/> can touch the frustum (a shadow cast that far): outside
+        /// only when both ends of the sweep lie beyond the same plane.
+        /// </summary>
+        public bool ContainsSweptSphere(Vector3 center, float radius, Vector3 direction, float length)
+        {
+            ReadOnlySpan<Vector4> planes = stackalloc Vector4[] { Left, Right, Bottom, Top, Near, Far };
+            foreach (Vector4 plane in planes)
+            {
+                float start = Dot(plane, center);
+                float end = start + length * (plane.X * direction.X + plane.Y * direction.Y + plane.Z * direction.Z);
+                if (MathF.Max(start, end) < -radius) return false;
+            }
+
+            return true;
+        }
+
         public bool IntersectsAabb(Vector3 min, Vector3 max)
         {
             ReadOnlySpan<Vector4> planes = stackalloc Vector4[] { Left, Right, Bottom, Top, Near, Far };

@@ -269,6 +269,7 @@ namespace Genesis.World
 
             Vector3 focus = _lastFocusPos;
             float farPlaneSq = _lastCameraFarPlane * _lastCameraFarPlane;
+            float shadowCullSq = ShadowDistance * ShadowDistance;
 
             for (int ri = 0; ri < _cullRegionKeys.Count; ri++)
             {
@@ -280,7 +281,8 @@ namespace Genesis.World
                 float regionDistSq = BoundingBox.DistanceSquaredToPoint(focus, regionBounds);
                 if (regionDistSq > farPlaneSq)
                     continue;
-                if (!_lastRenderFrustum.IntersectsAabb(regionBounds.Min, regionBounds.Max))
+                // Out of view, a region can still shadow it (the roof above the camera, a hill behind).
+                if (!_lastRenderFrustum.IntersectsAabb(regionBounds.Min, regionBounds.Max) && !CastsIntoView(regionBounds))
                     continue;
 
                 for (int i = 0; i < members.Count; i++)
@@ -294,7 +296,7 @@ namespace Genesis.World
                     float distSq = BoundingBox.DistanceSquaredToPoint(focus, bounds);
                     if (distSq > farPlaneSq)
                         continue;
-                    if (!_lastRenderFrustum.IntersectsAabb(bounds.Min, bounds.Max))
+                    if (!_lastRenderFrustum.IntersectsAabb(bounds.Min, bounds.Max) && (distSq > shadowCullSq || !CastsIntoView(bounds)))
                         continue;
 
                     _stats.CellsVisible++;
@@ -313,6 +315,10 @@ namespace Genesis.World
             {
                 (CellState cell, (int, int, int) key, float distSq) = _drawQueue[i];
                 Matrix4x4 matrix = Matrix4x4.CreateTranslation(VoxelWorld.ChunkOrigin(key.Item1, key.Item2, key.Item3));
+                // Kept only for its shadow: its solid blocks go to the renderer (which draws them into
+                // the shadow maps alone); its flowers, torches and water are not needed.
+                BoundingBox chunkBounds = VoxelWorld.ChunkBounds(key.Item1, key.Item2, key.Item3);
+                bool inView = _lastRenderFrustum.IntersectsAabb(chunkBounds.Min, chunkBounds.Max);
 
                 bool solidSubmitted = false;
                 if (MeshRegionSize >= 2)
@@ -358,7 +364,7 @@ namespace Genesis.World
                     _stats.CellsDrawn++;
                 }
 
-                if (cell.CrossMesh.IsValid && distSq <= crossDistSq)
+                if (cell.CrossMesh.IsValid && distSq <= crossDistSq && inView)
                 {
                     if (count >= buffer.Length) return;
                     buffer[count++] = new MeshDrawCall
@@ -374,7 +380,7 @@ namespace Genesis.World
                     _stats.CellsDrawn++;
                 }
 
-                if (cell.LiquidMesh.IsValid && distSq <= liquidDistSq)
+                if (cell.LiquidMesh.IsValid && distSq <= liquidDistSq && inView)
                 {
                     if (count >= buffer.Length) return;
                     var wm = WaterMaterial;
@@ -1098,6 +1104,11 @@ namespace Genesis.World
 
         private static int PackChunkId((int cx, int cy, int cz) key)
             => (key.cx & 0x3FF) | ((key.cy & 0xFF) << 10) | ((key.cz & 0x3FF) << 18);
+
+        /// <summary>Whether blocks outside the view can still shadow it (Genesis.Shared.Rendering.ShadowCasterCulling).</summary>
+        private bool CastsIntoView(BoundingBox bounds) =>
+            Genesis.Shared.Rendering.ShadowCasterCulling.CastsIntoView(_lastRenderFrustum.Shared,
+                (bounds.Min + bounds.Max) * 0.5f, Vector3.Distance(bounds.Min, bounds.Max) * 0.5f);
 
         private int UnloadQueueCompare((int, int, int) a, (int, int, int) b)
         {

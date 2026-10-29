@@ -210,6 +210,13 @@ namespace Genesis.Shared.Interfaces
         /// unlit material (glTF KHR_materials_unlit), as handheld-console scenery is drawn.
         /// </summary>
         Unlit        = 524288,
+        /// <summary>
+        /// A layer that lies on or in another surface (a window set into a wall, a sign on a door, a
+        /// painted mark): drawn a hair nearer the camera along its view ray (about 1.5 mm plus 0.05% of
+        /// the distance), so it wins the depth test where the two meet instead of flickering with it.
+        /// Opt in per Object (Engine.Model.InFront) or per draw; the shape on screen does not change.
+        /// </summary>
+        InFront      = 1048576,
     }
 
     /// <summary>Culling stored on authored resources. Default inherits Preferences - Rendering.</summary>
@@ -587,10 +594,14 @@ namespace Genesis.Shared.Interfaces
         public const int MinSceneLocalLightCap = 8;
         public const int MaxSceneLocalLightCap = 1000;
         public const int DefaultSceneLocalLightCap = 256;
-        /// <summary>AF1.3: omnidirectional shadow-map slots (independent of scene local light cap).</summary>
+        /// <summary>
+        /// AF1.3: lamps (point and spot lights) whose shadows are drawn at once, independent of the
+        /// scene local light cap. Four by default since 29 Oct: with one, the nearest lamp took the only
+        /// shadow and every other lamp in view lit through its props.
+        /// </summary>
         public const int MinOmniShadowBudget = 0;
-        public const int MaxOmniShadowBudget = 4;
-        public const int DefaultOmniShadowBudget = 1;
+        public const int MaxOmniShadowBudget = 8;
+        public const int DefaultOmniShadowBudget = 4;
         /// <summary>
         /// AF1.5: local lights that get a volumetric beam this frame, ranked by the same camera
         /// weight as the omni budget so the local light that gets a cubemap also gets
@@ -710,14 +721,21 @@ namespace Genesis.Shared.Interfaces
         public bool    ShadowsEnabled;
         public float   ShadowStrength;
         public float   ShadowBias;
+        /// <summary>
+        /// The shadow reach of a view that sets no <see cref="ShadowDistance"/> (editors, previews):
+        /// the sun's shadows then reach 0.86 of this from the camera, as its old far cascade did.
+        /// </summary>
         public float   ShadowOrthoSize;
         /// <summary>Directional cascade count: 2 (default, R7.11) or 3 (AF1.1 far envelope).</summary>
         public int     ShadowCascadeCount;
         /// <summary>
-        /// Width in metres of the far cascade when three are in use; 0 keeps the standard size.
-        /// A large outdoor scene widens it so hills and mountains shade the land behind them.
+        /// How far from the camera the sun's shadows reach, in metres, with the cascades spread over
+        /// it; 0 uses <see cref="ShadowOrthoSize"/>. Rooms set it (their own, or the view distance up
+        /// to 300 m), so a large outdoor scene's hills shade the land behind them.
         /// </summary>
-        public float   ShadowFarExtent;
+        public float   ShadowDistance;
+        /// <summary>The share of the shadow distance over which shadows fade out at its end, up to 1; 0 for the standard 0.15.</summary>
+        public float   ShadowFade;
         /// <summary>AF1.2 optional half-res GTAO (default off).</summary>
         public bool    GtaoEnabled;
         /// <summary>
@@ -1193,6 +1211,15 @@ namespace Genesis.Shared.Interfaces
         public int LocalShadowLights;
         /// <summary>Local shadow atlas tiles re-rendered in the last frame (0 when every tile was cached).</summary>
         public int LocalShadowTilesRendered;
+        /// <summary>
+        /// Lamps left unshaded in the last frame although their reach covers part of the view: over
+        /// the scene's light cap, or left out of a full light cluster.
+        /// </summary>
+        public int LightsCulled;
+        /// <summary>Lamps submitted in the last frame whose reach covers nothing in view.</summary>
+        public int LightsOutOfView;
+        /// <summary>How far from the camera the sun's shadows reached in the last frame, in metres.</summary>
+        public float ShadowDistance;
         /// <summary>The anti-aliasing the last 3D frame ran (Off when none).</summary>
         public AntiAliasingMode AntiAliasing;
         /// <summary>CPU milliseconds recording the anti-aliasing passes (0 when none ran).</summary>

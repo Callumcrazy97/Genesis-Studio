@@ -98,7 +98,7 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 | Engine.Lighting | ✓ Enabled, + Sun.Enabled, + Ambient.Enabled |
 | Engine.Lighting.Sun | + Enabled, + Yaw, + Pitch, + Intensity, + ColorR/G/B (or Color "#rrggbb"), + DirectionX/Y/Z, + Shadows (= Engine.Rendering.Shadows.Enabled for the sun) |
 | Engine.Lighting.Ambient | + Enabled, + SkyR/G/B, + GroundR/G/B, + Strength, + Mode ("zenith", "hemisphere") [Engine.Sky.AmbientMode], + Saturation [Engine.Sky.AmbientSaturation], + Tint |
-| Engine.Lighting.Bounce | ✓ Enabled, ✓ Strength, + Saturation, + Tint |
+| Engine.Lighting.Bounce | ✓ Enabled, ✓ Strength, ✓ Floor (29 Oct: the least share of the room's ambient a dark probe leaves, 0.35), + Saturation, + Tint |
 | Engine.Lighting.Reflections | ✓ Enabled, ✓ Strength, + Roughness (a floor for every surface), + Sky.Enabled (mirror the sky only, no probe) |
 | Engine.Lighting.Probe | ✓ Quality, ✓ Distance, ✓ Radius, ✓ Recapture(), + Captures (read), + X/Y/Z (read: where it was captured), + Follow (false: fixed where captured) |
 | Engine.Lighting.Lamps (point and spot lights) | + Enabled, + Count (read), + Limit, + Shadows.Enabled, + Shadows.Budget [Engine.Rendering.OmniShadowBudget], + Shadows.Resolution |
@@ -159,7 +159,7 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 | Part | Values |
 |---|---|
 | Engine.Rendering | + Enabled (3D drawing), ✓ QualityTier [SetQuality], ✓ ReversedDepth, + Backend (read: "DX11", "DX12", "Vulkan", "OpenGL"), + DrawCalls (read), + Triangles (read), + GpuMs (read) |
-| Engine.Rendering.Shadows | + Enabled, ✓ Resolution [ShadowResolution], ✓ Cascades [CascadeCount], + Distance, + Strength, + Bias, + Softness, + ContactShadows.Enabled [ContactShadowsEnabled] |
+| Engine.Rendering.Shadows | ✓ Enabled, ✓ Resolution [ShadowResolution], ✓ Cascades (the room's, 3 unless set; the quality tier's is Engine.Rendering.CascadeCount), ✓ Distance (0 = the view distance up to 300 m), ✓ Fade (29 Oct), ✓ Strength, ✓ Bias, ✓ LampBudget (4 unless set, up to 8), + Softness, ✓ Contact [ContactShadowsEnabled] |
 | Engine.Rendering.Fog | + Enabled, + Start, + End, + Density, + ColorR/G/B, + HeightBase, + HeightFalloff, + Noise, + Volumetric.Enabled, ✓ Volumetric.Quality [VolumetricFogQuality], ✓ Shafts.Anisotropy/Floor/Softness [FogShaft*], ✓ Local.Enabled [LocalVolumetricsEnabled], ✓ Local.Budget [LocalVolumetricLightBudget], ✓ Smoke.Enabled [SmokeExtinctionEnabled] |
 | Engine.Rendering.Ao | ✓ Enabled [GtaoEnabled], + Strength, + Radius |
 | Engine.Rendering.Bloom | ✓ Enabled [BloomEnabled], + Strength, + Threshold |
@@ -232,6 +232,7 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 |---|---|
 | Engine.Model | + Enabled (drawn) [SetMeshVisible for all], ✓ Name, ✓ ScaleX/Y/Z, ✓ Layer, ✓ ViewLayer, + Tint [SetTint], + Alpha |
 | Engine.Model.Shadows | + Enabled, ✓ Cast [CastShadows], ✓ Receive [ReceiveShadows] |
+| Engine.Model.InFront (29 Oct) | ✓ InFront: drawn a hair nearer the camera so a window set into a wall or a sign on a door wins over the surface it lies on (also the Object's ModelRendererComponent `InFront`) |
 | Engine.Model.Glow | ✓ Strength [Glow], ✓ EmissionScale, ✓ Material.Emission/EmissionColor/EmissionTint |
 | Engine.Model.Material (by name) | ✓ Tint, ✓ Texture, + Roughness, + Metallic, + Alpha |
 | Engine.Model.Mesh (by name) | ✓ Visible [SetMeshVisible], + Count (read) |

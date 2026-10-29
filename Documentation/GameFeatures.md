@@ -943,7 +943,7 @@ first-person and other model layers, and the volumetric fog. The forward rendere
 limit: every point light goes into one clustered list (16 × 16 screen tiles × 24 depth slices, up
 to 64 lights a cluster, the strongest 256 by distance and brightness when there are more), and a
 pixel shades only the lights whose reach covers its cluster, so small flashes cost little however
-many there are. What a flash never does is take a local shadow slot (one by default, at most four):
+many there are. What a flash never does is take a local shadow slot (four by default, at most eight):
 an ordinary light as bright as a muzzle flash next to the camera wins the slot from the lamp that
 held it, so firing made the lamp's shadow blink off and had six shadow faces drawn for a light that
 lasts 50 ms. Flashes are unshadowed.
@@ -2311,15 +2311,16 @@ One call sets the costly rendering features together, for a Graphics menu:
 | Contact shadows | off | off | on | on | `Engine.Rendering.ContactShadowsEnabled` |
 | Sun shadow cascades | 2 | 2 | 3 | 3 | `Engine.Rendering.CascadeCount` |
 | Sun shadow map size (each cascade) | 512 | 1024 | 1024 | 2048 | `Engine.Rendering.ShadowResolution` |
-| Point lights given a shadow map | 0 | 1 | 2 | 4 | `Engine.Rendering.OmniShadowBudget` |
+| Point lights given a shadow map (4 with no tier) | 0 | 2 | 4 | 8 | `Engine.Rendering.OmniShadowBudget` |
 | Local lights in the volumetric fog | off | off | on | on | `Engine.Rendering.LocalVolumetricsEnabled` |
 | Bloom | off | on | on | on | `Engine.Rendering.BloomEnabled` |
 | Volumetric fog grid quality | 0 | 1 | 1 | 2 | `Engine.Rendering.VolumetricFogQuality` |
 | Cloud quality | Performance | Balanced | High | Cinematic | `Engine.Rendering.CloudQuality` |
 | Anti-aliasing | FXAA | FXAA | SMAA | SMAA | `RenderSetAntiAliasing` |
 
-The engine's defaults without a tier are two 1024 cascades, one point-light shadow, the room's own
-fog quality, High clouds and everything else off. Nothing changes until a game sets a tier. Once it
+The engine's defaults without a tier are 1024 shadow maps (three cascades in a room, unless it sets
+two), four point-light shadows, the room's own fog quality, High clouds and everything else off.
+Nothing changes until a game sets a tier. Once it
 has, these settings decide for every room: a room's own ambient occlusion or third cascade is
 turned off on Low, as a player's choice should. Rooms still decide whether they have fog, clouds,
 bloom strength, exposure and the rest of their look; a tier only decides how much of the costly
@@ -2330,6 +2331,22 @@ work is done. Change any one setting after the tier to override it (the tier the
 RenderSetQuality("high");
 Engine.Rendering.BloomEnabled = false;   // this game never blooms
 ```
+
+**How far shadows reach (29 Oct 2026).** The sun's shadows reach as far as the camera sees, up to
+300 m, unless the room sets its own distance (`shadowDistance`, `Engine.Rendering.Shadows.Distance`;
+a valley sets thousands). Three cascades share that distance (`shadowCascades`,
+`Engine.Rendering.Shadows.Cascades`), each fitted to a sphere round its part of the view and snapped to
+whole shadow-map texels, so a shadow never moves or changes shape when only the camera turns; over
+the last 15% of the distance (`shadowFade`, `Engine.Rendering.Shadows.Fade`) shadows fade out instead
+of stopping at a line. Things outside the view that shade it (a roof above the camera, a wall behind
+it) still cast their shadows. Four lamps (point and spot lights) cast shadows at once unless a tier or
+`Engine.Rendering.Shadows.LampBudget` says otherwise (up to eight), chosen among the lamps whose light
+reaches the view; a lamp's shadow fades in when it takes a slot and out towards 60 m. Where a surface
+lies on or in another (a window set into a wall, a sign on a door), `Engine.Model.InFront = true` (or
+`"InFront": true` in the Object's ModelRendererComponent) draws it a hair nearer the camera so it wins
+instead of flickering with the wall. Bounced light never takes a surface below 35% of the room's own
+ambient (`Engine.Lighting.Bounce.Floor`), so a probe that saw a dark room shades it rather than
+blacking it out. F6 shows the shadow distance and how many lamps were left unshaded in view.
 
 New on their own:
 

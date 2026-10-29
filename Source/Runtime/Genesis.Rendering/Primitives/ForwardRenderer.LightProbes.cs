@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using Genesis.Rendering.Abstractions;
 using Genesis.Rendering.D3dMath;
 using Genesis.Rendering.Diagnostics;
+using Genesis.Rendering.Lights;
 using Probes = Genesis.Shared.Rendering.LightProbes;
 
 namespace Genesis.Rendering.Primitives
@@ -85,6 +86,9 @@ namespace Genesis.Rendering.Primitives
                 Probes.BouncedLight ? Probes.BouncedLightStrength : 0f, _probeFaceSize, 1f);
         }
 
+        /// <summary>EngineCB's LightProbeFloorParams: x the least share of the room's own ambient and reflection kept.</summary>
+        private static Vector4 LightProbeFloorParams() => new(Probes.AmbientFloor, 0f, 0f, 0f);
+
         /// <summary>Binds the probe in use for the main pass (t18 atlas, t19 ambient row), or nothing.</summary>
         private void BindLightProbe()
         {
@@ -148,15 +152,37 @@ namespace Genesis.Rendering.Primitives
             Probes.PendingCapture = new Vector4(_cameraPos, Probes.CaptureRadius);
         }
 
-        // The light a probe was captured under: the sun's direction and its light, and the ambient colours.
-        private (Vector3 Sun, Vector3 SunLight, Vector3 Sky, Vector3 Ground) _probeLighting;
+        // The light a probe was captured under: the sun's direction and its light, the ambient colours,
+        // and the lamps round it (their summed strength), so lamps lit after a capture are caught too.
+        private (Vector3 Sun, Vector3 SunLight, Vector3 Sky, Vector3 Ground, float Lamps) _probeLighting;
 
-        private (Vector3 Sun, Vector3 SunLight, Vector3 Sky, Vector3 Ground) CurrentProbeLighting() =>
-            (_state.LightDirection, _state.SunColor * _state.SunIntensity, _state.AmbientColor, _state.AmbientGroundColor);
+        private (Vector3 Sun, Vector3 SunLight, Vector3 Sky, Vector3 Ground, float Lamps) CurrentProbeLighting() =>
+            (_state.LightDirection, _state.SunColor * _state.SunIntensity, _state.AmbientColor, _state.AmbientGroundColor, LampsAroundCamera());
+
+        /// <summary>
+        /// The lamps that light what a probe here would see: each one's intensity times its reach,
+        /// within the capture radius. Flashes are left out (a shot must not recapture).
+        /// </summary>
+        private float LampsAroundCamera()
+        {
+            float radius = Probes.CaptureRadius, sum = 0f;
+            for (int i = 0; i < _pointLightCount; i++)
+            {
+                ref ClusterPointLightGpu light = ref _pointLights[i];
+                if (OmniShadowMath.IsFlashLight(light)) continue;
+                float reach = MathF.Max(light.PosRadius.W, 0f);
+                Vector3 position = new(light.PosRadius.X, light.PosRadius.Y, light.PosRadius.Z);
+                if (Vector3.DistanceSquared(position, _cameraPos) > (radius + reach) * (radius + reach)) continue;
+                sum += MathF.Max(light.ColorIntensity.W, 0f) * MathF.Min(reach, 30f);
+            }
+            return sum;
+        }
 
         /// <summary>
         /// True when the light has changed enough since the probe was captured to show (the sun turned
-        /// about 5 degrees, or its light or the ambient colours changed by a twentieth): a day passing.
+        /// about 5 degrees, or its light or the ambient colours changed by a twentieth): a day passing;
+        /// or the lamps round it came on, went out or doubled. A probe captured on a room's first frame,
+        /// before its lamps were lit, used to stay black until the camera travelled 40 m.
         /// </summary>
         private bool LightingMovedSinceProbe()
         {
@@ -166,10 +192,15 @@ namespace Genesis.Rendering.Primitives
                 ? Vector3.Dot(Vector3.Normalize(now.Sun), Vector3.Normalize(then.Sun))
                 : 1f;
             return sunTurn < 0.996f
-                || Changed(now.SunLight, then.SunLight) || Changed(now.Sky, then.Sky) || Changed(now.Ground, then.Ground);
+                || Changed(now.SunLight, then.SunLight) || Changed(now.Sky, then.Sky) || Changed(now.Ground, then.Ground)
+                || LampsChanged(now.Lamps, then.Lamps);
 
             static bool Changed(Vector3 a, Vector3 b) =>
                 Vector3.Distance(a, b) > 0.05f * MathF.Max(MathF.Max(a.Length(), b.Length()), 0.2f);
+
+            // Half again or half as much, and not a flickering candle's few percent.
+            static bool LampsChanged(float a, float b) =>
+                MathF.Abs(a - b) > 0.5f * MathF.Max(MathF.Min(a, b), 0f) && MathF.Abs(a - b) > 0.5f;
         }
 
         private bool EnsureLightProbeResources(int faceSize)

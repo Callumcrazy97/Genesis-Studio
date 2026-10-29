@@ -25,9 +25,11 @@ namespace Genesis.Rendering.Textures
             return Path.Combine(directory, stem + suffix);
         }
 
-        // A cut-out picture's smaller sizes keep its alpha coverage (TextureMipBuilder), each level
-        // encoded from that chain in place of the encoder's own averaged mips.
-        private static void WriteCoverageKeepingMips(BcEncoder encoder, byte[] pixels, int width, int height, Stream output)
+        // A colour picture's smaller sizes are averaged in linear light (and a cut-out keeps its alpha
+        // coverage) by TextureMipBuilder, each level encoded from that chain in place of the encoder's
+        // own mips, which averaged the stored sRGB values: a black and white marble floor went dark
+        // grey to black with distance instead of mid grey (Cathedral corridor, C7b).
+        private static void WriteLinearLightMips(BcEncoder encoder, byte[] pixels, int width, int height, Stream output)
         {
             var dds = encoder.EncodeToDds(pixels, width, height, PixelFormat.Rgba32);
             byte[] chain = TextureMipBuilder.BuildChain(pixels, width, height, srgb: true, out int levels);
@@ -105,8 +107,8 @@ namespace Genesis.Rendering.Textures
 
                 using (FileStream output = new(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
-                    if (mipmaps && format == CookedTextureFormat.Bc7Color && TextureMipBuilder.IsCutOut(pixels))
-                        WriteCoverageKeepingMips(encoder, pixels, width, height, output);
+                    if (mipmaps && format == CookedTextureFormat.Bc7Color)
+                        WriteLinearLightMips(encoder, pixels, width, height, output);
                     else
                         encoder.EncodeToStream(pixels, width, height, PixelFormat.Rgba32, output);
                     output.Flush(flushToDisk: true);

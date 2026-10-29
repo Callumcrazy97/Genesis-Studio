@@ -42,10 +42,11 @@ namespace Genesis.Runtime.Scene
                 ShadowStrength        = Math.Clamp(env.ShadowStrength, 0f, 1f),
                 ShadowBias            = env.ShadowBias,
                 ShadowOrthoSize       = env.ShadowOrthoSize,
-                ShadowCascadeCount    = env.ShadowCascadeCount >= 3 || env.ShadowDistance > 0f ? 3 : 2,
-                // The cascade is centred a third of its width ahead of the camera, so a width of
-                // distance / 0.86 reaches that far forward.
-                ShadowFarExtent       = env.ShadowDistance > 0f ? env.ShadowDistance / 0.86f : 0f,
+                ShadowCascadeCount    = env.ShadowCascadeCount >= 3 ? 3 : 2,
+                // The room's own distance, else as far as the camera sees up to 300 m: a room's
+                // shadows used to stop about 100 m ahead whatever its view distance.
+                ShadowDistance        = Genesis.Rendering.Primitives.CascadeShadowMath.ResolveDistance(env.ShadowDistance, camera.FarPlane),
+                ShadowFade            = env.ShadowFade,
                 GtaoEnabled           = env.GtaoEnabled,
                 FogDensity            = env.FogDensity,
                 FogHeightBase         = env.FogHeightBase,

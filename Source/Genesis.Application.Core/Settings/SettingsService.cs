@@ -149,6 +149,10 @@ public sealed class SettingsService
                 settings.Rendering.FrontFaceWinding = "CounterClockwise";
                 MigrationNotice = "The old clockwise rendering default was corrected to counter-clockwise so model exteriors render consistently. Per-model overrides are unchanged.";
             }
+            // Lamp shadows: one light's shadow used to be the default, so from the pews of a lit church
+            // a nearer lamp took it and the candle stand cast none (29 Oct). The old default becomes the new.
+            if (settings.SchemaVersion < 4 && settings.Rendering.OmniShadowBudget == 1)
+                settings.Rendering.OmniShadowBudget = Genesis.Shared.Interfaces.RenderCapacityDefaults.DefaultOmniShadowBudget;
             if (Genesis.Rendering.Core.RenderBackendCatalog.IsRetiredValue(settings.Rendering.Backend))
             {
                 MigrationNotice = $"The saved renderer '{settings.Rendering.Backend}' has been removed. Genesis now uses Direct3D 11. You can choose another renderer in Preferences.";

@@ -117,8 +117,12 @@ public sealed partial class RoomEditorControl
             environment.WeatherFogScale, 0, 4, 0.05m, 2));
         values.Add(Number("Lighting & atmosphere", "environment.sunDiscScale", "Sun size (1 = as it is)",
             environment.SunDiscScale, 0.25m, 8, 0.05m, 2));
-        values.Add(Number("Lighting & atmosphere", "environment.shadowDistance", "Sun shadow distance (m, 0 = close range)",
+        values.Add(Number("Lighting & atmosphere", "environment.shadowDistance", "Sun shadow distance (m, 0 = the view distance up to 300)",
             environment.ShadowDistance, 0, 20000, 50m, 0));
+        values.Add(Number("Lighting & atmosphere", "environment.shadowCascades", "Sun shadow cascades (2 or 3)",
+            environment.ShadowCascades, 2, 3, 1m, 0));
+        values.Add(Number("Lighting & atmosphere", "environment.shadowFade", "Sun shadow fade at the end (share, 0 = 0.15)",
+            environment.ShadowFade, 0, 1, 0.05m, 2));
         values.Add(Number("Lighting & atmosphere", "environment.simulationDistance", "Object activity distance (m, 0 = everywhere)",
             environment.SimulationDistance, 0, 100000, 50m, 0));
         values.Add(Number("Lighting & atmosphere", "environment.sceneryDistance", "Scenery loading distance (m, 0 = load all)",
@@ -344,6 +348,8 @@ public sealed partial class RoomEditorControl
             case "weatherfogscale": next.WeatherFogScale = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "sundiscscale": next.SunDiscScale = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "shadowdistance": next.ShadowDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
+            case "shadowcascades": next.ShadowCascades = Convert.ToInt32(value, CultureInfo.InvariantCulture) == 2 ? 2 : 3; break;
+            case "shadowfade": next.ShadowFade = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "simulationdistance": next.SimulationDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "scenerydistance": next.SceneryDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;
             case "scenerycollisiondistance": next.SceneryCollisionDistance = Convert.ToSingle(value, CultureInfo.InvariantCulture); break;

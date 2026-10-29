@@ -18,6 +18,11 @@ namespace Genesis.Runtime.ECS.Components
         /// </summary>
         public int ModelLayer;
         public bool ReceiveShadows;
+        /// <summary>
+        /// Drawn a hair nearer the camera than it is (MeshDrawFlags.InFront), for a model lying on or in
+        /// another surface: a window set into a wall, a sign on a door. Off unless set.
+        /// </summary>
+        public bool InFront;
         public bool KeepPreviousTransform;
         public int LodPolicy;
         public FaceCullingOverride Culling;

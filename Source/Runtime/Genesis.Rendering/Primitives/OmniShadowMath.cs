@@ -11,10 +11,10 @@ namespace Genesis.Rendering.Primitives;
 /// </summary>
 public static class OmniShadowMath
 {
-    /// <summary>Default: one cubemap, never a map per local light.</summary>
-    public const int DefaultBudget = 1;
+    /// <summary>Default: four lamps' shadows, never a map per local light.</summary>
+    public const int DefaultBudget = Genesis.Shared.Interfaces.RenderCapacityDefaults.DefaultOmniShadowBudget;
     public const int MinBudget = 0;
-    public const int MaxBudget = 4;
+    public const int MaxBudget = Genesis.Shared.Interfaces.RenderCapacityDefaults.MaxOmniShadowBudget;
     /// <summary>Faces refreshed on a staggered schedule after the cubemap is warm.</summary>
     public const int SteadyFacesPerFrame = 3;
     /// <summary>All six faces on the first update.</summary>
@@ -124,7 +124,8 @@ public static class OmniShadowMath
         int budget,
         Vector3 cameraPos,
         ReadOnlySpan<Vector4> previous,
-        Span<int> assignment)
+        Span<int> assignment,
+        Genesis.Shared.Rendering.CameraFrustum? view = null)
     {
         assignment.Fill(-1);
         int cap = Math.Min(ClampBudget(budget), assignment.Length);
@@ -138,7 +139,12 @@ public static class OmniShadowMath
             heldSlot[i] = -1;
             // A flash never wins a slot (a weight of nothing is never chosen below): a shot must not
             // take a lamp's shadow away, nor have a cube of shadow maps drawn for a 50 ms light.
-            weight[i] = IsFlashLight(lights[i]) ? 0f : CameraWeight(lights[i], cameraPos);
+            // Nor does a lamp whose light cannot reach the view: one behind the camera used to take
+            // a slot from a lamp in plain sight.
+            ref readonly ClusterPointLightGpu light = ref lights[i];
+            bool seen = view is not { } frustum
+                || frustum.ContainsSphere(new Vector3(light.PosRadius.X, light.PosRadius.Y, light.PosRadius.Z), MathF.Max(light.PosRadius.W, 0f));
+            weight[i] = IsFlashLight(light) || !seen ? 0f : CameraWeight(light, cameraPos);
         }
 
         for (int s = 0; s < cap && s < previous.Length; s++)
@@ -197,6 +203,37 @@ public static class OmniShadowMath
                 break;
             }
         }
+    }
+
+    /// <summary>Seconds over which a lamp's shadow fades in when the lamp takes a shadow slot.</summary>
+    public const float FadeInSeconds = 0.3f;
+
+    /// <summary>Lamp shadows fade out between 75% of this distance from the camera and this distance.</summary>
+    public const float FadeDistance = 60f;
+
+    /// <summary>
+    /// How much of a lamp's shadow shows: fading in over <see cref="FadeInSeconds"/> after the lamp
+    /// takes a slot, and out between 75% and 100% of <see cref="FadeDistance"/> from the camera, so
+    /// a shadow never pops in or out at a few metres.
+    /// </summary>
+    public static float ShadowStrength(float secondsHeld, float cameraDistance)
+    {
+        float fadeIn = Math.Clamp(secondsHeld / FadeInSeconds, 0f, 1f);
+        float far = Math.Clamp((cameraDistance - FadeDistance * 0.75f) / (FadeDistance * 0.25f), 0f, 1f);
+        return fadeIn * (1f - far * far * (3f - 2f * far));
+    }
+
+    /// <summary>
+    /// True when a slot that held <paramref name="held"/> (xyz where, w radius) now holds the same
+    /// lamp, perhaps moved a little (a carried torch): the tolerance <see cref="AssignSlots"/> uses.
+    /// </summary>
+    public static bool SameLight(Vector4 held, Vector3 position, float radius)
+    {
+        if (held.W <= 0f) return false;
+        float larger = MathF.Max(radius, held.W);
+        if (MathF.Abs(radius - held.W) > 0.25f * larger) return false;
+        float tolerance = MathF.Max(0.5f, 0.25f * larger);
+        return Vector3.DistanceSquared(position, new Vector3(held.X, held.Y, held.Z)) <= tolerance * tolerance;
     }
 
     /// <summary>
