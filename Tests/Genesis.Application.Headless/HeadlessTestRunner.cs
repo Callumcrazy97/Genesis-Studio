@@ -1147,6 +1147,12 @@ internal static class HeadlessTestRunner
         ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips", "automation"],
         ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "sprite-draw-alloc", "opengl-compat", "window-lifecycle", "anti-aliasing", "frame-rate-choice", "light-probes"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl", "live-reload", "runtime-resources"],
+        // Every PGSL suite in one run (29 Oct 2026, for the final pass): the tier's, then the persistence and
+        // preprocessing suites, the language features, the interpreter against the compiled tier, and the VM's speed and result checks.
+        ["pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-preprocessing", "pgsl-scripts", "pgsl-features", "pgsl-tier", "pgsl-logic", "pgsl-persistence", "input-replay", "pgsl-project", "export-pgsl", "live-reload", "runtime-resources", "vm-speed"],
+        // Every Engine API suite in one run: each area and part from the registry, the standard's own checks
+        // (inside pgsl-logic), engine settings in the Inspector and rooms, and the F6 debug screen's values.
+        ["engine-api"] = ["engine-api-parts", "pgsl-engine-api", "engine-settings", "debug-screen"],
         // A running game's files, sounds, post effects and profile (the 2026-10-09 game requests).
         ["game-runtime"] = ["live-reload", "runtime-resources", "post-effects", "debug-screen", "sky-light-exposure"],
         // Particle burst cost and mesh streaming memory together (not part of the tiers), and with
@@ -1814,6 +1820,25 @@ internal static class HeadlessTestRunner
                 break;
             case "automation":
                 Suites.AutomationSuite.Run(ctx);
+                break;
+            case "engine-api-parts":
+                // Every Engine.Area.Part.Value from the live registry: default, set, read back (script and Inspector), Enabled, F6, the command lists.
+                Suites.EngineApiSuite.Run(ctx);
+                break;
+            case "pgsl-engine-api":
+                // The standard engine API's checks inside pgsl-logic, without the rest of the language.
+                Suites.PgslLogicSuite.Run(ctx, engineApiOnly: true);
+                break;
+            case "pgsl-tier":
+                // Scripts run by the interpreter alone and with the compiled tier, compared; a cached large Script both ways.
+                Suites.PgslTierSuite.Run(ctx);
+                break;
+            case "pgsl-features":
+                // Strings from 1, DsListInsert with text, numbers from one text, Choose, for-loop steps, typed grids, event variables.
+                Suites.PgslFeaturesSuite.Run(ctx);
+                break;
+            case "pgsl-preprocessing":
+                Suites.PgslPreprocessingSuite.Run(ctx);
                 break;
             case "asset-import":
                 Suites.AssetImportSuite.Run(ctx);

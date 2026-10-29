@@ -2,6 +2,22 @@
 
 The build, validation, game export and recovery guide is maintained in the [master document](README.md#build-validation-and-recovery).
 
+## Test targets for PGSL and the Engine API
+
+`Build.bat --quick --test <target>` (or `Genesis.Application.Headless.exe --test <target> --output <folder>`)
+runs one named target. Two targets run everything of one kind, for the final pass of a release:
+
+| Target | Runs | What it covers |
+|---|---|---|
+| `pgsl` | `pgsl-values`, `pgsl-cache`, `pgsl-preprocessing`, `pgsl-scripts`, `pgsl-features`, `pgsl-tier`, `pgsl-logic`, `pgsl-persistence`, `input-replay`, `pgsl-project`, `export-pgsl`, `live-reload`, `runtime-resources`, `vm-speed` | The language and its runtime: values and types, the compile cache on disk, source preprocessing, Script resources, strings counted from 1, `DsListInsert` with text, numbers from one text, `Choose`, `for` steps, typed grids, event variables, each script run by the interpreter alone and with the compiled tier and compared, operators and loops and collections, jobs and persistence, a real project run, exported games, live reload, the VM's speed and its results. |
+| `engine-api` | `engine-api-parts`, `pgsl-engine-api`, `engine-settings`, `debug-screen` | `Engine.<Area>.<Part>.<Value>`: for every area and part in the registry, each value's default, set, read back through a script and through the Inspector, `Enabled` toggled with its effect where the harness can see one; the standard's own checks (`pgsl-engine-api` is the EngineApi part of `pgsl-logic` on its own); engine settings in Objects, rooms, models and terrains; the F6 screen's values; every PGSL and Engine command with a name, signature and description, and the command sweeps. |
+
+The new members: `pgsl-features` (`Engine.Pgsl.Strings.*`, `Lists.*`, `Choose.*`, `ForLoops.*`, `TypedGrids.*`,
+`EventLocals.*`), `pgsl-tier` (`Engine.Pgsl.Tier.*`, with `pgsl-tier.md` beside its captures), `pgsl-preprocessing`
+(the existing preprocessing cases on their own), `pgsl-engine-api` and `engine-api-parts` (`Engine.Api.*`, with
+`engine-api-parts.md`: every value's outcome and which areas and parts have no `Enabled` yet). The coverage map
+is `Tests/Genesis.Application.Headless/Documentation/PgslAndEngineApiCoverage.md`.
+
 ## Precompiled engine shaders
 
 Every build (Quick and Full) has a step "Precompile engine shaders for Studio and Player". It runs
