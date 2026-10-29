@@ -9,6 +9,75 @@ The Audio editor edits a game's sounds. It has two modes, chosen by the resource
   `PlaySound` call. Code: `Source/Genesis.Application.Editors.Suite/Assets/AudioEditorControl*.cs`.
 - **Music** (`.music.json`): a piece of music made of notes, below.
 
+Options › **Mixer and snapshots…** edits the project's mixer (below); it is the same page whichever
+Audio resource it is opened from.
+
+## The synthesiser's options (GS2, 29 October 2026)
+
+Additive to `SoundSynth` and `SynthSounds`; each defaults to how sounds were made before, and every
+preset renders the same samples it did (`Editor.Audio.Synth.OldPresetsRenderTheSameSamplesAsBefore`
+holds a fingerprint of each).
+
+| Option | What it does |
+|---|---|
+| `Envelope: Exponential` (layer) | Decay and release fall about 60 dB on a curve, the attack eases in; `Linear` (default) is the old shape |
+| `HighPass`, `BandPass` with `Q` (layer) | Two-pole cookbook filters after the low-pass; Q 0.707 by default, higher rings and narrows |
+| `WhiteNoise`, `PinkNoise`, `BrownNoise` (wave) | Continuous noise (the old `Noise` holds each value for a time set by the pitch), pink (Kellet's filter), brown (a leaky sum) |
+| `BandLimited` (layer) | PolyBLEP saw and square: no aliasing buzz at high notes, and no DC offset from the square's duty |
+| `Pan` (layer) | -1 left to 1 right, equal power; a panned layer makes the sound stereo (`SoundSynth.RenderStereo`, `SynthSound.Channels`, a stereo WAV) |
+| `LoopSeconds` (recipe; `audio.synth`'s `loopSeconds`) | The sound is made exactly that long and what runs on past the end is faded into the start, a seamless loop |
+| Layer cap | 16,384 layers and notes (512 before) |
+
+## The mixer: bus effects and snapshots (29 October 2026)
+
+Every sound plays on a bus: `sfx`, `music`, or a project's own (`ui`, `ambient`). A bus can carry, in
+this order, a **filter** (low-pass, high-pass or band-pass, with Q), a three-band **EQ** (dB at
+150 Hz, 1 kHz and 6 kHz, the system's FXEQ), a **reverb** (XAudio2's, by place: room, hall, cave,
+arena, forest... and a mix) and a **compressor** (threshold dB, ratio, attack, release). All are off
+by default; a bus with none plays exactly as before.
+
+How it works (`Source/Runtime/Genesis.Audio/AudioEngine.cs`, `XAudioSystem.Mixer.cs`): a bus that
+carries an effect, or is measured, gets its own stereo submix voice (processing stage 0) between its
+sounds and the world's or music's submix (stage 1, where the room's acoustics and the music's muffle
+still apply). Its built-in filter is the bus filter; its effect chain is FXEQ, reverb and a volume
+meter; its volume is the compressor's gain, which `Update` sets each frame from the meter's peak
+(attack and release smoothed). Sounds already playing on the bus are moved into it when it is made.
+
+**Snapshots** are named sets of bus volumes and effects. `BlendToSnapshot(name, seconds)` moves every
+bus the snapshot names from how it is now to the snapshot over the time: volumes and amounts move
+evenly, frequencies evenly in pitch; an effect being turned on comes in from where it does nothing
+(a reverb from no mix, an EQ band from 0 dB, a compressor from a ratio of 1, a low-pass from fully
+open), one turned off goes out the same way and is switched off at the end. A script setting a bus
+during a blend is overruled by the blend until it ends (`Engine.Audio.Snapshot.Enabled = false` holds
+the blend where it is).
+
+**Where it lives:** the project's mixer is `AudioMixer.json` beside the project file (it travels with
+an exported game; `ProjectSettings` does not): each bus's starting volume and effects, and the
+snapshots. `XAudioSystem` reads it when a game (or the Audio editor) makes its audio. The Audio
+editor's Mixer page edits it: choose a bus, its volume and effects, keep the buses as a snapshot,
+Save the mixer; Play there plays the sound through its bus as the page has it, saved or not.
+
+**From a script:** `BusFilter`, `BusEq`, `BusReverb`, `BusCompressor`, `BusEffectsEnabled`,
+`BusEffectsClear`, `BusLevel` take any bus by name; the music and sound-effects buses also have the
+parts `Engine.Audio.Music.Filter/Eq/Reverb/Compressor.*` and `Engine.Audio.Effects.*` (each with
+Enabled, so they show in the Inspector's and F6's Audio area), and `Engine.Audio.Music.Level`;
+snapshots are `AudioSnapshotSave`, `AudioSnapshotBlend`, `AudioSnapshotCurrent`,
+`AudioSnapshotProgress` and `Engine.Audio.Snapshot` (Blend, Save, Name, Progress, Enabled).
+
+**Not in this first version:** effects on the master bus (its volume is the device's), effects in an
+order of the game's choosing (the order is fixed: filter, EQ, reverb, compressor), a delay or chorus,
+a side-chained compressor (ducking does that job, `BusDuck`), sample-accurate compression (the
+compressor works at the frame rate from the meter's peak, so it levels rather than catches
+transients), and snapshots in the Audio editor's undo (the mixer is a project file, saved with its
+own button).
+
+**Tests:** `Tests/Genesis.Application.Headless/Suites/EditorGate.AudioMixer.cs`, with the Audio
+editor's cases (`--test Audio`) or alone (`--test mixer`): old presets unchanged, a band-pass with Q
+peaking at its frequency, pink and brown slopes, the exponential curve, band-limited aliasing and
+offset, stereo pan, seamless loops, 600 layers; a 6 kHz tone's bus measured before and after a
+300 Hz low-pass, an 18 dB EQ cut and a compressor; a blend from the project's mixer reaching its
+target in its time from script; and the Mixer page saving a mixer a game starts with.
+
 ## Music (MIDI)
 
 A GarageBand-like studio for a game's music, added 29 October 2026 (plan item C4 in

@@ -12,7 +12,7 @@ namespace Genesis.Audio
     /// XAudio2-backed <see cref="IAudioSystem"/> with real loop/stop, listener attenuation,
     /// optional .audio.json meta, and simple master/SFX/music buses.
     /// </summary>
-    public sealed class XAudioSystem : IAudioSystem, IDisposable
+    public sealed partial class XAudioSystem : IAudioSystem, IDisposable
     {
         private readonly AudioEngine _engine;
         private readonly string _projectPath;
@@ -139,6 +139,8 @@ namespace Genesis.Audio
         {
             _projectPath = projectPath ?? string.Empty;
             _engine = new AudioEngine();
+            // The project's mixer (AudioMixer.json): its buses' starting volumes and effects, and its snapshots.
+            if (_projectPath.Length > 0) ApplyMixer(AudioMixerSettings.Load(_projectPath));
         }
 
         public float MasterVolume
@@ -194,8 +196,11 @@ namespace Genesis.Audio
         public void SetChannelBus(AudioChannel channel, string bus)
         {
             if (!channel.IsValid || !_channels.TryGetValue(channel.Id, out ChannelState? state) || state == null) return;
-            state.Bus = BusName(bus);
+            string name = BusName(bus);
+            bool moved = name != state.Bus;
+            state.Bus = name;
             state.BusChosen = true;
+            if (moved) Route(state);
             ApplySpatial(channel.Id);
         }
 
@@ -454,7 +459,7 @@ namespace Genesis.Audio
 
                 if (!state.BusChosen) state.Bus = entry.Bus;
                 IXAudio2SourceVoice? voice = entry.Effect.PlayVoice(_engine, state.BaseVolume * BusGain(state.Bus),
-                    state.PendingPitch * state.AssetPitch, state.Loop, IsMusic(state.Bus));
+                    state.PendingPitch * state.AssetPitch, state.Loop, IsMusic(state.Bus), BusName(state.Bus));
                 state.Pending = false;
                 if (voice == null)
                 {
@@ -519,7 +524,7 @@ namespace Genesis.Audio
 
             bool wantLoop = loop || entry.Loop;
             float gain = volume * entry.Gain * BusGain(entry.Bus);
-            var voice = entry.Effect.PlayVoice(_engine, gain, pitch * entry.Pitch, wantLoop, IsMusic(entry.Bus));
+            var voice = entry.Effect.PlayVoice(_engine, gain, pitch * entry.Pitch, wantLoop, IsMusic(entry.Bus), BusName(entry.Bus));
             if (voice == null) return AudioChannel.Invalid;
 
             int channelId = _nextChannelId++;
@@ -722,6 +727,7 @@ namespace Genesis.Audio
         {
             _engine?.Update();
             UpdateDucks();
+            UpdateMixer();
             if (_channels.Count == 0) return;
             StartPendingChannels();
 

@@ -838,6 +838,8 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
         {
         _audio?.Dispose();
         _audio = new XAudioSystem(ProjectRoot);
+        // The Mixer page's buses as it has them, saved or not.
+        if (_mixer is not null) _audio.ApplyMixer(_mixer);
         }
         catch (Exception exception) when (exception is DllNotFoundException or InvalidOperationException or SharpGen.Runtime.SharpGenException)
         {
@@ -979,7 +981,7 @@ public sealed partial class AudioEditorControl : EditorSurfaceControl, IResource
             }
             foreach (Label label in _inspectorPanel.Controls.OfType<Label>()) label.Font = EditorChrome.HeadingFont;
             _listenerLabel.Font = _statusLabel.Font = EditorChrome.SmallFont;
-            bool fullPage = _showAudioGameGuide || _showAudioSynth;
+            bool fullPage = _showAudioGameGuide || _showAudioSynth || _showAudioMixer;
             _inspectorPanel.Visible = _waveformPanel.Visible = !fullPage;
             _curvePanel.Visible = _document.Spatial && !fullPage;
             foreach (Control field in _advancedAudioFields) field.Visible = _advancedAudio;

@@ -120,6 +120,7 @@ internal static partial class EditorGate
         });
         AudioSynthWorkflow(ctx);
         MusicStudioWorkflow(ctx);
+        AudioMixerWorkflow(ctx);
     }
 
     // ── Make a sound here: the synthesiser from inside the Audio editor ─────────────────────────────

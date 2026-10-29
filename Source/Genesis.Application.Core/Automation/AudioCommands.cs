@@ -34,6 +34,7 @@ public static class AudioCommands
         [Description("The Audio resource loops (music, ambience).")] public bool? Loop { get; set; }
         [Description("The Audio resource's playback volume, 0 to 1.")] public double? Volume { get; set; }
         [Description("Seed for noise, so the same input makes the same sound (default 1).")] public int? Seed { get; set; }
+        [Description("Seconds of a seamless loop: the sound is made exactly this long and repeats without a click (0 or absent: as made).")] public double? LoopSeconds { get; set; }
     }
 
     public sealed class AudioSynth : AutomationCommand<SynthInput>
@@ -56,10 +57,11 @@ public static class AudioCommands
                     EchoDelay = input.EchoDelay ?? 0,
                     EchoFeedback = input.EchoFeedback ?? 0,
                     Seed = input.Seed ?? 1,
+                    LoopSeconds = input.LoopSeconds ?? 0,
                 });
                 string stem = SynthSounds.FileStem(input.Name);
                 if (stem.Length == 0) throw new AutomationException("The sound needs a name.");
-                return SynthSounds.WithWavFile(sound.Samples, stem, wav =>
+                return SynthSounds.WithWavFile(sound, stem, wav =>
                 {
                     string resource = context.Resources.ImportFiles(context.Resolve(input.Folder ?? "Assets/Audio"), [wav]).Single();
                     if (input.Loop is not null || input.Volume is not null)
@@ -77,6 +79,7 @@ public static class AudioCommands
                             ["name"] = ResourceNames.Name(context.Root, resource),
                             ["seconds"] = Math.Round(seconds, 3),
                             ["sampleRate"] = SoundSynth.SampleRate,
+                            ["channels"] = sound.Channels,
                             ["layers"] = sound.LayerCount,
                         }, context.Relative(resource));
                 });

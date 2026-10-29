@@ -62,6 +62,9 @@ rate. A new project already has a room called Start, so give yours another name.
 | A tune of your own | New › Music (it lives in Assets/Music) opens the Audio editor's Music mode: tracks of notes, each with an instrument (`Piano`, `Pluck`, `Bass`, `Lead`, `Pad`, `Organ`, `Drum Kit`, or any Make a sound preset), mute, solo and volume. Click the piano roll for a note, drag to move or resize it, drag in the lane under it for velocity; Play, Loop (drag on the ruler) and Undo work as you would expect. |
 | A song from another program | Import MIDI… in the Music mode reads a `.mid` file (format 0 or 1): a track per channel, channel 10 as the drum kit. Export MIDI… writes it back for other programs. |
 | The music in the game | Render to Audio makes the Audio resource `<piece> Audio` (music bus, repeating) beside your other sounds; play it with `PlaySound("Theme Song Audio", 0.5, 1, true)`. Render again after an edit: the same resource is updated. |
+| A bus effect | `Engine.Audio.Music.Reverb.Mix = 0.4;` then `Engine.Audio.Music.Reverb.Enabled = true;` (any bus by name: `BusReverb("ui", "hall", 0.3)`, `BusFilter("sfx", "lowpass", 600)` for underwater, `BusEq("music", 3, 0, -2)`, `BusCompressor("sfx", -18, 4)`). Every effect is off until set. The Audio editor's Options › Mixer and snapshots sets them for the whole project (AudioMixer.json), and the game starts with them. |
+| A snapshot blend | Set the buses for a mood and keep it, `AudioSnapshotSave("Explore")`, or keep snapshots in the Mixer page; then `Engine.Audio.Snapshot.Blend("Combat", 1.5);` moves every bus the snapshot names (volume and effects) there over 1.5 s, and `Engine.Audio.Snapshot.Blend("Explore", 3);` goes back. |
+| A seamless loop from the synthesiser | `audio.synth` with `"loopSeconds": 4` (wind, rain, an engine hum): exactly 4 s, and its end runs into its start. `"pan"` on a layer makes it stereo. |
 
 ## A player
 
