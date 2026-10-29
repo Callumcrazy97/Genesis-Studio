@@ -60,5 +60,19 @@ namespace Genesis.Shared.Interfaces
         /// every surface takes every layer unless it says otherwise.
         /// </summary>
         public int Layer;
+
+        /// <summary>
+        /// A normal map (tangent space, +Y up the picture) whose bumps re-shade the surface under the
+        /// decal by the room's sun and ambient light (a dent, raised paint). The decal pass draws over
+        /// the lit picture, so the lamps' light is scaled with it rather than lit anew. None by default.
+        /// </summary>
+        public TextureHandle NormalMap;
+
+        /// <summary>
+        /// A roughness map (red, 0 mirror-smooth to 1 matte) for the decal's own sheen: the sun's
+        /// highlight on it is added at that roughness (wet blood, fresh paint, oil). It adds a
+        /// highlight; it cannot take away the surface's own. None by default.
+        /// </summary>
+        public TextureHandle RoughnessMap;
     }
 }

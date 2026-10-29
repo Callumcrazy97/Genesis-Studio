@@ -834,6 +834,10 @@ internal static class RenderBackendSuite
         HeadlessHarness.RunCase(ctx.Report, "Render.Decals.LayersPickTheirSurfacesOnEveryBackend",
             () => DecalLayerSuite.LayersPickTheirSurfaces(ctx));
 
+        // A decal's normal map re-shades the surface and its roughness map adds a sheen.
+        HeadlessHarness.RunCase(ctx.Report, "Render.Decals.NormalAndRoughnessMapsOnEveryBackend",
+            () => DecalLayerSuite.MapsReshadeTheSurface(ctx));
+
         // AF1.2: GTAO math + enable wiring (default off; Software skip).
         HeadlessHarness.RunCase(ctx.Report, "Render.Gtao.MathAndEnableWiring", () =>
         {

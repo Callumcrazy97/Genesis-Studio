@@ -95,6 +95,18 @@ public static partial class PgslCommands
     public static bool DecalSetLayer(double decal, double layer) =>
         IsDecalId(decal) && double.IsFinite(layer) && WorldDecals.SetLayer((int)decal, (int)Math.Round(layer));
 
+    [PgslCommand("DecalSetNormalMap", "DecalSetNormalMap(decal, image) -> changed",
+        "Give a decal a normal map (an Image resource or a texture from TextureCreate, its bumps in tangent space, up the picture is +Y): the surface under it is re-shaded by the bumps in the room's sun and ambient light, a dent or raised paint. \"\" removes it",
+        "Decals", Namespace = "Engine.Rendering.Decals")]
+    public static bool DecalSetNormalMap(double decal, string image) =>
+        IsDecalId(decal) && WorldDecals.SetNormalMap((int)decal, image);
+
+    [PgslCommand("DecalSetRoughnessMap", "DecalSetRoughnessMap(decal, image) -> changed",
+        "Give a decal a roughness map (red: 0 mirror-smooth to 1 matte): the sun's highlight on the decal is added at that roughness, for wet blood, fresh paint or oil. It adds a sheen; it cannot take away the surface's own. \"\" removes it",
+        "Decals", Namespace = "Engine.Rendering.Decals")]
+    public static bool DecalSetRoughnessMap(double decal, string image) =>
+        IsDecalId(decal) && WorldDecals.SetRoughnessMap((int)decal, image);
+
     [PgslCommand("Enabled", "Engine.Decal.Enabled = true",
         "Whether decals are drawn; turned off they are kept and come back when turned on. On at each room's start",
         "Decals", Namespace = "Engine.Decal", Flat = false)]

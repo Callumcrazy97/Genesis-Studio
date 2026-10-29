@@ -43,6 +43,7 @@ namespace Genesis.Runtime.Rendering
             public DecalBlend Blend;
             public bool SeeThrough;
             public int Layer;
+            public string NormalImage, RoughnessImage;
             // The object it stays on (an entity id, 0 for none), and where it sits in that object's frame.
             public int Follow;
             public Vector3 LocalPosition, LocalNormal;
@@ -153,6 +154,24 @@ namespace Genesis.Runtime.Rendering
         /// </summary>
         public static bool SetLayer(int id, int layer) =>
             layer >= 0 && layer < MeshDrawCall.DecalLayerCount && Edit(id, decal => decal.Layer = layer);
+
+        /// <summary>A normal map for the decal (an Image resource or a TextureCreate number; empty for none).</summary>
+        public static bool SetNormalMap(int id, string image) => Edit(id, decal => decal.NormalImage = image?.Trim() ?? string.Empty);
+
+        /// <summary>A roughness map for the decal (red: 0 smooth to 1 matte; empty for none).</summary>
+        public static bool SetRoughnessMap(int id, string image) => Edit(id, decal => decal.RoughnessImage = image?.Trim() ?? string.Empty);
+
+        /// <summary>A decal's normal and roughness map names (empty for none); false when there is no such decal.</summary>
+        public static bool TryGetMaps(int id, out string normalMap, out string roughnessMap)
+        {
+            lock (Gate)
+            {
+                int index = IndexOf(id);
+                normalMap = index < 0 ? string.Empty : Decals[index].NormalImage ?? string.Empty;
+                roughnessMap = index < 0 ? string.Empty : Decals[index].RoughnessImage ?? string.Empty;
+                return index >= 0;
+            }
+        }
 
         /// <summary>A decal's layer, or -1 when there is no such decal.</summary>
         public static int LayerOf(int id)
@@ -399,6 +418,8 @@ namespace Genesis.Runtime.Rendering
                         Blend = decal.Blend,
                         SeeThrough = decal.SeeThrough,
                         Layer = decal.Layer,
+                        NormalMap = MapPicture(renderer, projectPath, decal.NormalImage),
+                        RoughnessMap = MapPicture(renderer, projectPath, decal.RoughnessImage),
                     };
                 }
                 Pictures.Clear();
@@ -419,6 +440,33 @@ namespace Genesis.Runtime.Rendering
             Vector3 bitangent = Vector3.Cross(normal, tangent);
             float radians = rotationDegrees * MathF.PI / 180f;
             return Vector3.Normalize(tangent * MathF.Cos(radians) + bitangent * MathF.Sin(radians));
+        }
+
+        // A normal or roughness map: data, not colours (an Image resource is read without decoding).
+        // Kept by name for the frame like the pictures, under its own key.
+        private static TextureHandle MapPicture(IRenderController renderer, string projectPath, string image)
+        {
+            if (string.IsNullOrEmpty(image)) return TextureHandle.Invalid;
+            string key = "\u0001map:" + image;
+            if (Pictures.TryGetValue(key, out TextureHandle known)) return known;
+            TextureHandle map = TextureHandle.Invalid;
+            if (double.TryParse(image, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
+                && number >= 1 && number <= int.MaxValue && number == Math.Floor(number) && ScriptTextures.Exists((int)number))
+                map = ScriptTextures.Resolve((int)number, renderer, out _);
+            else
+            {
+                try
+                {
+                    map = ObjectDrawPass.ResolveImageTexture(renderer, projectPath ?? Genesis.Runtime.Scripting.PgslCommands.ProjectPath,
+                        image, Genesis.Shared.Materials.TextureColorSpace.Linear);
+                }
+                catch (Exception)
+                {
+                    map = TextureHandle.Invalid;
+                }
+            }
+            Pictures[key] = map;
+            return map;
         }
 
         private static TextureHandle ResolvePicture(IRenderController renderer, string projectPath, string image)

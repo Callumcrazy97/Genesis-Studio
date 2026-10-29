@@ -1321,7 +1321,8 @@ namespace Genesis.Rendering.Core
         {
             if (_fwd == null) return;
             foreach (ref readonly DecalDrawCall decal in decals)
-                _fwd.AddDecal(GetGpuTexture(decal.Texture), decal.Texture.Id, decal);
+                _fwd.AddDecal(GetGpuTexture(decal.Texture), decal.Texture.Id, decal,
+                    ResolveGpuTexture(decal.NormalMap.Id), ResolveGpuTexture(decal.RoughnessMap.Id));
         }
 
         public void ClearPointLights()

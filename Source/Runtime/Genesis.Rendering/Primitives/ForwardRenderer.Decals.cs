@@ -42,8 +42,15 @@ internal sealed partial class ForwardRenderer
         public Vector4 CameraPos;
         public Vector4 Viewport;
         public Vector4 Params;
-        // x = 1 when the picture of the decal layers each surface refuses is bound (t3).
+        // x = 1 when the picture of the decal layers each surface refuses is bound (t3); y = 1 with
+        // a normal map (t4), z = 1 with a roughness map (t5).
         public Vector4 Layers;
+        // The room's light, for a normal map's re-shading and a roughness map's highlight:
+        // xyz towards the sun, w the sun's brightness (0 with lighting off).
+        public Vector4 SunToward;
+        public Vector4 SunColor;
+        public Vector4 AmbientSky;
+        public Vector4 AmbientGround;
     }
 
     /// <summary>The bits of a surface's refused decal layers (MeshDrawCall.DecalLayerCount of them).</summary>
@@ -70,6 +77,7 @@ internal sealed partial class ForwardRenderer
         public GpuTextureHandle Texture;
         public int TextureId;
         public byte Blend;
+        public GpuTextureHandle Normal, Roughness;
     }
 
     private PendingDecal[] _pendingDecals = new PendingDecal[64];
@@ -94,8 +102,9 @@ internal sealed partial class ForwardRenderer
     /// <summary>Decals given for the frame being made.</summary>
     public int DecalsSubmitted => _pendingDecalCount + _pendingDecalCardCount;
 
-    /// <summary>Adds a decal for this frame (see IRenderController.DrawDecals).</summary>
-    public void AddDecal(GpuTextureHandle texture, int textureId, in DecalDrawCall call)
+    /// <summary>Adds a decal for this frame (see IRenderController.DrawDecals), with its normal and roughness maps if any.</summary>
+    public void AddDecal(GpuTextureHandle texture, int textureId, in DecalDrawCall call,
+        GpuTextureHandle normalMap = default, GpuTextureHandle roughnessMap = default)
     {
         if (_pendingDecalCount + _pendingDecalCardCount >= MaxDecalsPerFrame) return;
         if (!Finite(call.Position) || !Finite(call.Normal) || !Finite(call.Tangent)) return;
@@ -132,6 +141,8 @@ internal sealed partial class ForwardRenderer
             Texture = texture,
             TextureId = textureId,
             Blend = (byte)Math.Clamp((int)call.Blend, 0, 2),
+            Normal = normalMap,
+            Roughness = roughnessMap,
         };
         if (call.SeeThrough)
         {
@@ -362,12 +373,22 @@ internal sealed partial class ForwardRenderer
         Matrix4x4 viewProj = SceneViewProj;
         if (!Matrix4x4.Invert(viewProj, out Matrix4x4 invViewProj)) return;
         int width = _rtWidth > 0 ? _rtWidth : 1, height = _rtHeight > 0 ? _rtHeight : 1;
+        bool software = string.Equals(_gpu.BackendName, "Software", StringComparison.OrdinalIgnoreCase);
+        // The room's sun and ambient light, as the forward pass takes them, for the maps.
+        Vector3 sunDirection = _state.LightDirection.LengthSquared() > 1e-8f
+            ? Vector3.Normalize(_state.LightDirection) : Mesh3DState.GetDefaultSunDirection();
+        Vector3 sunColor = (LinearPipeline ? ToLinearColor(_state.SunColor) : _state.SunColor) * MathF.Max(0f, _state.SunIntensity);
+        float lit = _state.LightingEnabled ? 1f : 0f;
         var constants = new DecalCB
         {
             ViewProjection = viewProj,
             InvViewProjection = invViewProj,
             CameraPos = new Vector4(_cameraPos, SceneDepthFlag),
             Viewport = new Vector4(width, height, 1f / width, 1f / height),
+            SunToward = new Vector4(-sunDirection, lit * (0.2126f * sunColor.X + 0.7152f * sunColor.Y + 0.0722f * sunColor.Z)),
+            SunColor = new Vector4(sunColor * lit, 0f),
+            AmbientSky = new Vector4(LinearPipeline ? ToLinearColor(_state.AmbientColor) : _state.AmbientColor, 0f),
+            AmbientGround = new Vector4(LinearPipeline ? ToLinearColor(_state.AmbientGroundColor) : _state.AmbientGroundColor, 0f),
         };
 
         _gpu.EndRenderPass();
@@ -396,22 +417,42 @@ internal sealed partial class ForwardRenderer
             while (end < count)
             {
                 ref PendingDecal next = ref _pendingDecals[_decalOrder[end]];
-                if (next.Blend != first.Blend || next.TextureId != first.TextureId) break;
+                if (next.Blend != first.Blend || next.TextureId != first.TextureId
+                    || next.Normal.Id != first.Normal.Id || next.Roughness.Id != first.Roughness.Id) break;
                 end++;
             }
+            // The CPU renderer draws the pictures alone; its pass knows nothing of the maps.
+            bool normalMap = first.Normal.IsValid && !software;
+            bool roughnessMap = first.Roughness.IsValid && !software;
+            constants.Layers.Y = normalMap ? 1f : 0f;
+            constants.Layers.Z = roughnessMap ? 1f : 0f;
             constants.Params = new Vector4(start, first.Blend, LinearPipeline ? 1f : 0f, end - start);
             _gpu.UpdateConstantBuffer(_cbDecal, constants);
             _gpu.SetBlendState(first.Blend switch { 0 => _bsDecalMultiply, 1 => _bsDecalAlpha, _ => _bsDecalAdd });
             _gpu.SetTexture(GpuShaderStage.Pixel, 2, first.Texture);
+            _gpu.SetTexture(GpuShaderStage.Pixel, 4, normalMap ? first.Normal : GpuTextureHandle.Invalid);
+            _gpu.SetTexture(GpuShaderStage.Pixel, 5, roughnessMap ? first.Roughness : GpuTextureHandle.Invalid);
             _gpu.DrawIndexedInstanced(quad.IndexCount, end - start);
             LastDecalDrawCalls++;
             LastDrawCalls++;
+            // The decal's own sheen: the sun's highlight at its roughness, added over it.
+            if (roughnessMap)
+            {
+                constants.Params.Y = 3f;
+                _gpu.UpdateConstantBuffer(_cbDecal, constants);
+                _gpu.SetBlendState(_bsDecalAdd);
+                _gpu.DrawIndexedInstanced(quad.IndexCount, end - start);
+                LastDecalDrawCalls++;
+                LastDrawCalls++;
+            }
             start = end;
         }
         LastDecalsDrawn = count;
 
         _gpu.ClearTexture(GpuShaderStage.Pixel, 1);
         _gpu.ClearTexture(GpuShaderStage.Pixel, 2);
+        _gpu.ClearTexture(GpuShaderStage.Pixel, 4);
+        _gpu.ClearTexture(GpuShaderStage.Pixel, 5);
         if (layers) _gpu.ClearTexture(GpuShaderStage.Pixel, 3);
         _gpu.EndRenderPass();
         BeginForwardColorPass(hasDepth: true, "Forward after decals");

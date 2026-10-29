@@ -122,6 +122,105 @@ internal static class DecalLayerSuite
         HeadlessHarness.Assert(failures.Count == 0, string.Join("; ", failures));
     }
 
+    /// <summary>
+    /// A decal's normal map re-shades the surface by the sun: on a wall lit from the left, a white
+    /// decal whose bumps lean left comes out brighter than the bare wall and one leaning right
+    /// darker. A roughness map adds the sun's highlight: with the sun behind the camera, a smooth
+    /// decal is brighter than a matte one. On every GPU backend.
+    /// </summary>
+    public static void MapsReshadeTheSurface(HeadlessContext ctx)
+    {
+        Matrix4x4 view = D3dMatrixHelper.CreateLookAtLh(Vector3.Zero, new Vector3(0f, 0f, 4f), Vector3.UnitY);
+        Matrix4x4 projection = D3dMatrixHelper.CreatePerspectiveLh(MathF.PI / 3f, Width / (float)Height, 0.1f, 100f);
+        Point Screen(Vector3 world)
+        {
+            Vector4 clip = Vector4.Transform(new Vector4(world, 1f), view * projection);
+            return new Point((int)((clip.X / clip.W * 0.5f + 0.5f) * Width), (int)((0.5f - clip.Y / clip.W * 0.5f) * Height));
+        }
+        byte[] Solid(byte r, byte g, byte b)
+        {
+            byte[] rgba = new byte[8 * 8 * 4];
+            for (int i = 0; i < rgba.Length; i += 4) { rgba[i] = r; rgba[i + 1] = g; rgba[i + 2] = b; rgba[i + 3] = 255; }
+            return rgba;
+        }
+        static byte Encode(float v) => (byte)Math.Clamp((int)MathF.Round((v * 0.5f + 0.5f) * 255f), 0, 255);
+
+        List<string> failures = [];
+        foreach (RenderBackendOption backend in GpuBackends)
+        {
+            using var host = UnattendedWindowing.NewHost(Width, Height);
+            UnattendedWindowing.ShowWithoutFocus(host);
+            using IRenderController renderer = RenderControllerFactory.Create(backend);
+            renderer.Initialize(host.Handle, Width, Height);
+            MeshHandle wall = renderer.RegisterMesh(Quad(-3f, 3f), [0, 1, 2, 0, 2, 3]);
+            TextureHandle white = renderer.CreateTexture(8, 8, Solid(255, 255, 255));
+            TextureHandle leanLeft = renderer.CreateTexture(8, 8, Solid(Encode(-0.6f), Encode(0f), Encode(0.8f)), Genesis.Shared.Materials.TextureColorSpace.Linear);
+            TextureHandle leanRight = renderer.CreateTexture(8, 8, Solid(Encode(0.6f), Encode(0f), Encode(0.8f)), Genesis.Shared.Materials.TextureColorSpace.Linear);
+            TextureHandle smooth = renderer.CreateTexture(8, 8, Solid(38, 38, 38), Genesis.Shared.Materials.TextureColorSpace.Linear);
+            TextureHandle matte = renderer.CreateTexture(8, 8, Solid(255, 255, 255), Genesis.Shared.Materials.TextureColorSpace.Linear);
+            string name = backend.ToString().ToLowerInvariant();
+            try
+            {
+                byte[] Frame(Vector3 lightDirection, DecalDrawCall[] decals, string label, float sun = 1.2f)
+                {
+                    Mesh3DState state = Mesh3DState.Default;
+                    state.ShowFloor = false; state.ShowSunVisual = false; state.FogEnabled = false; state.ShadowsEnabled = false;
+                    state.FrustumCullingEnabled = false; state.LightingEnabled = true;
+                    state.LightDirection = Vector3.Normalize(lightDirection); state.SunColor = Vector3.One; state.SunIntensity = sun;
+                    state.AmbientColor = new Vector3(0.2f); state.AmbientGroundColor = new Vector3(0.1f);
+                    renderer.SetMesh3DState(state); renderer.Set3DFrameActive(true);
+                    renderer.SetCamera3D(view, projection);
+                    renderer.BeginFrame(); renderer.Clear(0.35f, 0.5f, 0.75f);
+                    renderer.ClearPointLights();
+                    renderer.DrawMesh(new MeshDrawCall { Mesh = wall, World = Matrix4x4.Identity, Tint = RenderColor.White, Alpha = 1f,
+                        Flags = MeshDrawFlags.NoCull | MeshDrawFlags.NoShadow | MeshDrawFlags.NoFog });
+                    if (decals.Length > 0) renderer.DrawDecals(decals);
+                    renderer.EndFrame();
+                    HeadlessHarness.Assert(renderer.TryReadSubmittedFramePixels(out int width, out int height, out byte[] pixels), backend + ": no frame was read back.");
+                    Save(pixels, width, height, ctx, $"decal-maps-{name}-{label}");
+                    renderer.Present();
+                    return pixels;
+                }
+                double L(byte[] frame, Vector3 world)
+                {
+                    Point p = Screen(world);
+                    int offset = (p.Y * Width + p.X) * 4;
+                    return 0.0722 * frame[offset] + 0.7152 * frame[offset + 1] + 0.2126 * frame[offset + 2];
+                }
+                DecalDrawCall At(float x, float y, TextureHandle normal = default, TextureHandle roughness = default) => new()
+                {
+                    Texture = white, Position = new Vector3(x, y, 4f), Normal = -Vector3.UnitZ, Tangent = Vector3.UnitX,
+                    Width = 1.6f, Height = 1.6f, Depth = 0.5f, Color = Vector4.One, Blend = DecalBlend.Multiply,
+                    NormalMap = normal, RoughnessMap = roughness,
+                };
+
+                // The sun from the left, in front of the wall.
+                Vector3 fromLeft = new(0.7f, 0f, 0.7f);
+                Vector3 leftSpot = new(-1.2f, 0f, 4f), rightSpot = new(1.2f, 0f, 4f);
+                byte[] bare = Frame(fromLeft, [], "bare");
+                byte[] bumped = Frame(fromLeft, [At(leftSpot.X, 0f, normal: leanLeft), At(rightSpot.X, 0f, normal: leanRight)], "normal");
+                double bareLeft = L(bare, leftSpot), bareRight = L(bare, rightSpot);
+                double towards = L(bumped, leftSpot), away = L(bumped, rightSpot);
+                if (!(towards > bareLeft + 8)) failures.Add($"{backend}: bumps leaning to the sun did not brighten the wall ({bareLeft:F0} -> {towards:F0})");
+                if (!(away < bareRight - 8)) failures.Add($"{backend}: bumps leaning from the sun did not darken the wall ({bareRight:F0} -> {away:F0})");
+
+                // The sun behind the camera, so its mirror highlight is in the middle of the view,
+                // where the decal is: a smooth one there against a matte one, a frame each.
+                Vector3 behind = new(0f, 0f, 1f), middle = new(0f, 0f, 4f);
+                byte[] smoothFrame = Frame(behind, [At(0f, 0f, roughness: smooth)], "smooth", sun: 0.6f);
+                byte[] matteFrame = Frame(behind, [At(0f, 0f, roughness: matte)], "matte", sun: 0.6f);
+                double shiny = L(smoothFrame, middle), dull = L(matteFrame, middle);
+                if (!(shiny > dull + 15)) failures.Add($"{backend}: a smooth decal is no shinier than a matte one ({shiny:F0} against {dull:F0})");
+            }
+            finally
+            {
+                renderer.ReleaseMesh(wall);
+                foreach (TextureHandle texture in new[] { white, leanLeft, leanRight, smooth, matte }) renderer.ReleaseTexture(texture);
+            }
+        }
+        HeadlessHarness.Assert(failures.Count == 0, string.Join("; ", failures));
+    }
+
     /// <summary>A wall from x0 to x1, 4 m tall, 4 m in front of the camera, facing it.</summary>
     private static MeshVertex[] Quad(float x0, float x1)
     {
