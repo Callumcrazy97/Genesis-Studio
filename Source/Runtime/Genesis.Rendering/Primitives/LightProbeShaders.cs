@@ -22,6 +22,9 @@ cbuffer LightProbeConstants : register(b0)
     float4 SkyZenith;
     float4 SkyHorizon;
     float4 SkyGround;
+    // A placed probe's block of the placed probes' atlas (ForwardRenderer.PlacedProbes): x = its
+    // block, y = face pixels, zw = the atlas's size in pixels. Zero for the camera's own atlas.
+    float4 AtlasParams;
 };
 
 Texture2D        FaceColor : register(t0);
@@ -97,11 +100,20 @@ float4 PS_Average(VSOut IN) : SV_Target
             float2 uv = (float2(x, y) + 0.5) / 16.0;
             float2 ndc = uv * 2.0 - 1.0;
             float w = pow(1.0 + dot(ndc, ndc), -1.5);
-            sum += Atlas.SampleLevel(LinearClamp, (tile + uv) / float2(3.0, 2.0), 0).rgb * w;
+            float2 at = AtlasParams.w > 0.0
+                ? (tile + float2(0.0, 2.0 * AtlasParams.x) + uv) * AtlasParams.y / AtlasParams.zw
+                : (tile + uv) / float2(3.0, 2.0);
+            sum += Atlas.SampleLevel(LinearClamp, at, 0).rgb * w;
             weight += w;
         }
     }
     return float4(sum / max(weight, 1e-4), 1.0);
+}
+
+// A placed probe's ambient row, averaged into a 6 x 1 target, copied under the blocks of its atlas.
+float4 PS_CopyRow(VSOut IN) : SV_Target
+{
+    return Atlas.Load(int3(min((int)(IN.uv.x * 6.0), 5), 0, 0));
 }
 ";
 

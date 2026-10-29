@@ -257,9 +257,16 @@ public static class EngineSettings
     // Shown only once the room has camera rigs, so a game without them sees the list it always had.
     private static readonly string[] CameraRigValues = { "Engine.Camera.Rigs.Enabled", "Engine.Camera.Rigs.Active", "Engine.Camera.Rigs.BlendTime" };
 
-    /// <summary>The world values the debug screen shows: physics, the audio buses, the game's speed and any camera rigs.</summary>
-    public static IReadOnlyList<(Setting Setting, object? Value)> WorldValuesNow() =>
-        Read(PgslCommands.CameraRigsCount > 0 ? WorldValues.Concat(CameraRigValues) : WorldValues, new PgslContext());
+    // Shown only once the room has placed probes, likewise.
+    private static readonly string[] PlacedProbeValues = { "Engine.Lighting.Probes.Enabled" };
+
+    /// <summary>The world values the debug screen shows: physics, the audio buses, the game's speed, any camera rigs and placed probes.</summary>
+    public static IReadOnlyList<(Setting Setting, object? Value)> WorldValuesNow()
+    {
+        IEnumerable<string> names = PgslCommands.CameraRigsCount > 0 ? WorldValues.Concat(CameraRigValues) : WorldValues;
+        if (Genesis.Shared.Rendering.PlacedProbes.Count > 0) names = names.Concat(PlacedProbeValues);
+        return Read(names, new PgslContext());
+    }
 
     private static List<(Setting Setting, object? Value)> Read(IEnumerable<string> names, PgslContext context)
     {

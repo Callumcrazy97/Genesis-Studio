@@ -7,7 +7,7 @@ using System.ComponentModel;
 namespace Genesis.Runtime.Scene;
 
 public enum RoomDimension { TwoD, ThreeD }
-public enum RoomNodeKind { GameObject, Background, TileLayer, Terrain }
+public enum RoomNodeKind { GameObject, Background, TileLayer, Terrain, Probe }
 public enum RoomBackgroundMode { TwoD, Sky, Billboard, WorldPlane }
 public enum RoomBackgroundLayout { Single, Tile, StretchRoom, StretchView }
 
@@ -119,6 +119,8 @@ public sealed class RoomAsset
             node.Background ??= node.Kind == RoomNodeKind.Background ? new RoomBackgroundData() : null;
             node.TileLayer ??= node.Kind == RoomNodeKind.TileLayer ? new RoomTileLayerData() : null;
             node.Terrain ??= node.Kind == RoomNodeKind.Terrain ? new RoomTerrainData() : null;
+            node.Probe ??= node.Kind == RoomNodeKind.Probe ? new RoomProbeData() : null;
+            node.Probe?.Normalize();
         }
         var valid = new HashSet<string>(Nodes.ConvertAll(n => n.Id), StringComparer.OrdinalIgnoreCase);
         foreach (RoomNode node in Nodes)
@@ -448,6 +450,7 @@ public sealed class RoomNode
     [JsonProperty("background", NullValueHandling = NullValueHandling.Ignore)] public RoomBackgroundData Background { get; set; }
     [JsonProperty("tileLayer", NullValueHandling = NullValueHandling.Ignore)] public RoomTileLayerData TileLayer { get; set; }
     [JsonProperty("terrain", NullValueHandling = NullValueHandling.Ignore)] public RoomTerrainData Terrain { get; set; }
+    [JsonProperty("probe", NullValueHandling = NullValueHandling.Ignore)] public RoomProbeData Probe { get; set; }
     public bool Supports(RoomDimension dimension) => dimension == RoomDimension.TwoD ? EnabledIn2D : EnabledIn3D;
 }
 
@@ -539,4 +542,45 @@ public sealed class RoomTerrainData
     [JsonProperty("material")] public string Material { get; set; } = "";
     [JsonProperty("albedo")] public string Albedo { get; set; } = "";
     [JsonProperty("uvScale")] public float UvScale { get; set; } = 6f;
+}
+
+/// <summary>
+/// A Light Probe or Reflection Probe placed in a 3D room (Engine.Lighting.Probes): captured where
+/// the node stands when the room starts, it gives what is inside its volume its bounced light
+/// ("light") or its reflections ("reflection"), fading out over the blend distance at the edge.
+/// Its node's position places it; rotation and scale are not used (volumes follow the world's axes).
+/// </summary>
+public sealed class RoomProbeData
+{
+    public const string LightType = "light", ReflectionType = "reflection";
+    public const string SphereShape = "sphere", BoxShape = "box";
+
+    /// <summary>"light" (bounced light) or "reflection".</summary>
+    [JsonProperty("type")] public string Type { get; set; } = LightType;
+    /// <summary>"sphere" or "box"; a light probe is always a sphere.</summary>
+    [JsonProperty("shape")] public string Shape { get; set; } = SphereShape;
+    /// <summary>A sphere's radius in metres, 0.1 to 1000.</summary>
+    [JsonProperty("radius")] public float Radius { get; set; } = Genesis.Shared.Rendering.PlacedProbes.DefaultRadius;
+    /// <summary>A box's whole size in metres, x, y, z (0.1 to 2000 each).</summary>
+    [JsonProperty("size")] public float[] Size { get; set; } =
+        { Genesis.Shared.Rendering.PlacedProbes.DefaultSize.X, Genesis.Shared.Rendering.PlacedProbes.DefaultSize.Y, Genesis.Shared.Rendering.PlacedProbes.DefaultSize.Z };
+    /// <summary>How far inside the edge it fades in, metres (0 = a hard edge).</summary>
+    [JsonProperty("blendDistance")] public float BlendDistance { get; set; } = Genesis.Shared.Rendering.PlacedProbes.DefaultBlendDistance;
+    /// <summary>A reflection box mirrors its walls where they are rather than far away.</summary>
+    [JsonProperty("boxProjection")] public bool BoxProjection { get; set; }
+
+    [JsonIgnore] public bool IsReflection => string.Equals(Type, ReflectionType, StringComparison.OrdinalIgnoreCase);
+    [JsonIgnore] public bool IsBox => IsReflection && string.Equals(Shape, BoxShape, StringComparison.OrdinalIgnoreCase);
+
+    public float SizeAxis(int axis) => Size is { Length: 3 } && axis is >= 0 and < 3 ? Size[axis] : 1f;
+
+    public void Normalize()
+    {
+        Type = IsReflection ? ReflectionType : LightType;
+        Shape = string.Equals(Shape, BoxShape, StringComparison.OrdinalIgnoreCase) && IsReflection ? BoxShape : SphereShape;
+        Radius = float.IsFinite(Radius) ? Math.Clamp(Radius, 0.1f, 1000f) : Genesis.Shared.Rendering.PlacedProbes.DefaultRadius;
+        if (Size is not { Length: 3 }) Size = new[] { 10f, 5f, 10f };
+        for (int i = 0; i < 3; i++) Size[i] = float.IsFinite(Size[i]) ? Math.Clamp(Size[i], 0.1f, 2000f) : 1f;
+        BlendDistance = float.IsFinite(BlendDistance) ? Math.Clamp(BlendDistance, 0f, 1000f) : Genesis.Shared.Rendering.PlacedProbes.DefaultBlendDistance;
+    }
 }

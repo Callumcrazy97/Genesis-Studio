@@ -349,6 +349,126 @@ public static partial class PgslCommands
         "Lighting", Namespace = "Engine.Lighting.Probe", Flat = false)]
     public static void LightingApiProbeRecapture() => Genesis.Shared.Rendering.LightProbes.Recapture();
 
+    // ── Engine.Lighting.Probes: the Light Probes and Reflection Probes placed in the room ──
+    // The room editor places them; each is captured where it stands when the room starts, one a
+    // frame. Its values below are by name (the probe node's name in the room), as tile layers' are.
+
+    [PgslCommand("Enabled", "Engine.Lighting.Probes.Enabled = true",
+        "The Light Probes and Reflection Probes placed in the room: what is inside one takes its bounced light or reflections from it, blended with its neighbours and fading out at its edge; off leaves only the probe at the camera. On in each room unless turned off",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static bool LightingApiProbesEnabled
+    {
+        get => Genesis.Shared.Rendering.PlacedProbes.Enabled;
+        set => Genesis.Shared.Rendering.PlacedProbes.Enabled = value;
+    }
+
+    [PgslCommand("Count", "Engine.Lighting.Probes.Count", "How many probes the room placed and uses (16 at most; read)",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static double LightingApiProbesCount => Genesis.Shared.Rendering.PlacedProbes.Count;
+
+    [PgslCommand("Captured", "Engine.Lighting.Probes.Captured", "How many of the room's probes have been captured where they are now (read): all of them a frame after the last, from the room's start",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static double LightingApiProbesCaptured => Genesis.Shared.Rendering.PlacedProbes.Captured;
+
+    [PgslCommand("Blending", "Engine.Lighting.Probes.Blending", "How many placed probes reach the camera now, so blend there (read; 0 where only the probe at the camera lights)",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static double LightingApiProbesBlending => Genesis.Shared.Rendering.PlacedProbes.BlendingAt(CameraPositionNow());
+
+    [PgslCommand("Recapture", "Engine.Lighting.Probes.Recapture()",
+        "Captures every placed probe again, one a frame, keeping the old captures in use meanwhile: after a lamp is lit or a door opens. A probe moved with SetPosition is captured again by itself",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static void LightingApiProbesRecapture() => Genesis.Shared.Rendering.PlacedProbes.Recapture();
+
+    [PgslCommand("Name", "Engine.Lighting.Probes.Name(index) -> text", "The name of the room's placed probe at this place in its list, from 0; \"\" past the last",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static string LightingApiProbesName(double index)
+    {
+        IReadOnlyList<Genesis.Shared.Rendering.PlacedProbe> probes = Genesis.Shared.Rendering.PlacedProbes.All;
+        return double.IsFinite(index) && index >= 0 && index < probes.Count ? probes[(int)index].Name : "";
+    }
+
+    [PgslCommand("Exists", "Engine.Lighting.Probes.Exists(\"Probe\") -> bool", "Whether the room placed a probe of this name",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static bool LightingApiProbesExists(string probe) => Genesis.Shared.Rendering.PlacedProbes.Find(probe) != null;
+
+    [PgslCommand("Kind", "Engine.Lighting.Probes.Kind(\"Probe\") -> text", "\"light\" for a Light Probe (bounced light), \"reflection\" for a Reflection Probe; \"\" for a name the room has no probe of",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static string LightingApiProbesKind(string probe) => Genesis.Shared.Rendering.PlacedProbes.Find(probe) is { } found
+        ? found.Kind == Genesis.Shared.Rendering.PlacedProbeKind.Reflection ? "reflection" : "light"
+        : "";
+
+    [PgslCommand("Weight", "Engine.Lighting.Probes.Weight(\"Probe\") -> number", "The probe's share at the camera, 0 to 1: 1 well inside it, falling to 0 over its blend distance at its edge (0 until it is captured, or while it is off)",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static double LightingApiProbesWeight(string probe) =>
+        Genesis.Shared.Rendering.PlacedProbes.Find(probe) is { Active: true, Captured: true } found && Genesis.Shared.Rendering.PlacedProbes.Enabled
+            ? Genesis.Shared.Rendering.PlacedProbes.Weight(found, CameraPositionNow())
+            : 0;
+
+    [PgslCommand("Active", "Engine.Lighting.Probes.Active(\"Probe\") -> bool", "Whether the probe of this name takes part (true unless SetActive turned it off; false for a name the room has no probe of)",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static bool LightingApiProbesActive(string probe) => Genesis.Shared.Rendering.PlacedProbes.Find(probe)?.Active ?? false;
+
+    [PgslCommand("SetActive", "Engine.Lighting.Probes.SetActive(\"Probe\", active) -> bool", "Turns one placed probe off or on again (a room whose lights go out can turn off its daylight probes); its capture is kept. False for a name the room has no probe of",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static bool LightingApiProbesSetActive(string probe, bool active)
+    {
+        if (Genesis.Shared.Rendering.PlacedProbes.Find(probe) is not { } found) return false;
+        found.Active = active;
+        return true;
+    }
+
+    [PgslCommand("X", "Engine.Lighting.Probes.X(\"Probe\") -> number", "Where the probe of this name is across, in metres (0 for a name the room has no probe of)",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static double LightingApiProbesX(string probe) => Genesis.Shared.Rendering.PlacedProbes.Find(probe)?.Position.X ?? 0;
+
+    [PgslCommand("Y", "Engine.Lighting.Probes.Y(\"Probe\") -> number", "Where the probe of this name is up, in metres (0 for a name the room has no probe of)",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static double LightingApiProbesY(string probe) => Genesis.Shared.Rendering.PlacedProbes.Find(probe)?.Position.Y ?? 0;
+
+    [PgslCommand("Z", "Engine.Lighting.Probes.Z(\"Probe\") -> number", "Where the probe of this name is along, in metres (0 for a name the room has no probe of)",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static double LightingApiProbesZ(string probe) => Genesis.Shared.Rendering.PlacedProbes.Find(probe)?.Position.Z ?? 0;
+
+    [PgslCommand("SetPosition", "Engine.Lighting.Probes.SetPosition(\"Probe\", x, y, z) -> bool", "Moves a placed probe and its volume (a lift's probe riding with it); it is captured again where it now is. False for a name the room has no probe of",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static bool LightingApiProbesSetPosition(string probe, double x, double y, double z)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(z) || Genesis.Shared.Rendering.PlacedProbes.Find(probe) is not { } found) return false;
+        found.Position = new System.Numerics.Vector3((float)x, (float)y, (float)z);
+        found.Revision++;
+        return true;
+    }
+
+    [PgslCommand("Radius", "Engine.Lighting.Probes.Radius(\"Probe\") -> number", "How far a sphere probe of this name reaches, in metres (its box's half width for a box; 0 for a name the room has no probe of)",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static double LightingApiProbesRadius(string probe) => Genesis.Shared.Rendering.PlacedProbes.Find(probe) is { } found
+        ? found.Shape == Genesis.Shared.Rendering.PlacedProbeShape.Sphere ? found.Radius : found.HalfSize.X
+        : 0;
+
+    [PgslCommand("SetRadius", "Engine.Lighting.Probes.SetRadius(\"Probe\", metres) -> bool", "How far a sphere probe reaches, 0.1 to 1000 metres; a box keeps its own size. False for a name the room has no probe of or a box",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static bool LightingApiProbesSetRadius(string probe, double metres)
+    {
+        if (!double.IsFinite(metres) || Genesis.Shared.Rendering.PlacedProbes.Find(probe) is not { Shape: Genesis.Shared.Rendering.PlacedProbeShape.Sphere } found) return false;
+        found.Radius = (float)Math.Clamp(metres, 0.1, 1000);
+        return true;
+    }
+
+    [PgslCommand("Blend", "Engine.Lighting.Probes.Blend(\"Probe\") -> number", "How far inside its edge the probe of this name fades in, in metres (0 for a hard edge or a name the room has no probe of)",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static double LightingApiProbesBlend(string probe) => Genesis.Shared.Rendering.PlacedProbes.Find(probe)?.BlendDistance ?? 0;
+
+    [PgslCommand("SetBlend", "Engine.Lighting.Probes.SetBlend(\"Probe\", metres) -> bool", "How far inside its edge a placed probe fades in, 0 (a hard edge) to 1000 metres. False for a name the room has no probe of",
+        "Lighting", Namespace = "Engine.Lighting.Probes", Flat = false)]
+    public static bool LightingApiProbesSetBlend(string probe, double metres)
+    {
+        if (!double.IsFinite(metres) || Genesis.Shared.Rendering.PlacedProbes.Find(probe) is not { } found) return false;
+        found.BlendDistance = (float)Math.Clamp(metres, 0, 1000);
+        return true;
+    }
+
+    private static System.Numerics.Vector3 CameraPositionNow() => new((float)GetCameraX(), (float)GetCameraY(), (float)GetCameraZ());
+
     // ── Engine.Game ──────────────────────────────────────────────────────────────────────
 
     [PgslCommand("Threads", "Engine.Game.Threads = threads",

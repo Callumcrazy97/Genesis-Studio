@@ -58,6 +58,7 @@ public sealed partial class RoomEditorControl
             RoomNodeKind.Background => new BackgroundInspector(this, _selected),
             RoomNodeKind.TileLayer => new TileLayerInspector(this, _selected),
             RoomNodeKind.Terrain => new TerrainInspector(this, _selected),
+            RoomNodeKind.Probe when _selected.Probe is not null => new ProbeInspector(this, _selected),
             _ => new GameObjectInspector(this, _selected),
         };
     }

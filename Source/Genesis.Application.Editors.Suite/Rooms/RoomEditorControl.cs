@@ -291,6 +291,9 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
             MenuAction("Duplicate", "Ctrl+D", "Duplicate selected instances", DuplicateSelected),
             MenuAction("Snap to floor", "End", "Drop selected 3D instances onto terrain, objects, or the room floor", () => SnapSelectionToFloor()),
             new ToolStripSeparator(),
+            MenuAction("Add light probe", "", "Place a Light Probe where the view looks: what is inside its sphere takes its bounced light from there (3D)", () => AddProbe(ProbeType.Light)),
+            MenuAction("Add reflection probe", "", "Place a Reflection Probe box where the view looks: smooth surfaces inside mirror what it sees (3D)", () => AddProbe(ProbeType.Reflection)),
+            new ToolStripSeparator(),
             MenuAction("Frame contents", "F", "Frame the room contents", FrameContent),
             new ToolStripSeparator(),
             paintTiles,
@@ -1124,7 +1127,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
 
         (Vector3 origin, Vector3 direction) = _viewport.PickRay(clientPoint);
         List<(RoomNode Node, float Distance)> hits = [];
-        foreach (RoomNode node in EnumerateVisibleNodes().Where(CanEditNodeInActiveContext))
+        foreach (RoomNode node in EnumerateVisibleNodes().Concat(EnumerateVisibleProbeNodes()).Where(CanEditNodeInActiveContext))
         {
             (Vector3 min, Vector3 max) = NodeBounds3D(node);
             if (!IsNodeLocked(node) && RayIntersectsAabb(origin, direction, min, max, out float t))
@@ -3040,6 +3043,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
     private (Vector3 Min, Vector3 Max) NodeBounds3D(RoomNode node)
     {
         if (node.Kind == RoomNodeKind.Terrain) return TerrainNodeBounds3D(node);
+        if (node.Kind == RoomNodeKind.Probe) return ProbeMarkerBounds(node);
         GetPlacementBounds(node, out Vector3 min, out Vector3 max);
         (Vector3 worldMin, Vector3 worldMax) = TransformBounds(min, max, GetNodeWorldMatrix(node));
         return (worldMin - new Vector3(.025f), worldMax + new Vector3(.025f));
@@ -3744,6 +3748,7 @@ public sealed partial class RoomEditorControl : EditorSurfaceControl, IEditComma
         DrawRoomPhysicsDebug(renderer);
         _viewportOverlay?.DrawOverlay(renderer, _viewport);
         DrawViewportRegions3D(renderer);
+        DrawProbeGizmos3D(renderer);
         DrawSurfacePlacementPreview(renderer);
         if (!_viewport.Mode2D && ShowGrid)
         {

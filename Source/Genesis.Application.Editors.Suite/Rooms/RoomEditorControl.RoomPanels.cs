@@ -276,6 +276,7 @@ public sealed partial class RoomEditorControl
         RoomNodeKind.TileLayer => ShowTileLayers,
         RoomNodeKind.Background => ShowBackgrounds,
         RoomNodeKind.Terrain => ShowTerrain,
+        RoomNodeKind.Probe => ShowProbes,
         _ => true,
     };
 
@@ -288,6 +289,7 @@ public sealed partial class RoomEditorControl
             case RoomNodeKind.TileLayer: ShowTileLayers = visible; break;
             case RoomNodeKind.Background: ShowBackgrounds = visible; break;
             case RoomNodeKind.Terrain: ShowTerrain = visible; break;
+            case RoomNodeKind.Probe: ShowProbes = visible; break;
             default: return;
         }
 
@@ -405,6 +407,7 @@ public sealed partial class RoomEditorControl
         types.DropDownItems.Add(KindItem("Tile Layers", RoomNodeKind.TileLayer, () => ShowTileLayers));
         types.DropDownItems.Add(KindItem("Backgrounds", RoomNodeKind.Background, () => ShowBackgrounds));
         types.DropDownItems.Add(KindItem("Terrain", RoomNodeKind.Terrain, () => ShowTerrain));
+        types.DropDownItems.Add(KindItem("Probes", RoomNodeKind.Probe, () => ShowProbes));
 
         ToolStripMenuItem viewports = new("Viewports");
         ToolStripMenuItem showOutlines = new("Show viewport outlines")
