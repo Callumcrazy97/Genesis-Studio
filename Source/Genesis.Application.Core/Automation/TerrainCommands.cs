@@ -88,21 +88,21 @@ public static class TerrainCommands
         [Description("The Terrain resource, project-relative."), RequiredInput] public string Terrain { get; set; } = string.Empty;
         [Description("Grow grass around the camera from the rule (default: on; false switches it off).")] public bool? Enabled { get; set; }
         [Description("Metres from the camera grass is grown and drawn to (default 90).")] public float? Radius { get; set; }
-        [Description("Metres between neighbouring tufts at full density (default 0.4).")] public float? Spacing { get; set; }
+        [Description("Metres between neighbouring tufts at full density (default 0.35).")] public float? Spacing { get; set; }
         [Description("Fraction of the radius at full density before it thins out (default 0.45).")] public float? FullDensityFraction { get; set; }
         [Description("Tufts nearer than this use the detailed blade mesh (default 30 m).")] public float? DetailDistance { get; set; }
         [Description("How far a tuft wanders from its lattice point, as a fraction of the spacing (default 0.9).")] public float? Jitter { get; set; }
-        [Description("Smallest tuft scale (default 0.38).")] public float? MinimumScale { get; set; }
-        [Description("Largest tuft scale (default 0.68).")] public float? MaximumScale { get; set; }
+        [Description("Smallest tuft scale (default 0.6).")] public float? MinimumScale { get; set; }
+        [Description("Largest tuft scale (default 1).")] public float? MaximumScale { get; set; }
         [Description("Steepest ground in degrees grass grows on (default 40).")] public float? SteepestSlopeDegrees { get; set; }
         [Description("Which tuft to grow (MeadowGrass looks like the scattered grass).")] public FoliageSpecies? Species { get; set; }
         [Description("Picks the pattern of tufts.")] public int? PatternSeed { get; set; }
         [Description("Grass on each painted layer, first to eighth, 0 to 1 (default 1 on the first, usually Grass, and 0 on the rest): [1, 0.3] also grows thin grass on the second.")] public float[]? LayerDensities { get; set; }
         [Description("Most tufts drawn in a frame, nearest first (default 16000, at most 32768).")] public int? MaximumDrawnTufts { get; set; }
         [Description("Colour the blades from baseColor at the root to tipColor at the tip (default true; false keeps the tuft's own colours).")] public bool? ColorEnabled { get; set; }
-        [Description("The blades' colour at the root [r, g, b], 0 to 1 (default [0.15, 0.30, 0.10]).")] public float[]? BaseColor { get; set; }
-        [Description("The blades' colour at the tip [r, g, b], 0 to 1 (default [0.31, 0.61, 0.21]).")] public float[]? TipColor { get; set; }
-        [Description("How the colour runs up a blade: 1 evenly, below 1 the tip colour reaches further down, above 1 it keeps to the tips (default 1).")] public float? ColorCurve { get; set; }
+        [Description("The blades' colour at the root [r, g, b], 0 to 1 (default [0.10, 0.22, 0.06]).")] public float[]? BaseColor { get; set; }
+        [Description("The blades' colour at the tip [r, g, b], 0 to 1 (default [0.30, 0.62, 0.17]).")] public float[]? TipColor { get; set; }
+        [Description("How the colour runs up a blade: 1 evenly, below 1 the tip colour reaches further down, above 1 it keeps to the tips (default 0.8).")] public float? ColorCurve { get; set; }
         [Description("An Image resource drawn on each blade, tinted by the colours; its see-through parts cut the blade (default none; empty clears it).")] public string? Texture { get; set; }
         [Description("Sway the blades in the wind (default true).")] public bool? WindEnabled { get; set; }
         [Description("How far the blades sway, 0 to 4 (default 1).")] public float? WindStrength { get; set; }

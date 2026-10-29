@@ -351,7 +351,7 @@ internal static partial class TerrainLayersGrassSuite
             FootprintOriginX = 10f, FootprintOriginZ = -30f, FootprintWidth = 4, FootprintHeight = 4, FootprintCellSize = 2f,
             Footprint = TerrainWaterDefinition.PackBits(Enumerable.Repeat(true, 16).ToArray()),
         };
-        // 0.5 m apart, as the expected counts below were worked out (the built-in grass is 0.4 m since 29 Oct).
+        // 0.5 m apart, as the expected counts below were worked out (the built-in grass is 0.35 m since 29 Oct).
         var rule = new TerrainGrassRuleSettings { Enabled = true, Spacing = 0.5f };
         var field = new TerrainGrassField(terrain, rule, [pond, river, marsh]);
         var dry = new TerrainGrassField(terrain, rule);
@@ -527,7 +527,7 @@ internal static partial class TerrainLayersGrassSuite
             GrassMeasure(root, room, terrain);
         string report = string.Join(Environment.NewLine,
             "Grass around the camera: frame cost on DX11, 960 x 540, 240 frames moving 1 m a frame over a 512 m meadow "
-            + "(the built-in grass: radius 90 m, spacing 0.4 m, 8 m cells, at most 8 cells or 1.5 ms of growing a frame, 16,000 tufts drawn at most).",
+            + "(the built-in grass: radius 90 m, spacing 0.35 m, scale 0.6 to 1, 8 m cells, at most 8 cells or 1.5 ms of growing a frame, 16,000 tufts drawn at most).",
             $"Without grass rule: {offFrame:F2} ms a frame (submit, draw and read back), terrain submit {offSubmit:F2} ms, GPU {offGpu:F2} ms.",
             $"With grass rule:    {onFrame:F2} ms a frame (submit, draw and read back), terrain submit {onSubmit:F2} ms, GPU {onGpu:F2} ms.",
             $"Grass generation: {generation:F3} ms a frame on average, {generationP95:F3} ms at the 95th percentile, {generationMax:F3} ms at most "

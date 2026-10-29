@@ -21,11 +21,14 @@ public sealed class TerrainGrassRuleSettings : IJsonOnDeserializing, IJsonOnDese
     /// <summary>Painted layers a rule can name a density for.</summary>
     public const int LayerCount = TerrainGrassLayerWeights.LayerCount;
 
-    /// <summary>The built-in grass's colour at the root of each blade (a dark meadow green).</summary>
-    public static readonly Vector3 DefaultBaseColor = new(0.15f, 0.30f, 0.10f);
+    /// <summary>The built-in grass's colour at the root of each blade (a deep meadow green).</summary>
+    public static readonly Vector3 DefaultBaseColor = new(0.10f, 0.22f, 0.06f);
 
     /// <summary>The built-in grass's colour at the tip of each blade (a sunlit meadow green).</summary>
-    public static readonly Vector3 DefaultTipColor = new(0.31f, 0.61f, 0.21f);
+    public static readonly Vector3 DefaultTipColor = new(0.30f, 0.62f, 0.17f);
+
+    /// <summary>The built-in grass's colour curve: the sunlit tip colour reaches a little further down the blade.</summary>
+    public const float DefaultColorCurve = 0.8f;
 
     /// <summary>The colour of a painted Grass layer that suits the built-in grass: the ground between its tufts.</summary>
     public static readonly Vector3 DefaultGroundColor = new(0.22f, 0.38f, 0.11f);
@@ -37,7 +40,7 @@ public sealed class TerrainGrassRuleSettings : IJsonOnDeserializing, IJsonOnDese
     public float Radius { get; set; } = 90f;
 
     [Description("Distance between neighbouring tufts where a layer's density is 1, in metres.")]
-    public float Spacing { get; set; } = 0.4f;
+    public float Spacing { get; set; } = 0.35f;
 
     [Description("Fraction of the radius that keeps full density; beyond it the grass thins out to nothing at the radius.")]
     public float FullDensityFraction { get; set; } = 0.45f;
@@ -49,8 +52,8 @@ public sealed class TerrainGrassRuleSettings : IJsonOnDeserializing, IJsonOnDese
     [Description("How far a tuft may wander from its lattice point, as a fraction of the spacing.")]
     public float Jitter { get; set; } = 0.9f;
 
-    public float MinimumScale { get; set; } = 0.38f;
-    public float MaximumScale { get; set; } = 0.68f;
+    public float MinimumScale { get; set; } = 0.6f;
+    public float MaximumScale { get; set; } = 1f;
 
     [Description("Steepest ground, in degrees, grass grows on.")]
     public float SteepestSlopeDegrees { get; set; } = 40f;
@@ -83,7 +86,7 @@ public sealed class TerrainGrassRuleSettings : IJsonOnDeserializing, IJsonOnDese
     public Vector3 TipColor { get; set; } = DefaultTipColor;
 
     [Description("How the colour runs up a blade: 1 evenly, below 1 the tip colour reaches further down, above 1 it keeps to the tips (0.1 to 8).")]
-    public float ColorCurve { get; set; } = 1f;
+    public float ColorCurve { get; set; } = DefaultColorCurve;
 
     [Description("An Image drawn on each blade, tinted by the colours above; its see-through parts cut the blade's shape. Empty for plain blades.")]
     public string Texture { get; set; } = "";
@@ -162,17 +165,17 @@ public sealed class TerrainGrassRuleSettings : IJsonOnDeserializing, IJsonOnDese
     public void Normalize()
     {
         Radius = Clamp(Radius, 4f, 2000f, 90f);
-        Spacing = Clamp(Spacing, 0.1f, 16f, 0.4f);
+        Spacing = Clamp(Spacing, 0.1f, 16f, 0.35f);
         FullDensityFraction = Clamp(FullDensityFraction, 0f, 1f, 0.45f);
         DetailDistance = Clamp(DetailDistance, 0f, 2000f, 30f);
         Jitter = Clamp(Jitter, 0f, 1f, 0.9f);
-        MinimumScale = Clamp(MinimumScale, 0.05f, 16f, 0.38f);
+        MinimumScale = Clamp(MinimumScale, 0.05f, 16f, 0.6f);
         MaximumScale = Clamp(MaximumScale, MinimumScale, 16f, MinimumScale);
         SteepestSlopeDegrees = Clamp(SteepestSlopeDegrees, 0f, 90f, 40f);
         if (!Enum.IsDefined(Species)) Species = FoliageSpecies.MeadowGrass;
         BaseColor = ClampColor(BaseColor, DefaultBaseColor);
         TipColor = ClampColor(TipColor, DefaultTipColor);
-        ColorCurve = Clamp(ColorCurve, 0.1f, 8f, 1f);
+        ColorCurve = Clamp(ColorCurve, 0.1f, 8f, DefaultColorCurve);
         Texture = Texture?.Trim() ?? "";
         WindStrength = Clamp(WindStrength, 0f, 4f, 1f);
         WindSpeed = Clamp(WindSpeed, 0f, 4f, 1f);

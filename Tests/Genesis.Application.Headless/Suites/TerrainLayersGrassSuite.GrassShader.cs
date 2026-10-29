@@ -31,21 +31,19 @@ internal static partial class TerrainLayersGrassSuite
     private static void GrassBuiltInDefaults(HeadlessContext ctx)
     {
         var rule = new TerrainGrassRuleSettings();
-        GrassAssert(!rule.Enabled && rule.Radius == 90f && rule.Spacing == 0.4f && rule.MinimumScale == 0.38f && rule.MaximumScale == 0.68f
+        GrassAssert(!rule.Enabled && rule.Radius == 90f && rule.Spacing == 0.35f && rule.MinimumScale == 0.6f && rule.MaximumScale == 1f
             && rule.Species == FoliageSpecies.MeadowGrass && rule.Density(0) == 1f,
             $"A new rule is not the built-in meadow grass: radius {rule.Radius}, spacing {rule.Spacing}, scale {rule.MinimumScale} to {rule.MaximumScale}.");
         GrassAssert(rule.ColorEnabled && rule.BaseColor == TerrainGrassRuleSettings.DefaultBaseColor && rule.TipColor == TerrainGrassRuleSettings.DefaultTipColor
-            && rule.ColorCurve == 1f && rule.Texture == "" && rule.WindEnabled && rule.WindStrength == 1f && rule.WindSpeed == 1f && rule.WindGusts == 0f
-            && rule.PushersEnabled && rule.PushStrength == 0.8f && rule.SpringBackSeconds == 0.8f && rule.ClearPaths && rule.PathEdge == 0.6f
-            && !rule.SavedBeforeShader, "A new rule's grass shader, parting or path settings are not the built-in grass's.");
+            && rule.ColorCurve == TerrainGrassRuleSettings.DefaultColorCurve && rule.Texture == "" && rule.WindEnabled && rule.WindStrength == 1f
+            && rule.WindSpeed == 1f && rule.WindGusts == 0f && rule.PushersEnabled && rule.PushStrength == 0.8f && rule.SpringBackSeconds == 0.8f
+            && rule.ClearPaths && rule.PathEdge == 0.6f && !rule.SavedBeforeShader, "A new rule's grass shader, parting or path settings are not the built-in grass's.");
 
-        // The ramp's ends are the old meadow tuft's root and tip shades (0.52 and 1.06 of its colour), so the look carries over.
-        Vector3 meadow = new(0.29f, 0.58f, 0.20f);
-        GrassAssert(Vector3.Distance(rule.BaseColor, meadow * 0.52f) < 0.01f && Vector3.Distance(rule.TipColor, Vector3.Min(meadow * 1.06f, Vector3.One)) < 0.01f,
-            "The built-in ramp does not start and end where the meadow tufts' own shading did.");
+        // Deep green at the root, sunlit at the tip: the reference's contrast between them.
+        GrassAssert(rule.TipColor.Y > rule.BaseColor.Y * 2.5f && rule.TipColor.Y > rule.TipColor.X * 1.8f, "The built-in ramp lost its root-to-tip contrast.");
         Vector4 ramp = FoliageShading.ColorRamp(rule.BaseColor, rule.TipColor, rule.ColorCurve);
         GrassAssert(Vector3.Distance(FoliageShading.UnpackColor(ramp.X), rule.BaseColor) < 0.003f
-            && Vector3.Distance(FoliageShading.UnpackColor(ramp.Y), rule.TipColor) < 0.003f && ramp.Z == 1f && ramp.W == 1f,
+            && Vector3.Distance(FoliageShading.UnpackColor(ramp.Y), rule.TipColor) < 0.003f && ramp.Z == rule.ColorCurve && ramp.W == 1f,
             "The ramp a draw carries does not unpack to the rule's colours.");
 
         string folder = Path.Combine(ctx.Workspace, "GrassShaderJson");
@@ -95,7 +93,7 @@ internal static partial class TerrainLayersGrassSuite
         GrassAssert(!old.ColorEnabled && old.SavedBeforeShader && old.LooksUnset && old.WindEnabled && old.WindStrength == 1f,
             "A rule saved before the grass shader did not keep its tufts' own colours and sway.");
         TerrainGrassRuleSettings started = old.BuiltInWithLayers();
-        GrassAssert(started.ColorEnabled && started.Spacing == 0.4f && !started.SavedBeforeShader, "An unchosen rule did not start as the built-in grass.");
+        GrassAssert(started.ColorEnabled && started.Spacing == 0.35f && !started.SavedBeforeShader, "An unchosen rule did not start as the built-in grass.");
     }
 
     private static void GrassPathsStayBare()
@@ -209,7 +207,7 @@ internal static partial class TerrainLayersGrassSuite
         AutomationResult tinted = Call("terrain.setGrass", $$"""{ "terrain": "{{terrain}}", "baseColor": [0.4, 0.3, 0.1], "windGusts": 0.5, "texture": "" }""");
         rule = TerrainNatureSerializer.LoadOrDefault(context.Resolve(terrain)).GrassRule;
         GrassAssert(tinted.Ok && rule.Enabled && rule.BaseColor == new Vector3(0.4f, 0.3f, 0.1f) && rule.WindGusts == 0.5f
-            && rule.TipColor == TerrainGrassRuleSettings.DefaultTipColor && rule.Spacing == 0.4f, "terrain.setGrass changed more or less than it was given: " + tinted.Message);
+            && rule.TipColor == TerrainGrassRuleSettings.DefaultTipColor && rule.Spacing == 0.35f, "terrain.setGrass changed more or less than it was given: " + tinted.Message);
         GrassAssert(!Call("terrain.setGrass", $$"""{ "terrain": "{{terrain}}", "texture": "No Such Image" }""").Ok, "A missing grass texture was not refused.");
         GrassAssert(!Call("terrain.setGrass", $$"""{ "terrain": "{{terrain}}", "tipColor": [1, 2] }""").Ok, "A two-number colour was not refused.");
         AutomationResult off = Call("terrain.setGrass", $$"""{ "terrain": "{{terrain}}", "enabled": false }""");

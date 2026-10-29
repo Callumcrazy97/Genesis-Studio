@@ -585,7 +585,7 @@ internal static class PgslEngineApiChecks
                 && after.Scatter.Single().DensityPerHectare == 100 && Math.Abs(after.ScatterNear - authoredNear * 0.5f) < 1e-3 && after.ScatterShadow == 0
                 && terrains.TerrainDistance == 300
                 // The grass shader and pushers: each terrain's own until set, then the game's.
-                && Number("gustsBefore") == 0 && Text("tipBefore") == "#4f9c36" && Text("tipAfter") == "#c8b450"
+                && Number("gustsBefore") == 0 && Text("tipBefore") == "#4d9e2b" && Text("tipAfter") == "#c8b450"
                 && terrains.GameGrassLook.WindGusts == 0.5f && Number("pushers") == 1 && terrains.GrassPusherCount == 1;
             string detail = $"slope {Number("slope"):0.##}° ({expectedSlope:0.##}), facing up {Number("up"):0.###} and across {Number("across"):0.###}; layer {Number("patch")} on the patch (3), {Number("plain")} elsewhere (1), {Number("offGround")} off it; " +
                 $"{Number("wide")} by {Number("deep")} m; ground drawn {terrains.GroundDrawn}; grass spacing {authoredSpacing:0.###} to {after.Grass.Spacing:0.###}, height {before.Grass.MaximumScale:0.##} to {after.Grass.MaximumScale:0.##}; " +
