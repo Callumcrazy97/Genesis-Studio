@@ -162,7 +162,7 @@ public static partial class PgslCommands
         double yaw, string image)
     {
         IPgslDrawSurface surface = Draw;
-        if (surface is null || !Finite3(x, y, z) || !Finite3(sx, sy, sz) || !double.IsFinite(yaw)) return;
+        if (!_meshOn || surface is null || !Finite3(x, y, z) || !Finite3(sx, sy, sz) || !double.IsFinite(yaw)) return;
         Matrix4x4 world = Matrix4x4.CreateScale((float)sx, (float)sy, (float)sz)
             * Matrix4x4.CreateRotationY((float)(yaw * Math.PI / 180))
             * Matrix4x4.CreateTranslation((float)x, (float)y, (float)z);

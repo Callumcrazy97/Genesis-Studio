@@ -528,6 +528,7 @@ namespace Genesis.Shared.Interfaces
             state.BloomThreshold = _bloomThreshold;
             state.BloomIntensity = _bloomIntensity;
             ApplyQuality(ref state);
+            ApplyPartSwitches(ref state);
         }
 
         private static bool ParseBoolean(string value, bool fallback)

@@ -294,10 +294,18 @@ public static partial class PgslCommands
     public static double RenderingMotionBlurStrength { get => MotionBlur; set { if (double.IsFinite(value)) MotionBlur = (float)value; } }
 
     [PgslCommand("Frustum", "Engine.Rendering.Culling.Frustum = true", "Skip drawing what is outside the view (true unless set)", "Rendering", Namespace = "Engine.Rendering.Culling", Flat = false)]
-    public static bool RenderingCullingFrustum { get => RenderAutoState.FrustumCulling; set => RenderAutoState.FrustumCulling = value; }
+    public static bool RenderingCullingFrustum
+    {
+        get => _cullingOff ? _cullingPutBy.Frustum : RenderAutoState.FrustumCulling;
+        set { if (_cullingOff) _cullingPutBy.Frustum = value; else RenderAutoState.FrustumCulling = value; }
+    }
 
     [PgslCommand("Occlusion", "Engine.Rendering.Culling.Occlusion = false", "Skip drawing what is hidden behind large things (false unless set)", "Rendering", Namespace = "Engine.Rendering.Culling", Flat = false)]
-    public static bool RenderingCullingOcclusion { get => RenderAutoState.OcclusionCulling; set => RenderAutoState.OcclusionCulling = value; }
+    public static bool RenderingCullingOcclusion
+    {
+        get => _cullingOff ? _cullingPutBy.Occlusion : RenderAutoState.OcclusionCulling;
+        set { if (_cullingOff) _cullingPutBy.Occlusion = value; else RenderAutoState.OcclusionCulling = value; }
+    }
 
     [PgslCommand("Enabled", "Engine.Rendering.Detail.Enabled = true", "Automatic detail: models far away drawn simpler and tiny ones not at all (true unless set)", "Rendering", Namespace = "Engine.Rendering.Detail", Flat = false)]
     public static bool RenderingDetailEnabled { get => Modeling.ModelLodView.Enabled; set => Modeling.ModelLodView.Enabled = value; }

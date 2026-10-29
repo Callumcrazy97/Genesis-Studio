@@ -46,6 +46,8 @@ public static partial class PgslCommands
     {
         get
         {
+            // Engine.Draw.Enabled = false: every drawing command finds no surface and draws nothing.
+            if (!_drawOn) return null;
             PgslContext ctx = Ctx;
             if (ctx?.DrawSurface is not IPgslDrawSurface surface) return null;
             return ctx.DrawOffsetX == 0 && ctx.DrawOffsetY == 0

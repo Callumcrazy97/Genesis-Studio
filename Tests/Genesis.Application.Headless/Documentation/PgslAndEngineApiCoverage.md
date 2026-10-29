@@ -86,7 +86,8 @@ Now every area and part with a value has one, and so do all 406 settable values:
 Priority, Queue, Recording, Resource, Save, Stack, Shader, Text, Texture, Time and Variable, have no values to sweep; their
 commands are covered by the PGSL suites and the command sweeps. Totals are 406 settable values: 340 + 6 + 15 + 39 + 3 known defects + 3 skipped.)
 
-**What the sweep reports without failing:**
+**What the sweep reported without failing on the first pass** (the numbers below are that pass's; "Found by the first pass,
+closed on 29 October" further down says what changed since, and the page the sweep writes says what stands now):
 
 - **No Enabled yet:** 58 of the 131 areas and parts that have values (17 areas, 41 parts; the list is `ScopesWithoutEnabled` in
   `EngineApiSuite.cs`). The standard gives every area and every part an `Enabled`, so a new one without it fails
@@ -129,13 +130,32 @@ The 16 EngineApi cases are in both targets (they are in `pgsl-logic` too), so th
 New cases alone: `--test engine-api-parts` (118 cases, 1.8 s of case time), `--test pgsl-tier` (17, 0.14 s),
 `--test pgsl-features` (7, 0.03 s), `--test pgsl-engine-api` (16 existing, 1.6 s).
 
+## Found by the first pass, closed on 29 October (second pass: the engine API gaps)
+
+- Engine.Draw.Font, Engine.Draw.TextAlign, Engine.Shader.Name read back the text they were set with
+  (`DrawGetFont`, `DrawGetTextAlign`, `ShaderGetName`); `Engine.Api.Getters.DrawFontTextAlignAndShaderNameReadBackTheTextSet` keeps it so.
+- The values with a setter and no getter have getters: Animation.Loop, Camera.CollisionEnabled, FreeFly, OrbitDistance,
+  OrbitEnabled, OrbitMouseLook, OrbitPitch, OrbitYaw, Draw.FontSize, Draw.TextTracking, Lighting.ColorCount, Falloff,
+  Intensity, Radius, Mesh.UploadBudget, Rendering.AutoExposureMetering, Image.Direction (and Display.CursorVisible,
+  Input.MouseCaptured, which the coverage page had listed among the window's). Decal.Limit and Room.Speed had one already: the
+  first reads back (it only sat in the list), the second needs a window. Still read as their default in the probe room, each
+  with its reason in `KnownSilent` (22 values in all): the window and monitor values, the mouse capture, a character
+  controller's step height and slope limit, the network's replication rate, the debug keys, a 2D room's tile layers, Room.Speed,
+  Image.Direction (needs a directional Image; `Engine.Pgsl.SpriteDirections` checks `SpriteGetDirection`) and
+  Audio.Snapshot.Enabled (true only while a blend moves; only false can be set).
+- The values merged since (the mixer's effects on Engine.Audio.Music and Effects, Engine.Camera.Rig and Rig.Path, Engine.Debug.Overlay.Wireframe):
+  the probe room's sound system remembers bus effects, a script makes a camera rig in it first (the rig's values are not
+  Inspector settings: `EngineSettings` leaves them out, and the registry rule and the Inspector round trip say so), and
+  Wireframe keeps what is asked before the debug screen exists, as the screen does.
+- Enabled on the areas and parts that had none: 28 got one, 17 are listed as not being switches with the reason
+  (`ScopesWithoutEnabledByDesign`), 14 are left (`ScopesWithoutEnabled`, with the reason for each). The list is in
+  `Documentation/Design/EngineApiAreas.md`.
+- The ten PGSL commands whose signature showed no argument list (Engine.Rendering.AutoExposure, Engine.Sky.SetAmbientTint,
+  SetAmbientGroundTint, SetAtmospherePreset, SetCloudCoverage, SetHaze, SetLatitude, SetTimeOfDay,
+  Engine.Terrain.Water.ClearHoles, PunchHole) show them, and the suite asserts it.
+
 ## Found, not fixed (the tests own no engine code)
 
-- Engine.Draw.Font, Engine.Draw.TextAlign, Engine.Shader.Name: set with text, read as a number.
-- 19 values with a setter and no getter (see above): they read 0 or their default whatever is set.
-- 58 areas and parts with values and no `Enabled` (the standard gives every one an `Enabled`).
-- 9 PGSL commands whose signature shows no argument list: Engine.Rendering.AutoExposure, Engine.Sky.SetAmbientTint,
-  SetAtmospherePreset, SetCloudCoverage, SetHaze, SetLatitude, SetTimeOfDay, Engine.Terrain.Water.ClearHoles, PunchHole.
 - Interpreter and compiled tier word the same fault differently: the recursion limit ("Too much recursion: 'F' is 200 calls
   deep" against "Function 'F' called itself too deeply (more than 200 calls)") and the line the instruction-limit error names
   (the interpreter says line 0, the compiled one the caller's line). Their results are identical in all 15 scripts.

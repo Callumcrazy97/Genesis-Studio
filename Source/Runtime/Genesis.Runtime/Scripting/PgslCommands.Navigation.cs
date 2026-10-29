@@ -356,6 +356,19 @@ public static partial class PgslCommands
         return world.IsAlive(entity) && world.Has<CrowdAgentComponent>(entity) ? world.GetRef<CrowdAgentComponent>(entity) : DefaultCrowd();
     }
 
+    [PgslCommand("Enabled", "Engine.Navigation.Avoidance.Enabled = true", "Whether this instance's agent steers clear of other agents (false until this, its Radius or its Priority is set); off, it walks its route as it would alone, and the radius and priority wait", "Navigation", Namespace = "Engine.Navigation.Avoidance", Flat = false)]
+    public static bool NavigationAvoidanceEnabled
+    {
+        get
+        {
+            var context = GetContext(); var world = ActiveGameContext?.World;
+            if (context == null || world == null) return false;
+            var entity = world.GetEntity(context.InstanceId);
+            return world.IsAlive(entity) && world.Has<CrowdAgentComponent>(entity) && world.GetRef<CrowdAgentComponent>(entity).Enabled;
+        }
+        set => NavMeshAgentSetAvoidanceEnabled(value);
+    }
+
     [PgslCommand("Radius", "Engine.Navigation.Avoidance.Radius = 0.6", "How much room this instance's agent keeps from other agents, 0.01 to 100 metres (0.35 unless set); setting it turns avoidance on", "Navigation", Namespace = "Engine.Navigation.Avoidance", Flat = false)]
     public static double NavigationAvoidanceRadius
     {

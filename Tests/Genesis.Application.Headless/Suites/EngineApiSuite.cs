@@ -20,22 +20,31 @@ namespace Genesis.Application.Headless.Suites;
 /// </summary>
 internal static class EngineApiSuite
 {
-    // The standard gives every area and every part an Enabled. These have values a script can set and
-    // no Enabled yet (listed here on 29 Oct 2026, from the registry): the check fails for any other
-    // area or part that lacks one, and says which of these now have one.
-    private static readonly HashSet<string> ScopesWithoutEnabled = new(StringComparer.Ordinal)
+    // The standard gives every area and every part an Enabled. These can be switched and have no Enabled
+    // yet: the check fails for any other area or part that lacks one (and is not one of the exceptions
+    // below), and says which of these now have one. Of the 59 the coverage pass found on 29 Oct 2026, 28
+    // got an Enabled that day (PgslCommands.PartSwitches.cs and beside their values), 17 are exceptions,
+    // and these are left.
+    private static readonly Dictionary<string, string> ScopesWithoutEnabled = new(StringComparer.Ordinal)
     {
-        // Areas.
-        "Animation", "Camera", "Display", "Draw", "Game", "Image", "Input", "Language", "Mesh", "Model",
-        "Rendering", "Room", "Shader", "Sky", "View", "Weather",
-        // Parts.
-        "Audio.Listener", "Camera.Shoulder", "Display.Monitor", "Display.Resolution", "Display.Window", "Game.Scripts",
-        "Input.Gamepad", "Input.Mouse", "Instance.Update", "Lighting.Ambient", "Lighting.Glow", "Lighting.Probe",
-        "Lighting.Sun", "Mesh.Upload", "Model.Glow", "Model.Shadows", "Navigation.Avoidance", "Navigation.Mesh",
-        "Network.Replication", "Physics.Character", "Physics.Gravity", "Physics.World", "Rendering.AntiAliasing",
-        "Rendering.Culling", "Rendering.Exposure", "Rendering.Grading", "Rendering.Models", "Rendering.MotionBlur",
-        "Room.Change", "Room.Streaming", "Sky.Moon", "Sky.Sun", "Sky.Time", "Terrain.Collision", "Terrain.Detail",
-        "Terrain.Water", "Ui.Scale", "View.Camera", "Water.Surface", "Water.Swimming", "Weather.Temperature",
+        // Another engineer's areas: Engine.Network is being worked on (NAT punch-through), as is Engine.Lighting.Probes.
+        ["Network.Replication"] = "left alone while the Engine.Network area is being changed",
+        ["Lighting.Probe"] = "left alone while placed light probes (Engine.Lighting.Probes) are being added",
+        // One instance's own look, drawn from its components: each needs a per-instance flag read in the model, sprite and shader draw paths.
+        ["Animation"] = "per-instance: needs a flag the animation update reads",
+        ["Image"] = "per-instance: needs a flag the sprite draw reads",
+        ["Model"] = "per-instance: needs a flag the model draw reads",
+        ["Model.Glow"] = "per-instance: needs flags the model draw reads",
+        ["Model.Shadows"] = "per-instance: needs a flag the model draw reads (Cast and Receive stay as set)",
+        ["Shader"] = "per-instance: needs a flag the object draw pass reads",
+        // Every reader of the input state (cameras, input actions, scripts, replay) would have to follow.
+        ["Input"] = "the keyboard, mouse and controller readers all need to follow it",
+        ["Input.Gamepad"] = "the controller readers (buttons, sticks, actions, emulation) need to follow it",
+        ["Input.Mouse"] = "the mouse readers (buttons, position, look, wheel) need to follow it",
+        // The renderer's sky and the water surface's look are drawn by passes that have no switch to read yet.
+        ["Sky"] = "the sky composite has no switch to read yet",
+        ["Terrain.Detail"] = "the streaming and level-of-detail distances have no 'off' to fall back to yet",
+        ["Water.Surface"] = "the water bodies' look has no 'off' to fall back to yet (Engine.Water.Enabled hides the water)",
     };
 
     // Areas and parts that have values and are not switches, each with the reason: a pure reading, a
@@ -43,8 +52,23 @@ internal static class EngineApiSuite
     // Enabled where it can honestly be switched (it does something when false and is on by default).
     private static readonly Dictionary<string, string> ScopesWithoutEnabledByDesign = new(StringComparer.Ordinal)
     {
+        ["Camera"] = "the camera is how the game is seen; its parts have their own Enabled (Rigs, FreeFly, Orbit, Shoulder, Collision, Focus) and Engine.Camera.Rigs.Enabled hands the camera back",
         ["Camera.Rig"] = "the values of the camera rig being set up (the last made, or the one named), a configuration and not a system that acts; Engine.Camera.Rigs.Enabled switches whether the rigs drive the camera",
         ["Camera.Rig.Path"] = "the dolly rig's track, a configuration of that rig; Engine.Camera.Rigs.Enabled switches whether the rigs drive the camera",
+        ["Display"] = "the window is the game's only output; hiding it would end the game for the player (its parts: Cursor, Resolution and the window's attributes)",
+        ["Display.Monitor"] = "which monitor the window is on, and readings about it (its size, rate and count); there is nothing of it to switch",
+        ["Display.Window"] = "the window's own attributes (place, Resizable, AlwaysOnTop, Maximized, Minimized): what it has, not a system that acts",
+        ["Game.Scripts"] = "switching every script off would stop the script that switches them back on; Engine.Game.Enabled (Paused) stops the game's time",
+        ["Language"] = "the current language and its texts, a setting and not a system",
+        ["Navigation.Mesh"] = "the settings of the next bake (agent size, slope, step height, cell size), a configuration; Engine.Navigation.Enabled switches the agents",
+        ["Physics.Character"] = "a character controller exists or not (CharacterCreate, CharacterDestroy); its values are step height and slope limit",
+        ["Rendering"] = "the 3D picture itself, with a switch on each of its parts (Shadows, Fog, Ao, Bloom, Grading, Exposure, AntiAliasing...)",
+        ["Rendering.Models"] = "KeepPreviousTransform is a policy for how a model keeps its transform when it changes, not a part that acts",
+        ["Room"] = "a room is always there; its values describe it (name, size, grid), and its parts Change and Streaming have their own Enabled",
+        ["Terrain.Collision"] = "everything would fall through; Engine.Terrain.Enabled hides the ground instead (EngineApiAreas.md)",
+        ["Terrain.Water"] = "the leak tool's settings (radius, shape, discharge, angle) for punching holes, a scratchpad for authoring; Engine.Water.Enabled switches the water",
+        ["View"] = "chooses which of the room's viewports the View commands address; each viewport has its own Enabled (Engine.View.Camera.Enabled)",
+        ["Weather.Temperature"] = "the air's temperature follows the weather until a script sets it; Engine.Weather.Release() hands it back",
     };
 
     // Values the blind sweep leaves alone, each for a reason.
@@ -108,7 +132,28 @@ internal static class EngineApiSuite
         ["Camera.FreeFly"] = game => game.Scene.FreeFlyCamera == true,
         ["Display.Resolution.Dynamic"] = _ => Genesis.Shared.Rendering.RenderScale.Dynamic,
         ["Rendering.Detail"] = _ => Genesis.Runtime.Modeling.ModelLodView.Enabled,
+        // The parts switched on 29 Oct 2026 whose effect is a state the engine keeps and a frame is made from.
+        ["Rendering.Culling"] = _ => Genesis.Shared.Rendering.RenderAutoState.FrustumCulling,
+        ["Display.Resolution"] = _ => Genesis.Shared.Rendering.RenderScale.Enabled,
+        ["Physics.Gravity"] = game => game.Scene.Physics!.GetActiveGravityAcceleration().LengthSquared() > 0f,
+        ["Physics.World"] = game => game.Scene.Physics!.SimulationEnabled,
+        ["Instance.Update"] = game => game.Environment.SimulationDistanceEnabled,
+        ["Weather"] = game =>
+        {
+            Genesis.Runtime.Climate.WeatherState acting = game.Scene.Climate.Overrides.Apply(new Genesis.Runtime.Climate.WeatherState { Rain = 0.5f, WindSpeed = 5f, Snow = 0.5f, Lightning = 0.5f });
+            return acting.Rain > 0f || acting.WindSpeed > 0f || acting.Snow > 0f || acting.Lightning > 0f;
+        },
+        ["Lighting.Sun"] = game => FrameAfterPartSwitches(game, new Genesis.Shared.Interfaces.Mesh3DState { SunIntensity = 1.1f }).SunIntensity > 0f,
+        ["Lighting.Ambient"] = game => FrameAfterPartSwitches(game, new Genesis.Shared.Interfaces.Mesh3DState { AmbientColor = new System.Numerics.Vector3(0.3f), SkyLightStrength = 1f }).AmbientColor != System.Numerics.Vector3.Zero,
+        ["Lighting.Glow"] = game => FrameAfterPartSwitches(game, new Genesis.Shared.Interfaces.Mesh3DState { EmissiveIntensity = 1f }).EmissiveIntensity > 0f,
     };
+
+    // A frame state after the room's lighting parts a script switched off are taken out of it.
+    private static Genesis.Shared.Interfaces.Mesh3DState FrameAfterPartSwitches(EngineApiGame game, Genesis.Shared.Interfaces.Mesh3DState frame)
+    {
+        Genesis.Runtime.Scene.EnvironmentMapper.ApplyPartSwitches(ref frame, game.Environment);
+        return frame;
+    }
 
     private enum Kind
     {
@@ -161,6 +206,8 @@ internal static class EngineApiSuite
                 HeadlessHarness.Assert(!made.Failed && made.Number("ok") == 1 && made.Text("name") == "probe", "The probe room could not make a camera rig: " + made.Errors);
             });
             HeadlessHarness.RunCase(ctx.Report, "Engine.Api.Getters.DrawFontTextAlignAndShaderNameReadBackTheTextSet", () => TextValuesReadBackAsText(game));
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Api.Switches.PostProcessingPartsAreDrawnNeutralWhileSwitchedOffAndKeepTheirValues", () => PostProcessingPartsSwitchOff(game));
+            HeadlessHarness.RunCase(ctx.Report, "Engine.Api.Switches.CullingOffDrawsEverythingAndKeepsFrustumAndOcclusionForWhenItIsOn", () => CullingSwitchesOff(game));
 
             foreach (string area in EngineApiModel.Areas)
             {
@@ -194,6 +241,76 @@ internal static class EngineApiSuite
         string[] want = ["Courier New", "Arial", "center", "right", "left", "", "Camo", ""];
         HeadlessHarness.Assert(got.SequenceEqual(want, StringComparer.Ordinal),
             $"Font, text align and shader name read back {string.Join(" | ", got)}; expected {string.Join(" | ", want)}.");
+    }
+
+    // Grading, Exposure, MotionBlur and AntiAliasing off: the frame state the renderer is given has them neutral, and
+    // has them as set again when they are back on (the sweep only sees that Enabled reads back).
+    private static void PostProcessingPartsSwitchOff(EngineApiGame game)
+    {
+        // Variable names that are not the engine's own (a script's contrast = ... would be the engine's Contrast).
+        EngineApiRun original = game.Run("wasContrast = Engine.Rendering.Grading.Contrast; wasSaturation = Engine.Rendering.Grading.Saturation; wasVignette = Engine.Rendering.Grading.Vignette; "
+            + "wasExposure = Engine.Rendering.Exposure.Value; wasBlur = Engine.Rendering.MotionBlur.Strength; wasSmoothing = Engine.Rendering.AntiAliasing.Mode;");
+        HeadlessHarness.Assert(!original.Failed, "The script failed: " + original.Errors);
+        Genesis.Shared.Interfaces.Mesh3DState Frame()
+        {
+            var state = new Genesis.Shared.Interfaces.Mesh3DState();
+            Genesis.Shared.Interfaces.MeshLightingDefaults.Apply(ref state);
+            return state;
+        }
+        const string Switches = "Engine.Rendering.Grading.Enabled = {0}; Engine.Rendering.Exposure.Enabled = {0}; Engine.Rendering.MotionBlur.Enabled = {0}; Engine.Rendering.AntiAliasing.Enabled = {0};";
+        try
+        {
+            game.Run("Engine.Rendering.Grading.Contrast = 1.5; Engine.Rendering.Grading.Saturation = 0.5; Engine.Rendering.Grading.Vignette = 0.4; "
+                + "Engine.Rendering.Exposure.Value = 2; Engine.Rendering.MotionBlur.Strength = 0.5; Engine.Rendering.AntiAliasing.Mode = \"fxaa\";");
+            Genesis.Shared.Interfaces.Mesh3DState on = Frame();
+            HeadlessHarness.Assert(on.Contrast == 1.5f && on.Saturation == 0.5f && Math.Abs(on.VignetteStrength - 0.4f) < 1e-4f && on.Exposure == 2f
+                && Math.Abs(on.MotionBlur - 0.5f) < 1e-4f && on.AntiAliasing != Genesis.Shared.Interfaces.AntiAliasingMode.Off,
+                $"With the parts on the frame has contrast {on.Contrast}, saturation {on.Saturation}, vignette {on.VignetteStrength}, exposure {on.Exposure}, blur {on.MotionBlur}, smoothing {on.AntiAliasing}.");
+            HeadlessHarness.Assert(!game.Run(string.Format(Switches, "false")).Failed, "Switching the parts off failed.");
+            Genesis.Shared.Interfaces.Mesh3DState off = Frame();
+            HeadlessHarness.Assert(off.Contrast == 1f && off.Saturation == 1f && off.VignetteStrength == 0f && off.Exposure == 1f && off.MotionBlur == 0f
+                && off.AntiAliasing == Genesis.Shared.Interfaces.AntiAliasingMode.Off,
+                $"With the parts off the frame has contrast {off.Contrast}, saturation {off.Saturation}, vignette {off.VignetteStrength}, exposure {off.Exposure}, blur {off.MotionBlur}, smoothing {off.AntiAliasing}.");
+            EngineApiRun kept = game.Run("keptContrast = Engine.Rendering.Grading.Contrast; keptExposure = Engine.Rendering.Exposure.Value; keptSmoothing = Engine.Rendering.AntiAliasing.Mode;");
+            HeadlessHarness.Assert(kept.Number("keptContrast") == 1.5 && kept.Number("keptExposure") == 2 && kept.Text("keptSmoothing") == "fxaa",
+                $"The values of parts switched off must be kept: contrast {kept.Number("keptContrast")}, exposure {kept.Number("keptExposure")}, smoothing {kept.Text("keptSmoothing")}.");
+            game.Run(string.Format(Switches, "true"));
+            Genesis.Shared.Interfaces.Mesh3DState back = Frame();
+            HeadlessHarness.Assert(back.Contrast == 1.5f && back.Exposure == 2f && back.AntiAliasing != Genesis.Shared.Interfaces.AntiAliasingMode.Off,
+                "Switched on again, the parts must come back as they were set.");
+        }
+        finally
+        {
+            game.Run(string.Format(Switches, "true")
+                + $" Engine.Rendering.Grading.Contrast = {EngineApiGame.Literal(original.Variables["wasContrast"])}; Engine.Rendering.Grading.Saturation = {EngineApiGame.Literal(original.Variables["wasSaturation"])};"
+                + $" Engine.Rendering.Grading.Vignette = {EngineApiGame.Literal(original.Variables["wasVignette"])}; Engine.Rendering.Exposure.Value = {EngineApiGame.Literal(original.Variables["wasExposure"])};"
+                + $" Engine.Rendering.MotionBlur.Strength = {EngineApiGame.Literal(original.Variables["wasBlur"])}; Engine.Rendering.AntiAliasing.Mode = {EngineApiGame.Literal(original.Variables["wasSmoothing"])};");
+        }
+    }
+
+    // Culling off clears the engine's four culling switches; Frustum and Occlusion read and take what is set meanwhile,
+    // and come back as they are when it is on again.
+    private static void CullingSwitchesOff(EngineApiGame game)
+    {
+        try
+        {
+            game.Run("Engine.Rendering.Culling.Frustum = true; Engine.Rendering.Culling.Occlusion = true; Engine.Rendering.Culling.Enabled = false;");
+            HeadlessHarness.Assert(!Genesis.Shared.Rendering.RenderAutoState.FrustumCulling && !Genesis.Shared.Rendering.RenderAutoState.OcclusionCulling
+                && !Genesis.Shared.Rendering.RenderAutoState.DistanceCulling && !Genesis.Shared.Rendering.RenderAutoState.SubPixelCulling,
+                "With culling off nothing may be culled.");
+            EngineApiRun meanwhile = game.Run("keptFrustum = Engine.Rendering.Culling.Frustum; keptOcclusion = Engine.Rendering.Culling.Occlusion; Engine.Rendering.Culling.Occlusion = false; occlusionAfterSet = Engine.Rendering.Culling.Occlusion;");
+            HeadlessHarness.Assert(meanwhile.Number("keptFrustum") == 1 && meanwhile.Number("keptOcclusion") == 1 && meanwhile.Number("occlusionAfterSet") == 0,
+                "Frustum and Occlusion must read as they are kept while culling is off, and take what is set.");
+            HeadlessHarness.Assert(!Genesis.Shared.Rendering.RenderAutoState.OcclusionCulling, "Setting Occlusion while culling is off must not turn it on.");
+            game.Run("Engine.Rendering.Culling.Enabled = true;");
+            HeadlessHarness.Assert(Genesis.Shared.Rendering.RenderAutoState.FrustumCulling && !Genesis.Shared.Rendering.RenderAutoState.OcclusionCulling
+                && Genesis.Shared.Rendering.RenderAutoState.DistanceCulling && Genesis.Shared.Rendering.RenderAutoState.SubPixelCulling,
+                "Switched on again, culling must be as it was kept: frustum on, occlusion as last set (off), distance and size on.");
+        }
+        finally
+        {
+            game.Run("Engine.Rendering.Culling.Enabled = true; Engine.Rendering.Culling.Frustum = true; Engine.Rendering.Culling.Occlusion = false;");
+        }
     }
 
     // What a case does, in its name: the round trip alone where nothing is switched, with Enabled where it is.
@@ -248,10 +365,10 @@ internal static class EngineApiSuite
                 if (EngineApiModel.SettableIn(scope).Count == 0 || EngineApiModel.HasEnabled(scope)) continue;
                 lacking.Add(scope);
             }
-            string[] unexpected = lacking.Where(scope => !ScopesWithoutEnabled.Contains(scope) && !ScopesWithoutEnabledByDesign.ContainsKey(scope)).ToArray();
-            string[] nowHaveOne = ScopesWithoutEnabled.Concat(ScopesWithoutEnabledByDesign.Keys).Where(scope => !lacking.Contains(scope)).OrderBy(scope => scope, StringComparer.Ordinal).ToArray();
+            string[] unexpected = lacking.Where(scope => !ScopesWithoutEnabled.ContainsKey(scope) && !ScopesWithoutEnabledByDesign.ContainsKey(scope)).ToArray();
+            string[] nowHaveOne = ScopesWithoutEnabled.Keys.Concat(ScopesWithoutEnabledByDesign.Keys).Where(scope => !lacking.Contains(scope)).OrderBy(scope => scope, StringComparer.Ordinal).ToArray();
             Console.WriteLine($"Engine API: {lacking.Count} of {EngineApiModel.Areas.Count + EngineApiModel.Parts.Count} areas and parts have values and no Enabled "
-                + $"({lacking.Count(scope => ScopesWithoutEnabledByDesign.ContainsKey(scope))} by design, {lacking.Count(scope => ScopesWithoutEnabled.Contains(scope))} left for later)"
+                + $"({lacking.Count(scope => ScopesWithoutEnabledByDesign.ContainsKey(scope))} by design, {lacking.Count(scope => ScopesWithoutEnabled.ContainsKey(scope))} left for later)"
                 + (nowHaveOne.Length == 0 ? "." : $"; these now have one and can leave the lists: {string.Join(", ", nowHaveOne)}."));
             HeadlessHarness.Assert(unexpected.Length == 0,
                 $"New area or part without an Enabled (the standard gives every one an Enabled): {string.Join(", ", unexpected)}.");

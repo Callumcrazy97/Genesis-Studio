@@ -86,12 +86,13 @@ internal static class ObjectPartsChecks
         string previousPath = PgslCommands.ProjectPath;
         PgslCommands.ActiveGameContext = game;
         PgslCommands.ProjectPath = project.RootPath;
+        RoomBuildResult? built = null;
         try
         {
             VMEngine.Initialize();
             var scripts = new ScriptHostSystem();
             scripts.SetContext(game);
-            RoomBuildResult built = new RoomSceneBuilder(project.RootPath, scripts).Build(scene, room);
+            built = new RoomSceneBuilder(project.RootPath, scripts).Build(scene, room);
             var world = scene.World;
             Entity cartEntity = built.EntitiesByNodeId[cartNode.Id], boxEntity = built.EntitiesByNodeId[boxNode.Id];
             HeadlessHarness.Assert(built.EntitiesByNodeId.TryGetValue(cartNode.Id + "/part1", out Entity wheelEntity)
@@ -135,6 +136,8 @@ internal static class ObjectPartsChecks
         }
         finally
         {
+            // The process keeps draw assets by entity id and version: the next scene's first entities must not inherit the cart's and wheel's.
+            if (built is not null) foreach (Entity spawned in built.SpawnedEntities) Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.Remove(spawned);
             PgslCommands.BindContext(previousContext);
             PgslCommands.ActiveGameContext = previousGame;
             PgslCommands.ProjectPath = previousPath;

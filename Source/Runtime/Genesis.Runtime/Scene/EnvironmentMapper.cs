@@ -126,6 +126,24 @@ namespace Genesis.Runtime.Scene
             state.BackgroundColor = Vector3.Lerp(state.BackgroundColor, light, flash * 0.7f);
         }
 
+        /// <summary>
+        /// The parts of the lighting a script switched off, taken out of the finished frame state (after the climate and
+        /// atmosphere have stamped theirs): no sun light, no ambient light (the room's colours and the hemisphere sky
+        /// light), no glow of the surfaces' own colours. All on unless set, so a frame is as it was.
+        /// </summary>
+        public static void ApplyPartSwitches(ref Mesh3DState state, SceneEnvironment env)
+        {
+            if (env == null) return;
+            if (!env.SunLightEnabled) state.SunIntensity = 0f;
+            if (!env.AmbientLightEnabled)
+            {
+                state.AmbientColor = Vector3.Zero;
+                state.AmbientGroundColor = Vector3.Zero;
+                state.SkyLightStrength = 0f;
+            }
+            if (!env.GlowEnabled) state.EmissiveIntensity = 0f;
+        }
+
         public static void StampClimateAtmosphere(
             ref Mesh3DState state,
             EnvironmentService climate,

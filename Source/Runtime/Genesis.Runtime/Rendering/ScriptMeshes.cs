@@ -135,6 +135,7 @@ namespace Genesis.Runtime.Rendering
         public static void Reset()
         {
             UploadBudgetMilliseconds = DefaultUploadBudgetMilliseconds;
+            UploadBudgetEnabled = true;
             BeginFrame();
             lock (Rebuilt) Rebuilt.Clear();
             List<Builder> all;
@@ -264,6 +265,9 @@ namespace Genesis.Runtime.Rendering
         public static double UploadBudgetMilliseconds { get; set; } = DefaultUploadBudgetMilliseconds;
         public const double DefaultUploadBudgetMilliseconds = 4;
 
+        /// <summary>Whether the budget is kept at all (Engine.Mesh.Upload.Enabled; true unless set): off, every mesh goes to the GPU the frame it changes.</summary>
+        public static bool UploadBudgetEnabled { get; set; } = true;
+
         private static long _frameUploadTicks;
         private static int _frameUploads;
 
@@ -295,7 +299,7 @@ namespace Genesis.Runtime.Rendering
         {
             bool sameOwner = ReferenceEquals(mesh.Owner, renderer);
             if (!mesh.Dirty && mesh.Handle.IsValid && sameOwner) return mesh.Handle;
-            if (UploadBudgetMilliseconds > 0 && _frameUploads > 0
+            if (UploadBudgetEnabled && UploadBudgetMilliseconds > 0 && _frameUploads > 0
                 && _frameUploadTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency >= UploadBudgetMilliseconds)
                 return mesh.Handle.IsValid && sameOwner ? mesh.Handle : MeshHandle.Invalid;
 

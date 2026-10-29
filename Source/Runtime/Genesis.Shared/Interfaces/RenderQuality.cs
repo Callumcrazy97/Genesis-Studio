@@ -321,6 +321,24 @@ namespace Genesis.Shared.Interfaces
             set => _motionBlur = float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : 0f;
         }
 
+        // Parts of the picture's post-processing a game has switched off (Engine.Rendering.<Part>.Enabled = false):
+        // the frame is drawn with that part neutral, whatever its values, which are kept for when it is switched on.
+        public static bool GradingEnabled { get; set; } = true;
+        public static bool ExposureEnabled { get; set; } = true;
+        public static bool AntiAliasingEnabled { get; set; } = true;
+        public static bool MotionBlurEnabled { get; set; } = true;
+
+        /// <summary>Switches every post-processing part on again (a new game).</summary>
+        public static void ResetPartSwitches() => GradingEnabled = ExposureEnabled = AntiAliasingEnabled = MotionBlurEnabled = true;
+
+        private static void ApplyPartSwitches(ref Mesh3DState state)
+        {
+            if (!GradingEnabled) { state.Contrast = 1f; state.Saturation = 1f; state.VignetteStrength = 0f; }
+            if (!ExposureEnabled) { state.Exposure = 1f; state.AutoExposureEnabled = false; }
+            if (!AntiAliasingEnabled) state.AntiAliasing = AntiAliasingMode.Off;
+            if (!MotionBlurEnabled) state.MotionBlur = 0f;
+        }
+
         /// <summary>
         /// True once a quality tier has been applied: from then on the engine-wide ambient
         /// occlusion, contact shadow, local volumetric, bloom, cascade and cloud quality settings

@@ -174,6 +174,9 @@ internal sealed class EngineApiGame : IDisposable
     public void Dispose()
     {
         _host.Detach(_probe);
+        // Engine.Shader.Name makes the probe's draw assets, which the process keeps by entity id and version: the first
+        // entity of the next scene has the same ones and must not be taken for a 2D Object.
+        Genesis.Runtime.Rendering.ObjectDrawAssetRegistry.Remove(_probe);
         // Values some scripts leave in process-wide statics when nothing puts them back.
         PgslCommands.AudioApiAcoustics = "outdoors";
         Genesis.Runtime.Modeling.ModelLodView.Quality = 1f;

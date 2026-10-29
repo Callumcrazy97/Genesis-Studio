@@ -33,6 +33,12 @@ public static class RenderScale
         set => _scale = float.IsFinite(value) ? Math.Clamp(value, Smallest, Largest) : 1f;
     }
 
+    /// <summary>
+    /// Whether the scene is drawn at the scale at all (Engine.Display.Resolution.Enabled; true unless set); off, it is drawn at
+    /// the view's own size, and the scale, the sharpening and the dynamic scale are kept for when it is switched on.
+    /// </summary>
+    public static bool Enabled { get; set; } = true;
+
     /// <summary>Lower the scale to hold <see cref="TargetFps"/>, and raise it again when there is room (false unless set).</summary>
     public static bool Dynamic { get; set; }
 
@@ -67,6 +73,7 @@ public static class RenderScale
     /// </summary>
     public static float Advance(double gpuMilliseconds, double seconds)
     {
+        if (!Enabled) return Current = 1f;
         if (!Dynamic)
         {
             _dynamicScale = _scale;
@@ -110,6 +117,7 @@ public static class RenderScale
         _sharpness = 0.5f;
         _dynamicScale = 1f;
         _slowFor = _fastFor = _settleFor = 0;
+        Enabled = true;
         Dynamic = false;
         Current = 1f;
     }
