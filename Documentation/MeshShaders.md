@@ -114,8 +114,10 @@ engine's declarations come before the surface (its constant buffers, `AlbedoTex`
 material maps, `SrgbToLinear3`, `Hash21`, `InterleavedGradientNoise`), so their names are taken:
 give your own functions names of their own.
 
-Registers a surface shader leaves alone: b0-b4 and b6 are the engine's (its `GenesisFrame` is read
-through the input, not declared); t0-t16 and s0-s2 likewise.
+Registers a surface shader leaves alone: b0-b4, b6 and b7 are the engine's (its `GenesisFrame` is read
+through the input, not declared); t0-t16 and s0-s2 likewise, and t18-t20, where the engine's lighting
+reads the light probe at the camera (t18, t19) and the probes placed in the room (t20, b7): a surface's
+own textures go at t17 and t21-t23.
 
 ### Examples
 

@@ -103,6 +103,9 @@ namespace Genesis.Rendering.Primitives
             // The floor under bounced light (LightProbes.AmbientFloor), appended: x = share of the
             // room's own ambient kept when the probe saw little light. Only ForwardShaders declares it.
             public Vector4 LightProbeFloorParams;
+            // The probes placed in the room (ForwardRenderer.PlacedProbes.cs), appended: x = how many
+            // are bound (0 = none), y = face pixels, z/w = reflections' and bounced light's strength.
+            public Vector4 PlacedProbeParams;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -5216,7 +5219,7 @@ namespace Genesis.Rendering.Primitives
             _gpu.ClearTexture(GpuShaderStage.Pixel, 6);
             for (int t = 15; t <= 20; t++)
                 _gpu.ClearTexture(GpuShaderStage.Pixel, t);
-            _probeBound = false;
+            _probeBound = _placedBound = false;
             _gpu.EndRenderPass();
         }
 
@@ -6338,6 +6341,7 @@ namespace Genesis.Rendering.Primitives
                 ShadowFadeParams = new Vector4(_cascade.FadeStart, _cascade.ShadowDistance,
                     _cascade.ShadowDistance > _cascade.FadeStart ? 1f / (_cascade.ShadowDistance - _cascade.FadeStart) : 0f, 0f),
                 LightProbeFloorParams = LightProbeFloorParams(),
+                PlacedProbeParams = PlacedProbeParams(),
             };
             _gpu.UpdateConstantBuffer(_cbEngine, data);
         }

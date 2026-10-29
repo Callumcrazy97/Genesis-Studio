@@ -92,6 +92,10 @@ cbuffer EngineConstants : register(b1)
     // x = the share of the room's own ambient light and reflection a light probe never takes a
     // surface below (a probe that captured a dark room or a black background).
     float4       LightProbeFloorParams;
+    // The probes placed in the room (ForwardRenderer.PlacedProbes.cs): x = how many are bound (0 =
+    // none, the lighting as it was), y = pixels a side of each of their views, z = the reflections'
+    // strength (0 off), w = the bounced light's (0 off).
+    float4       PlacedProbeParams;
 };
 
 cbuffer DrawConstants : register(b2)
@@ -211,6 +215,135 @@ float3 LightProbeMirror(float3 d)
     uv = clamp(uv, inset, 1.0 - inset);
     float2 tile = float2(face % 3, face / 3);
     return LightProbeAtlas.SampleLevel(AlbedoSamp, (tile + uv) / float2(3.0, 2.0), 0).rgb;
+}
+
+// The probes placed in the room (Engine.Lighting.Probes). Three rows a probe: xyz its centre and w
+// a sphere's radius (0 for a box); xyz a box's half size and w its blend distance; x 1 for a
+// reflection probe (0 bounced light), y 1 to project reflections onto its box, z 1 once captured
+// and active. t20 holds each one's six views as a 3 x 2 block, the n-th below the one before, and
+// under the last block one row per probe of the light arriving from each side.
+cbuffer PlacedProbeConstants : register(b7)
+{
+    float4 PlacedProbeRows[48];
+};
+Texture2D PlacedProbeAtlas : register(t20);
+
+// A placed probe's share at p: whole further than its blend distance inside its edge, nothing past it.
+float PlacedProbeWeight(int probe, float3 p)
+{
+    float4 a = PlacedProbeRows[probe * 3];
+    float4 b = PlacedProbeRows[probe * 3 + 1];
+    float inside;
+    if (a.w > 0.0)
+        inside = a.w - length(p - a.xyz);
+    else
+    {
+        float3 room = b.xyz - abs(p - a.xyz);
+        inside = min(room.x, min(room.y, room.z));
+    }
+    return b.w > 0.0 ? saturate(inside / b.w) : (inside >= 0.0 ? 1.0 : 0.0);
+}
+
+// The light arriving at placed probe n along unit direction d (its row of the six sides).
+float3 PlacedProbeAmbientFrom(int probe, float3 d)
+{
+    int row = (int)(2.0 * PlacedProbeParams.y * PlacedProbeParams.x) + probe;
+    float3 sq = d * d;
+    return sq.x * PlacedProbeAtlas.Load(int3(d.x >= 0.0 ? 0 : 1, row, 0)).rgb
+         + sq.y * PlacedProbeAtlas.Load(int3(d.y >= 0.0 ? 2 : 3, row, 0)).rgb
+         + sq.z * PlacedProbeAtlas.Load(int3(d.z >= 0.0 ? 4 : 5, row, 0)).rgb;
+}
+
+// What placed probe n sees along d: as LightProbeMirror, from its own block of the atlas.
+float3 PlacedProbeMirror(int probe, float3 d)
+{
+    float3 a = abs(d);
+    int face;
+    float3 forward, up;
+    if (a.x >= a.y && a.x >= a.z)
+    {
+        face = d.x >= 0.0 ? 0 : 1;
+        forward = float3(d.x >= 0.0 ? 1.0 : -1.0, 0, 0);
+        up = float3(0, 1, 0);
+    }
+    else if (a.y >= a.z)
+    {
+        face = d.y >= 0.0 ? 2 : 3;
+        forward = float3(0, d.y >= 0.0 ? 1.0 : -1.0, 0);
+        up = float3(0, 0, d.y >= 0.0 ? -1.0 : 1.0);
+    }
+    else
+    {
+        face = d.z >= 0.0 ? 4 : 5;
+        forward = float3(0, 0, d.z >= 0.0 ? 1.0 : -1.0);
+        up = float3(0, 1, 0);
+    }
+    float3 right = cross(up, forward);
+    float along = max(dot(d, forward), 1e-4);
+    float2 uv = float2(dot(d, right), dot(d, up)) / along * float2(0.5, -0.5) + 0.5;
+    float pixels = max(PlacedProbeParams.y, 1.0);
+    uv = clamp(uv, 0.5 / pixels, 1.0 - 0.5 / pixels);
+    float2 texel = (float2(face % 3, face / 3 + 2 * probe) + uv) * pixels;
+    float2 size = float2(3.0 * pixels, (2.0 * pixels + 1.0) * PlacedProbeParams.x);
+    return PlacedProbeAtlas.SampleLevel(AlbedoSamp, texel / size, 0).rgb;
+}
+
+// The bounced light of the placed light probes at p for normal n, blended by their shares: returns
+// how much of the point they cover (0 to 1); light is their blend where they do.
+float PlacedProbeBounce(float3 p, float3 n, out float3 light)
+{
+    light = 0.0;
+    float total = 0.0;
+    int count = (int)PlacedProbeParams.x;
+    [loop] for (int i = 0; i < count; i++)
+    {
+        float4 c = PlacedProbeRows[i * 3 + 2];
+        if (c.x > 0.5 || c.z < 0.5) continue;
+        float w = PlacedProbeWeight(i, p);
+        if (w <= 0.0) continue;
+        light += w * PlacedProbeAmbientFrom(i, n);
+        total += w;
+    }
+    if (total > 0.0) light /= total;
+    return saturate(total);
+}
+
+// The placed reflection probes at p along the reflected direction r, blended by their shares:
+// returns how much of the point they cover; mirror is what they see along r, rough the light from
+// that side. A box with projection mirrors its walls where they are, as seen from p.
+float PlacedProbeReflection(float3 p, float3 r, out float3 mirror, out float3 rough)
+{
+    mirror = 0.0;
+    rough = 0.0;
+    float total = 0.0;
+    int count = (int)PlacedProbeParams.x;
+    [loop] for (int i = 0; i < count; i++)
+    {
+        float4 c = PlacedProbeRows[i * 3 + 2];
+        if (c.x < 0.5 || c.z < 0.5) continue;
+        float w = PlacedProbeWeight(i, p);
+        if (w <= 0.0) continue;
+        float3 d = r;
+        float4 a = PlacedProbeRows[i * 3];
+        if (c.y > 0.5 && a.w <= 0.0)
+        {
+            float3 extent = PlacedProbeRows[i * 3 + 1].xyz;
+            float3 safe = float3(abs(r.x) > 1e-5 ? r.x : 1e-5, abs(r.y) > 1e-5 ? r.y : 1e-5, abs(r.z) > 1e-5 ? r.z : 1e-5);
+            float3 exits = max((a.xyz + extent - p) / safe, (a.xyz - extent - p) / safe);
+            float t = max(min(exits.x, min(exits.y, exits.z)), 0.0);
+            float3 wall = p + r * t - a.xyz;
+            d = dot(wall, wall) > 1e-8 ? normalize(wall) : r;
+        }
+        mirror += w * PlacedProbeMirror(i, d);
+        rough += w * PlacedProbeAmbientFrom(i, d);
+        total += w;
+    }
+    if (total > 0.0)
+    {
+        mirror /= total;
+        rough /= total;
+    }
+    return saturate(total);
 }
 
 // Local light shadow atlas: a row of six 512² tiles per slot (cube faces; a spot light uses face 0).
@@ -1425,6 +1558,16 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     float3 roomAmbient = hemiAmbient;
     if (LightProbeParams.y > 0.0)
         hemiAmbient = lerp(hemiAmbient, max(LightProbeAmbientFrom(n), roomAmbient * LightProbeFloorParams.x), LightProbeParams.y);
+    // Light probes placed in the room take the camera's probe's place where they reach, by their
+    // shares; past their edges the light stays as above.
+    if (PlacedProbeParams.x > 0.5 && PlacedProbeParams.w > 0.0)
+    {
+        float3 placedLight;
+        float placedCover = PlacedProbeBounce(IN.WorldPos, n, placedLight);
+        if (placedCover > 0.0)
+            hemiAmbient = lerp(hemiAmbient,
+                lerp(roomAmbient, max(placedLight, roomAmbient * LightProbeFloorParams.x), PlacedProbeParams.w), placedCover);
+    }
 #ifdef GENESIS_SURFACE
     float3 orm = gsOrm;
 #else
@@ -1468,6 +1611,14 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
     // lights; their diffuse ambient gives way to it, as it does in a physically based renderer.
     // With the light probe bound, its reflections' strength (0 when off); without, the room's own.
     float envAmount = LightProbeParams.w > 0.5 ? LightProbeParams.x : StylizedParams2.w;
+    // Reflection probes placed in the room: where they reach, what they see, at their strength.
+    float placedMirrorCover = 0.0;
+    float3 placedMirror = 0.0, placedRough = 0.0;
+    if (PlacedProbeParams.x > 0.5 && PlacedProbeParams.z > 0.0)
+    {
+        placedMirrorCover = PlacedProbeReflection(IN.WorldPos, reflect(viewDir, n), placedMirror, placedRough);
+        envAmount = lerp(envAmount, PlacedProbeParams.z, placedMirrorCover);
+    }
     if (envAmount > 0.0)
     {
         float3 reflected = reflect(viewDir, n);
@@ -1488,6 +1639,12 @@ PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
             float3 probeFloor = roomAmbient * LightProbeFloorParams.x;
             envMirror = max(LightProbeMirror(reflected), probeFloor);
             envRough = max(LightProbeAmbientFrom(reflected), probeFloor);
+        }
+        if (placedMirrorCover > 0.0)
+        {
+            float3 placedFloor = roomAmbient * LightProbeFloorParams.x;
+            envMirror = lerp(envMirror, max(placedMirror, placedFloor), placedMirrorCover);
+            envRough = lerp(envRough, max(placedRough, placedFloor), placedMirrorCover);
         }
         float3 envLight = lerp(envMirror, envRough, roughness);
         float4 envC0 = float4(-1.0, -0.0275, -0.572, 0.022);

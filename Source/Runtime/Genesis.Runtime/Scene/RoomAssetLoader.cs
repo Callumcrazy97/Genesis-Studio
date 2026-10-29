@@ -1089,6 +1089,7 @@ public sealed class RoomSceneBuilder
         {
             Genesis.Runtime.Scripting.PgslCommands.ResetRoomAcoustics();
             Genesis.Shared.Rendering.LightProbes.ResetForRoom(asset.Environment?.EnvironmentReflection ?? 0f);
+            Genesis.Shared.Rendering.PlacedProbes.SetRoom(PlacedProbesOf(asset));
         }
         var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (RoomNode node in asset.Nodes)
@@ -1106,6 +1107,34 @@ public sealed class RoomSceneBuilder
         var problems = new List<string>();
         Genesis.Runtime.Scripting.EngineSettings.Apply(settings, new Genesis.Shared.Scripting.PgslContext(), problems);
         foreach (string problem in problems) Console.Error.WriteLine($"[Room] {asset.Name} engine setting: {problem}");
+    }
+
+    /// <summary>
+    /// The room's Light Probes and Reflection Probes as the renderer uses them: each active probe
+    /// node of a 3D room at its place in the world, in the room's order.
+    /// </summary>
+    public static List<Genesis.Shared.Rendering.PlacedProbe> PlacedProbesOf(RoomAsset asset)
+    {
+        var probes = new List<Genesis.Shared.Rendering.PlacedProbe>();
+        if (asset?.Nodes == null || asset.Dimension != RoomDimension.ThreeD) return probes;
+        foreach (RoomNode node in asset.Nodes)
+        {
+            if (node.Kind != RoomNodeKind.Probe || node.Probe == null || !RoomHierarchyTransforms.IsActive(asset, node)) continue;
+            RoomProbeData data = node.Probe;
+            RoomTransform world = RoomHierarchyTransforms.World(asset, node);
+            probes.Add(new Genesis.Shared.Rendering.PlacedProbe
+            {
+                Name = node.Name ?? "",
+                Kind = data.IsReflection ? Genesis.Shared.Rendering.PlacedProbeKind.Reflection : Genesis.Shared.Rendering.PlacedProbeKind.Light,
+                Shape = data.IsBox ? Genesis.Shared.Rendering.PlacedProbeShape.Box : Genesis.Shared.Rendering.PlacedProbeShape.Sphere,
+                Position = new Vector3(world.X, world.Y, world.Z),
+                Radius = data.Radius,
+                Size = new Vector3(data.SizeAxis(0), data.SizeAxis(1), data.SizeAxis(2)),
+                BlendDistance = data.BlendDistance,
+                BoxProjection = data.BoxProjection && data.IsBox,
+            });
+        }
+        return probes;
     }
 
     public static JObject ApplyOverrides(JObject source, List<RoomComponentOverride> overrides)

@@ -7398,6 +7398,19 @@ move preserves covered pixels; headless pixel comparisons pass. Met by
   shared `TerrainMeshBuilder` (extracted from the Terrain Editor so both
   editors render an identical, correctly-wound surface). F5/F6 requires at
   least one Room to exist before it will save/compile/launch (NEXT-028).
+- Light Probes and Reflection Probes (29 October 2026) — 3D only:
+  `RoomNodeKind.Probe` nodes with a `probe` payload (`RoomProbeData`: type
+  `light` or `reflection`, shape `sphere` or `box`, radius, size, blend
+  distance, box projection). Edit > Add light probe / Add reflection probe
+  puts one where the view looks on the Objects' layer; the move gizmo places
+  it (rotation and scale are not used: volumes follow the world's axes); the
+  kind Inspector edits the volume with undo; the view draws a marker, the
+  volume and, fainter, where its blend starts (amber for light, blue for
+  reflection); View > Types > Probes hides them; picking uses the marker so
+  objects inside a volume stay clickable. Editable in the Objects section on
+  their layer, or in Instances. Duplicate and copy/paste skip probes for now.
+  The game reads them with `RoomSceneBuilder.PlacedProbesOf` (Cookbook,
+  "Light Probes and Reflection Probes").
 
 **Acceptance:** build and play a mixed 2D/3D room; all transforms round-trip;
 headless selection/gizmo screenshots and automated play pass. Met by the full

@@ -65,6 +65,7 @@ namespace Genesis.Rendering.Primitives
             new("LightProbeShaders.hlsl", LightProbeShaders.Source, "VS", GpuShaderStage.Vertex),
             new("LightProbeShaders.hlsl", LightProbeShaders.Source, "PS_Compose", GpuShaderStage.Pixel),
             new("LightProbeShaders.hlsl", LightProbeShaders.Source, "PS_Average", GpuShaderStage.Pixel),
+            new("LightProbeShaders.hlsl", LightProbeShaders.Source, "PS_CopyRow", GpuShaderStage.Pixel),
         };
 
         /// <summary>

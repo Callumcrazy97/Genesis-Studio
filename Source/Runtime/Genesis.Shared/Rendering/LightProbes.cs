@@ -61,7 +61,7 @@ public static class LightProbes
         {
             _inGame = value;
             // No capture is coming any more: culling must stop keeping things for one.
-            if (!value) PendingCapture = default;
+            if (!value) PendingCapture = PendingPlacedCapture = default;
         }
     }
 
@@ -139,10 +139,15 @@ public static class LightProbes
     /// </summary>
     public static Vector4 PendingCapture;
 
-    /// <summary>True when a sphere is inside the capture about to be made.</summary>
-    public static bool KeepsForCapture(Vector3 centre, float radius)
+    /// <summary>The same for the placed probe (<see cref="PlacedProbes"/>) a view captures at its next frame.</summary>
+    public static Vector4 PendingPlacedCapture;
+
+    /// <summary>True when a sphere is inside a capture about to be made.</summary>
+    public static bool KeepsForCapture(Vector3 centre, float radius) =>
+        Inside(PendingCapture, centre, radius) || Inside(PendingPlacedCapture, centre, radius);
+
+    private static bool Inside(Vector4 pending, Vector3 centre, float radius)
     {
-        Vector4 pending = PendingCapture;
         if (pending.W <= 0f) return false;
         float reach = pending.W + radius;
         return Vector3.DistanceSquared(centre, new Vector3(pending.X, pending.Y, pending.Z)) <= reach * reach;

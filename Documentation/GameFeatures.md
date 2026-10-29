@@ -375,7 +375,45 @@ same rule holds for every `Engine.Area.Part.Enabled`.
 Each value is a room Engine setting in the Inspector, and the Enabled and Strength values are world values on the F6 debug screen. The
 Software renderer keeps the flat ambient colours. `GENESIS_LIGHT_PROBES=0` turns it off for a whole
 run, to compare with the old look. One probe lights the whole view, so light from a wall right
-behind the camera reaches everything in front of it.
+behind the camera reaches everything in front of it; probes placed in the room (below) give each
+place its own.
+
+## Light Probes and Reflection Probes placed in a room (29 October 2026)
+
+A 3D room can hold probes of its own, placed in the Room editor (Edit › Add light probe / Add
+reflection probe, or `room.addProbe`): a **Light Probe** is a sphere whose surfaces take their
+bounced light from where it stands; a **Reflection Probe** is a box (or sphere) whose smooth and
+metal surfaces mirror what is seen from its centre, optionally projected onto the box so a floor
+mirrors the walls where they are. Each fades in over its **blend distance** inside its edge.
+
+When the room starts the game captures each probe where it stands, one a frame (half the camera
+probe's detail: 32 pixels a side at the usual quality), so no frame pays for more than one capture
+and a room's probes are ready a frame after the last. Every pixel then takes the probes covering it
+by their shares (whole well inside, fading out over the blend distance; overlapping probes share),
+over the automatic probe at the camera, which still lights wherever no placed probe reaches. A
+room without probes draws exactly as before. Placed probes are captured again when the sun or the
+sky changes, when a script calls `Engine.Lighting.Probes.Recapture()` (a lamp lit, a door opened)
+and, one by one, when a script moves them; until then the last capture stays in use. Sixteen a
+room at most; reflection probes follow `Engine.Lighting.Reflections`, light probes
+`Engine.Lighting.Bounce`.
+
+| Value | What it does |
+|---|---|
+| `Engine.Lighting.Probes.Enabled` | The placed probes blend in; off leaves only the probe at the camera. On in each room unless turned off |
+| `Engine.Lighting.Probes.Count`, `Captured`, `Blending` | How many the room placed, how many are captured, how many reach the camera (read) |
+| `Engine.Lighting.Probes.Recapture()` | Capture them all again, one a frame |
+| `Engine.Lighting.Probes.Name(i)`, `Exists("Probe")`, `Kind("Probe")`, `Weight("Probe")` | A probe by its place in the list or its name: whether it exists, "light" or "reflection", its share at the camera |
+| `Engine.Lighting.Probes.Active("Probe")`, `SetActive("Probe", on)` | Turn one off (its capture is kept) or on again |
+| `Engine.Lighting.Probes.X/Y/Z("Probe")`, `SetPosition("Probe", x, y, z)` | Where it is; moving it captures it again |
+| `Engine.Lighting.Probes.Radius/SetRadius`, `Blend/SetBlend` | A sphere's reach and the blend distance, in metres |
+
+`Engine.Lighting.Probes.Enabled` is a room Engine setting in the Inspector and a world value on
+the F6 screen once the room has probes.
+
+What capturing costs (DX11, the test stage: two walls and 24 boxes, `--test placed-probes`): 4 probes
+ready by the 5th frame, 0.3 ms of CPU each (the longest 0.7 ms); 16 by the 17th frame, 0.1 ms each,
+the GPU's frame 0.16 ms while capturing against 0.06 ms without. Each capture draws the room six
+times at 32 by 32 pixels, so a room with many more draws pays more, but still only one probe a frame.
 
 ## From C# and from events
 

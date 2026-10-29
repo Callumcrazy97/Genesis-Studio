@@ -133,6 +133,10 @@ public sealed partial class RoomEditorControl
                 && ReferenceEquals(node, _navigation.BackgroundsPanel.ActiveBackgroundLayer),
             RoomNodeKind.Terrain => ViewMode3D && _navigation.CurrentSection == RoomNavSection.Tilesets
                 && ReferenceEquals(node, _workspaceTerrains?.SelectedItem),
+            // Light and Reflection Probes are placed with the Objects, on their layer.
+            RoomNodeKind.Probe => ViewMode3D && _navigation.CurrentSection == RoomNavSection.Objects
+                && string.Equals(node.LayerId, _navigation.ObjectsPanel.ActiveObjectLayer?.Id,
+                    StringComparison.OrdinalIgnoreCase),
             _ => false,
         };
     }

@@ -278,6 +278,41 @@ DrawBeam3D(muzzleX, muzzleY, muzzleZ, hitX, hitY, hitZ, 0.04);   // in a Draw ev
 - **Exposure**: `Engine.Rendering.AutoExposure(0.18, 1.5)` lets the picture adapt between sun and
   shade; `Engine.Rendering.Exposure` brightens or darkens on top.
 
+## Light Probes and Reflection Probes
+
+The automatic probe follows the camera, so one view of the world lights everything in front of
+you. Where one place must look unlike the next (a red-lit hall off a white corridor, a pond's bank
+in shade, a chrome robot walking from a forge into the snow) place probes in the 3D room:
+
+- **Reflection Probe**: a box (or sphere) whose smooth and metal surfaces mirror what is seen from
+  its centre. Size it to the room it is in and turn on **Box projection** so a polished floor
+  mirrors the walls where they are. Two boxes that overlap blend across the overlap.
+- **Light Probe**: a sphere whose surfaces take their bounced light from where it stands: a cellar's
+  probe keeps the cellar dark and warm while the yard outside stays sky-lit.
+- **Blend distance** (metres inside the edge) fades a probe in, so walking from one into the next
+  changes the light smoothly; past every placed probe the camera's probe lights as before.
+
+In Studio: Room editor, Edit › **Add light probe** or **Add reflection probe** (it lands where the
+view looks), move it with the gizmo, set its volume in the Inspector. The view draws amber spheres
+for light probes and blue boxes for reflection probes; View › Types › Probes hides them. With
+automation: `room.addProbe` (`{"room": "...", "type": "reflection", "x": 0, "y": 2, "z": 0,
+"size": [12, 4, 10], "boxProjection": true}`). The game captures each one where it stands when the
+room starts, one a frame, so a room's sixteen are ready a quarter of a second in; a script asks for
+fresh ones after a big change:
+
+```pgsl
+// The hall's lamps are lit: capture every placed probe again, one a frame.
+Engine.Lighting.Probes.Recapture();
+// The lift's probe rides with it.
+Engine.Lighting.Probes.SetPosition("Lift", liftX, liftY + 1.5, liftZ);
+// Daylight through the window, gone at night.
+Engine.Lighting.Probes.SetActive("Window light", isDay);
+```
+
+`Engine.Lighting.Probes.Blending` says how many reach the camera (F6 shows `Engine.Lighting.Probes.Enabled`
+once a room has probes). Sixteen a room at most; reflections and bounced light still follow
+`Engine.Lighting.Reflections` and `Engine.Lighting.Bounce`.
+
 ## Make a shader from nodes
 
 A look of your own on a model (a tinted pattern with a glowing rim, a dissolve, lit windows) is a

@@ -33,11 +33,13 @@ namespace Genesis.Rendering.Primitives
             public Vector4 SkyZenith;
             public Vector4 SkyHorizon;
             public Vector4 SkyGround;
+            // A placed probe's block of its atlas (ForwardRenderer.PlacedProbes); zero for the camera's.
+            public Vector4 AtlasParams;
         }
 
         private const float ProbeFarPlane = 1000f;
 
-        private GpuShaderProgramHandle _probeComposeProgram, _probeAverageProgram;
+        private GpuShaderProgramHandle _probeComposeProgram, _probeAverageProgram, _probeCopyRowProgram;
         private bool _probeResourcesTried;
         private GpuBufferHandle _cbLightProbe;
         private GpuRenderTargetHandle _probeFaceTarget;
@@ -89,7 +91,10 @@ namespace Genesis.Rendering.Primitives
         /// <summary>EngineCB's LightProbeFloorParams: x the least share of the room's own ambient and reflection kept.</summary>
         private static Vector4 LightProbeFloorParams() => new(Probes.AmbientFloor, 0f, 0f, 0f);
 
-        /// <summary>Binds the probe in use for the main pass (t18 atlas, t19 ambient row), or nothing.</summary>
+        /// <summary>
+        /// Binds the probe in use for the main pass (t18 atlas, t19 ambient row), and the probes placed
+        /// in the room (t20, b7) once any is captured, or nothing.
+        /// </summary>
         private void BindLightProbe()
         {
             _probeBound = _probeReady && !_probeCaptureActive && LightProbesWanted() && !RenderDiagnosticsOff.LightProbes;
@@ -103,11 +108,13 @@ namespace Genesis.Rendering.Primitives
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 18);
                 _gpu.ClearTexture(GpuShaderStage.Pixel, 19);
             }
+            BindPlacedProbes();
         }
 
         /// <summary>Makes a capture decided last frame, goes on with one under way, or decides one for the next frame.</summary>
         private void UpdateLightProbe(GpuTextureHandle whiteTexture)
         {
+            UpdatePlacedProbes(whiteTexture);
             LastLightProbeMs = 0;
             if (!LightProbesWanted())
             {
@@ -184,10 +191,11 @@ namespace Genesis.Rendering.Primitives
         /// or the lamps round it came on, went out or doubled. A probe captured on a room's first frame,
         /// before its lamps were lit, used to stay black until the camera travelled 40 m.
         /// </summary>
-        private bool LightingMovedSinceProbe()
+        private bool LightingMovedSinceProbe() => ProbeLightingMoved(CurrentProbeLighting(), _probeLighting);
+
+        private static bool ProbeLightingMoved((Vector3 Sun, Vector3 SunLight, Vector3 Sky, Vector3 Ground, float Lamps) now,
+            (Vector3 Sun, Vector3 SunLight, Vector3 Sky, Vector3 Ground, float Lamps) then)
         {
-            var now = CurrentProbeLighting();
-            var then = _probeLighting;
             float sunTurn = now.Sun.LengthSquared() > 1e-8f && then.Sun.LengthSquared() > 1e-8f
                 ? Vector3.Dot(Vector3.Normalize(now.Sun), Vector3.Normalize(then.Sun))
                 : 1f;
@@ -214,6 +222,7 @@ namespace Genesis.Rendering.Primitives
                     byte[] vs = CompileShader(LightProbeShaders.Source, "VS", GpuShaderStage.Vertex);
                     _probeComposeProgram = MakeProgram(vs, "PS_Compose", "Light probe compose");
                     _probeAverageProgram = MakeProgram(vs, "PS_Average", "Light probe average");
+                    _probeCopyRowProgram = MakeProgram(vs, "PS_CopyRow", "Light probe ambient copy");
                     _cbLightProbe = MakeCB<LightProbeCB>("Light probe constants");
                 }
                 catch (Exception exception)
@@ -395,10 +404,12 @@ namespace Genesis.Rendering.Primitives
             _probeCapturePending = false;
             _probeNextFace = -1;
             ReleaseLightProbeTargets();
+            ReleasePlacedProbes();
             if (_probeComposeProgram.IsValid) _gpu.ReleaseShaderProgram(_probeComposeProgram);
             if (_probeAverageProgram.IsValid) _gpu.ReleaseShaderProgram(_probeAverageProgram);
+            if (_probeCopyRowProgram.IsValid) _gpu.ReleaseShaderProgram(_probeCopyRowProgram);
             if (_cbLightProbe.IsValid) _gpu.ReleaseBuffer(_cbLightProbe);
-            _probeComposeProgram = _probeAverageProgram = default;
+            _probeComposeProgram = _probeAverageProgram = _probeCopyRowProgram = default;
             _cbLightProbe = default;
         }
     }
