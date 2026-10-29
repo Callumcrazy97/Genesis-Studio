@@ -10111,8 +10111,11 @@ the game all use what it made; a game never reads the graph.
   `ShaderSetTexture`). Sample texture (Colour, Data or Normal map). Maths: Add, Subtract, Multiply,
   Divide, Lerp, Clamp, Saturate, One minus, Power, Sine, Cosine, Absolute, Floor, Fraction, Dot,
   Cross, Normalize, Length, Fresnel, Remap, Step, Smoothstep, Split, Combine. Output: Colour, Normal
-  (tangent space, -1 to 1), Emission, Roughness, Metalness, Alpha. Maths ports take the widest
-  vector wired to the node; narrower values are widened (a number fills a vector) or cut.
+  (tangent space, -1 to 1), Emission, Roughness, Metalness, Alpha, and Vertex offset (Mesh targets,
+  added 29 October): it becomes the shader's Vertex function ([vertex stage](MeshShaders.md#vertex-stage)),
+  and what feeds it is generated again per vertex (UV, Normal and Object position are the vertex's
+  own; a texture there is an error). Maths ports take the widest vector wired to the node; narrower
+  values are widened (a number fills a vector) or cut.
 - **The view.** Drag the background (or the middle button) to pan, the wheel to zoom, **F** or
   Frame to fit. **Space**, a double-click, a right-click or Add node opens a searchable node menu;
   letting go of a wire over empty space opens it too and wires the new node. Drag from a port to
@@ -10130,8 +10133,8 @@ the game all use what it made; a game never reads the graph.
 - **Limits.** Normal, Roughness and Metalness apply to Mesh targets. On 2D and full-screen targets
   the Normal and View direction face the viewer and World position is the pixel's place on screen.
   Object position undoes the draw's own world matrix, so copies of a mesh drawn together in one
-  instanced batch give their world position (the surface input has no object position yet). There is
-  no vertex stage, no groups, comments or sub-graphs, and no copy and paste yet.
+  instanced batch give their world position (the surface input has no object position yet). There
+  are no groups, comments or sub-graphs, and no copy and paste yet.
 - **Preview fix (any shader).** A previewed model now carries the shader's own textures (t17 and
   up), as the sphere always did; until 29 October a Model shader sampling a texture of its own
   previewed black on a model asset, though it drew correctly in the game.
