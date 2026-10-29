@@ -485,6 +485,11 @@ namespace Genesis.Runtime.Modeling
                         Genesis.Runtime.Rendering.ObjectDrawPass.TryApplyMaterialShader(renderer, projectPath, material.Shader,
                             shaderParameters, shaderResources, ownShaderTextures, ref draw);
                 }
+                // The debug screen's LOD and overdraw views (off unless it shows one). Not for a
+                // caller that keeps what is enqueued (drawn), which would keep the colour too.
+                if (Genesis.Runtime.Debugger.DebugScreenSettings.ModelView != Genesis.Runtime.Debugger.DebugViewMode.Off
+                    && !animation.FlatUntextured && drawn == null)
+                    Genesis.Runtime.Debugger.DebugScreenSettings.TintModelDraw(ref draw, automatic ? (mesh.IsSkinned ? viewLevel - 1 : viewLevel) : activeLod);
                 queue.Add(draw);
             }
             return true;

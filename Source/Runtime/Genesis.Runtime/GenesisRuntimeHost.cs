@@ -648,6 +648,9 @@ namespace Genesis.Runtime
         /// </summary>
         private RenderDebugView ResolveDebugView()
         {
+            // The debug screen's view mode (Engine.Debug.View.Mode) where the renderer draws it.
+            if (DebugScreenSettings.RendererView(DebugScreenSettings.ActiveView) is RenderDebugView diagnostic)
+                return diagnostic;
             if (Debugger != null && Debugger.IsVisible)
             {
                 return Debugger.ActiveRenderPass switch

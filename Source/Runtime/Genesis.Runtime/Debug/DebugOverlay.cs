@@ -36,6 +36,12 @@ namespace Genesis.Runtime.Debugger
         Engine,
         /// <summary>Entities, variables, transport and view toggles.</summary>
         World,
+        /// <summary>Colliders and hitboxes, GUI layer outlines, the diagnostic view modes.</summary>
+        Draw,
+        /// <summary>The GUI layers drawn: which User Interfaces and HUD scripts, their draw calls and areas.</summary>
+        Gui,
+        /// <summary>The report on one instance: what it is and why it is or is not drawn.</summary>
+        Object,
     }
 
     /// <summary>
@@ -54,6 +60,7 @@ namespace Genesis.Runtime.Debugger
                 _isVisible = value;
                 NavigationDebugTelemetry.Enabled = value && ActivePanel == DebugHudPanel.AiNavigation;
                 if (!value) NavigationDebugTelemetry.ResumeAi();
+                if (ReferenceEquals(Current, this)) OnScreenToggled();
             }
         }
         public bool ShowNavigation => IsVisible && ActivePanel == DebugHudPanel.AiNavigation;
@@ -121,6 +128,10 @@ namespace Genesis.Runtime.Debugger
             Profiler.InstanceCounter = CountInstances;
             Engine.DebugWatchChanged += OnWatchChanged;
             RegisterCommands();
+            // Engine.Debug.* reach the game's screen through this; one set before it existed opens it now.
+            Current = this;
+            if (DebugScreenSettings.TakePendingScreen()) IsVisible = true;
+            DebugScreenSettings.Refresh();
 
             if (Environment.GetEnvironmentVariable("GENESIS_DEBUG_EXPANDED") == "1")
                 ShowExpandedPanels = true;
@@ -133,6 +144,8 @@ namespace Genesis.Runtime.Debugger
                 ActivePanel = DebugHudPanel.AiNavigation;
                 ShowExpandedPanels = true;
             }
+
+            ApplyAutomationSettings();
 
             // Default startup log messages
             Log("[INFO] Genesis Debug Subsystem initialized.");
@@ -234,6 +247,13 @@ namespace Genesis.Runtime.Debugger
             }
             _activeScene = null;
             _window = null;
+            if (ReferenceEquals(Current, this))
+            {
+                Current = null;
+                GuiLayerTrace.Enabled = false;
+                GuiLayerTrace.Clear();
+                DebugScreenSettings.Refresh();
+            }
         }
 
         /// <summary>Reads this frame's input: the mouse for the screen's own buttons, and its keys.</summary>
@@ -302,6 +322,7 @@ namespace Genesis.Runtime.Debugger
         {
             _frameDt = dt;
             _frameGraph.Record(dt);
+            AdvanceDiagnostics(dt);
             NavigationDebugTelemetry.BeginFrame();
             NavigationDebugTelemetry.AdvanceDebugPreview(_activeScene, dt);
         }
@@ -338,9 +359,13 @@ namespace Genesis.Runtime.Debugger
             if (ShowExpandedPanels && ActivePanel == DebugHudPanel.World)
                 DrawViewportGizmosAndPicker(hud, width, height);
 
+            // Colliders, GUI layer outlines, the object picked and the view's legend (the Draw tab's toggles).
+            DrawWorldDiagnostics(hud, width, height);
+
             float stripBottom = DrawCompactStrip(hud, width, top);
             if (ShowExpandedPanels)
                 DrawFullPanel(hud, width, height, stripBottom);
+            FinishDiagnostics();
         }
 
         private void DrawNavigationTelemetry(IHudCanvas hud, int width, int height)
