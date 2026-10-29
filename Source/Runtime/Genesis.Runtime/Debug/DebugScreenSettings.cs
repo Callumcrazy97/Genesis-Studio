@@ -135,6 +135,38 @@ public static class DebugScreenSettings
         Refresh();
     }
 
+    /// <summary>Every toggle, and the open screen's visibility and wireframe, as <see cref="Capture"/> found them.</summary>
+    internal readonly record struct Snapshot(
+        bool Overlay, bool Colliders, bool Gui, bool Inspect, bool View, DebugViewMode Mode,
+        bool ScreenPending, bool WireframePending, bool Bodies, bool Characters, bool Triggers, bool Tiles, bool Hitboxes,
+        int InspectInstance, DebugOverlay Screen, bool ScreenVisible, bool ScreenWireframe);
+
+    /// <summary>
+    /// The settings as they are now, for a caller that must leave them as it found them: the command
+    /// sweep writes every Engine.Debug value back as it read it, and a view mode written back turns the
+    /// view on (with an open screen, every model in the process drew in its LOD colour afterwards).
+    /// </summary>
+    internal static Snapshot Capture() => new(
+        _overlay, _colliders, _gui, _inspect, _view, _viewMode, _screenPending, _wireframePending,
+        ColliderBodies, ColliderCharacters, ColliderTriggers, ColliderTiles, ColliderHitboxes, InspectInstance,
+        DebugOverlay.Current, DebugOverlay.Current?.IsVisible ?? false, DebugOverlay.Current?.ShowWireframe ?? false);
+
+    /// <summary>Puts back what <see cref="Capture"/> found, including the open screen's visibility and wireframe.</summary>
+    internal static void Restore(Snapshot found)
+    {
+        (_overlay, _colliders, _gui, _inspect, _view, _viewMode) = (found.Overlay, found.Colliders, found.Gui, found.Inspect, found.View, found.Mode);
+        (_screenPending, _wireframePending) = (found.ScreenPending, found.WireframePending);
+        (ColliderBodies, ColliderCharacters, ColliderTriggers, ColliderTiles, ColliderHitboxes)
+            = (found.Bodies, found.Characters, found.Triggers, found.Tiles, found.Hitboxes);
+        InspectInstance = found.InspectInstance;
+        if (found.Screen != null && ReferenceEquals(DebugOverlay.Current, found.Screen))
+        {
+            found.Screen.ShowWireframe = found.ScreenWireframe;
+            if (found.Screen.IsVisible != found.ScreenVisible) found.Screen.IsVisible = found.ScreenVisible;
+        }
+        Refresh();
+    }
+
     /// <summary>A screen opened by a setting made before it existed takes that setting now.</summary>
     internal static bool TakePendingScreen()
     {
