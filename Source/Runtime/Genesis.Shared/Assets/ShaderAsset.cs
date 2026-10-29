@@ -183,6 +183,12 @@ namespace Genesis.Shared.Assets
         public List<ShaderVariant> Variants { get; set; } = new();
         public List<ShaderPassDefinition> Passes { get; set; } = new();
         public int ActivePassIndex { get; set; }
+        /// <summary>
+        /// The Shader editor's node graph, when the shader was made from nodes; null for a shader
+        /// written as code. Its HLSL is already in <see cref="Source"/>: nothing at run time reads it.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public ShaderGraphDocument Graph { get; set; }
 
         /// <summary>HLSL with the active variant's preprocessor keywords applied.</summary>
         public string ResolveCompiledSource() =>
@@ -318,6 +324,7 @@ namespace Genesis.Shared.Assets
                 variant.ParameterOverrides ??= new List<ShaderParameterValue>();
                 variant.ResourceOverrides ??= new List<ShaderResourceBinding>();
             }
+            document.Graph?.Normalize();
 
             if (document.SchemaVersion < 7)
                 document.SchemaVersion = 7;

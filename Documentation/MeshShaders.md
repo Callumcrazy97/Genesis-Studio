@@ -13,7 +13,8 @@ shader, so skinning, instancing and wind keep working. There are two kinds:
   [Full pixel shaders](#full-pixel-shaders).
 
 This page covers both, where a mesh shader can be used and the values a script can give each
-instance.
+instance. A surface shader can also be built from nodes: **Nodes** in the Shader editor writes
+this same code from a graph ([the node view](README.md#node-view-29-october-2026)).
 
 ## Where a mesh shader is used
 
