@@ -173,6 +173,7 @@ namespace Genesis.Runtime.Modeling
         {
             if (queue == null || renderer == null || string.IsNullOrWhiteSpace(modelName))
                 return false;
+            if (Genesis.Rendering.Primitives.RenderDiagnosticsOff.HidesModel(modelName)) return false;
 
             GModelAsset asset = LoadModel(projectPath, modelName);
             return EnqueueAsset(queue, asset, projectPath, materialOverride, world, draw3d,
@@ -199,6 +200,7 @@ namespace Genesis.Runtime.Modeling
             List<ModelGpuCache.CachedMesh> drawn = null)
         {
             if (queue == null || renderer == null || string.IsNullOrWhiteSpace(modelName)) return false;
+            if (Genesis.Rendering.Primitives.RenderDiagnosticsOff.HidesModel(modelName)) return false;
             GModelAsset asset = LoadModel(projectPath, modelName);
             return EnqueueAsset(queue, asset, projectPath, string.Empty, Matrix4x4.Identity,
                 new Draw3DComponent { Visible = true, CastShadows = castShadows, ReceiveShadows = true },
@@ -483,6 +485,7 @@ namespace Genesis.Runtime.Modeling
                     EmissionColor = emissionColor,
                     Flags = flags,
                     Layer = Genesis.Runtime.Rendering.ModelLayers.IsOverlay(rendererComponent.ModelLayer) ? rendererComponent.ModelLayer : 0,
+                    DecalLayers = rendererComponent.DecalLayers,
                 };
                 // A material may name a mesh Shader resource of its own: a building's glass and walls
                 // are one model. The instance's own shader values and images reach it as well, so

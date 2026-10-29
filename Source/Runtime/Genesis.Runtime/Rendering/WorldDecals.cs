@@ -42,6 +42,8 @@ namespace Genesis.Runtime.Rendering
             public float Age;
             public DecalBlend Blend;
             public bool SeeThrough;
+            public int Layer;
+            public string NormalImage, RoughnessImage;
             // The object it stays on (an entity id, 0 for none), and where it sits in that object's frame.
             public int Follow;
             public Vector3 LocalPosition, LocalNormal;
@@ -64,6 +66,18 @@ namespace Genesis.Runtime.Rendering
         public static int Limit
         {
             get { lock (Gate) return _limit; }
+        }
+
+        /// <summary>Whether decals are drawn at all (Engine.Decal.Enabled); kept while off. On at each room's start.</summary>
+        public static bool Enabled { get; set; } = true;
+
+        private static int _defaultLayer;
+
+        /// <summary>The layer a new decal gets (Engine.Decal.Layer), 0 at each room's start.</summary>
+        public static int DefaultLayer
+        {
+            get => _defaultLayer;
+            set => _defaultLayer = Math.Clamp(value, 0, MeshDrawCall.DecalLayerCount - 1);
         }
 
         /// <summary>
@@ -94,6 +108,7 @@ namespace Genesis.Runtime.Rendering
                     // little enough not to wrap round a corner or onto feet passing through.
                     Depth = size * 0.5f,
                     Life = float.IsFinite(life) && life > 0f ? life : 0f,
+                    Layer = _defaultLayer,
                 });
                 return id;
             }
@@ -132,6 +147,41 @@ namespace Genesis.Runtime.Rendering
         /// <see cref="DecalDrawCall.SeeThrough"/>); false when there is no such decal.
         /// </summary>
         public static bool SetSeeThrough(int id, bool seeThrough) => Edit(id, decal => decal.SeeThrough = seeThrough);
+
+        /// <summary>
+        /// The decal's layer (0 to <see cref="MeshDrawCall.DecalLayerCount"/> - 1): it shows only on
+        /// surfaces that take that layer (Engine.Model.DecalLayers). False for a layer out of range.
+        /// </summary>
+        public static bool SetLayer(int id, int layer) =>
+            layer >= 0 && layer < MeshDrawCall.DecalLayerCount && Edit(id, decal => decal.Layer = layer);
+
+        /// <summary>A normal map for the decal (an Image resource or a TextureCreate number; empty for none).</summary>
+        public static bool SetNormalMap(int id, string image) => Edit(id, decal => decal.NormalImage = image?.Trim() ?? string.Empty);
+
+        /// <summary>A roughness map for the decal (red: 0 smooth to 1 matte; empty for none).</summary>
+        public static bool SetRoughnessMap(int id, string image) => Edit(id, decal => decal.RoughnessImage = image?.Trim() ?? string.Empty);
+
+        /// <summary>A decal's normal and roughness map names (empty for none); false when there is no such decal.</summary>
+        public static bool TryGetMaps(int id, out string normalMap, out string roughnessMap)
+        {
+            lock (Gate)
+            {
+                int index = IndexOf(id);
+                normalMap = index < 0 ? string.Empty : Decals[index].NormalImage ?? string.Empty;
+                roughnessMap = index < 0 ? string.Empty : Decals[index].RoughnessImage ?? string.Empty;
+                return index >= 0;
+            }
+        }
+
+        /// <summary>A decal's layer, or -1 when there is no such decal.</summary>
+        public static int LayerOf(int id)
+        {
+            lock (Gate)
+            {
+                int index = IndexOf(id);
+                return index < 0 ? -1 : Decals[index].Layer;
+            }
+        }
 
         /// <summary>Whether a decal is drawn on see-through surfaces; false when there is no such decal.</summary>
         public static bool IsSeeThrough(int id)
@@ -285,6 +335,8 @@ namespace Genesis.Runtime.Rendering
                 Pictures.Clear();
                 _limit = DefaultLimit;
                 _nextId = 0;
+                _defaultLayer = 0;
+                Enabled = true;
             }
         }
 
@@ -336,7 +388,7 @@ namespace Genesis.Runtime.Rendering
         /// </summary>
         public static int Submit(IRenderController renderer, string projectPath)
         {
-            if (renderer == null) return 0;
+            if (renderer == null || !Enabled) return 0;
             lock (Gate)
             {
                 if (Decals.Count == 0) return 0;
@@ -365,6 +417,9 @@ namespace Genesis.Runtime.Rendering
                         Color = new Vector4(decal.Color.X, decal.Color.Y, decal.Color.Z, opacity),
                         Blend = decal.Blend,
                         SeeThrough = decal.SeeThrough,
+                        Layer = decal.Layer,
+                        NormalMap = MapPicture(renderer, projectPath, decal.NormalImage),
+                        RoughnessMap = MapPicture(renderer, projectPath, decal.RoughnessImage),
                     };
                 }
                 Pictures.Clear();
@@ -385,6 +440,33 @@ namespace Genesis.Runtime.Rendering
             Vector3 bitangent = Vector3.Cross(normal, tangent);
             float radians = rotationDegrees * MathF.PI / 180f;
             return Vector3.Normalize(tangent * MathF.Cos(radians) + bitangent * MathF.Sin(radians));
+        }
+
+        // A normal or roughness map: data, not colours (an Image resource is read without decoding).
+        // Kept by name for the frame like the pictures, under its own key.
+        private static TextureHandle MapPicture(IRenderController renderer, string projectPath, string image)
+        {
+            if (string.IsNullOrEmpty(image)) return TextureHandle.Invalid;
+            string key = "\u0001map:" + image;
+            if (Pictures.TryGetValue(key, out TextureHandle known)) return known;
+            TextureHandle map = TextureHandle.Invalid;
+            if (double.TryParse(image, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
+                && number >= 1 && number <= int.MaxValue && number == Math.Floor(number) && ScriptTextures.Exists((int)number))
+                map = ScriptTextures.Resolve((int)number, renderer, out _);
+            else
+            {
+                try
+                {
+                    map = ObjectDrawPass.ResolveImageTexture(renderer, projectPath ?? Genesis.Runtime.Scripting.PgslCommands.ProjectPath,
+                        image, Genesis.Shared.Materials.TextureColorSpace.Linear);
+                }
+                catch (Exception)
+                {
+                    map = TextureHandle.Invalid;
+                }
+            }
+            Pictures[key] = map;
+            return map;
         }
 
         private static TextureHandle ResolvePicture(IRenderController renderer, string projectPath, string image)

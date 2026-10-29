@@ -213,7 +213,7 @@ public static class EngineSettings
     };
     private static readonly string[] ModelValues =
     {
-        "Engine.Model.Glow", "Engine.Model.EmissionScale", "Engine.Model.CastShadows", "Engine.Model.ReceiveShadows", "Engine.Model.InFront", "Engine.Model.Layer",
+        "Engine.Model.Glow", "Engine.Model.EmissionScale", "Engine.Model.CastShadows", "Engine.Model.ReceiveShadows", "Engine.Model.InFront", "Engine.Model.DecalLayers", "Engine.Model.Layer",
     };
     private static readonly string[] AnimationValues = { "Engine.Animation.Speed", "Engine.Animation.Loop" };
     // Shown only for an instance that looks or reaches, so the others' lists are as they were.

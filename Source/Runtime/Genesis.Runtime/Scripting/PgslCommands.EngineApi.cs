@@ -41,6 +41,17 @@ public static partial class PgslCommands
         set { if (ThisModel(out var world, out var entity)) world.GetRef<ModelRendererComponent>(entity).InFront = value; }
     }
 
+    [PgslCommand("DecalLayers", "Engine.Model.DecalLayers = mask", "Which decal layers show on this instance's model: bit n for layer n (layer 0 is 1, layer 1 is 2, both 3; six layers). 0, the default, takes every layer; a decal's layer is DecalSetLayer or Engine.Decal.Layer", "Models", Namespace = "Engine.Model", Flat = false)]
+    public static double ModelApiDecalLayers
+    {
+        get => ThisModel(out var world, out var entity) ? world.GetRef<ModelRendererComponent>(entity).DecalLayers : 0;
+        set
+        {
+            if (double.IsFinite(value) && ThisModel(out var world, out var entity))
+                world.GetRef<ModelRendererComponent>(entity).DecalLayers = (int)Math.Clamp(Math.Round(value), 0, (1 << Genesis.Shared.Interfaces.MeshDrawCall.DecalLayerCount) - 1);
+        }
+    }
+
     [PgslCommand("Glow", "Engine.Model.Glow = amount", "How brightly this instance's model glows (0 none to 32)", "Models", Namespace = "Engine.Model", Flat = false)]
     public static double ModelApiGlow
     {

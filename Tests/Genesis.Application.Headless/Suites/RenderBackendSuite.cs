@@ -826,6 +826,24 @@ internal static class RenderBackendSuite
         HeadlessHarness.RunCase(ctx.Report, "Render.SeeThrough.ViewportKeepsCoverageOnAllBackends",
             () => SeeThroughCoverageSuite.ViewportKeepsCoverage(ctx));
 
+        // A lit material shades the same drawn on its own and as instances (StaticModelLayer).
+        HeadlessHarness.RunCase(ctx.Report, "Render.Instancing.MaterialShadesTheSameSingleAndInstanced",
+            () => InstancedMaterialSuite.SameShadingSingleAndInstanced(ctx));
+
+        // A projected decal shows only on surfaces that take its layer, on every GPU backend.
+        HeadlessHarness.RunCase(ctx.Report, "Render.Decals.LayersPickTheirSurfacesOnEveryBackend",
+            () => DecalLayerSuite.LayersPickTheirSurfaces(ctx));
+
+        // A decal's normal map re-shades the surface and its roughness map adds a sheen.
+        HeadlessHarness.RunCase(ctx.Report, "Render.Decals.NormalAndRoughnessMapsOnEveryBackend",
+            () => DecalLayerSuite.MapsReshadeTheSurface(ctx));
+
+        // GS5: post effects read the sun and sky (GenesisSky, b7); the sky light's light from below has its own tint.
+        HeadlessHarness.RunCase(ctx.Report, "Render.PostEffects.GenesisSkyGivesTheSunAndSkyColours",
+            () => SkyInputsSuite.PostEffectsReadTheSky(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Render.SkyLight.GroundTintTintsTheLightFromBelow",
+            SkyInputsSuite.GroundTintTintsTheLightFromBelow);
+
         // AF1.2: GTAO math + enable wiring (default off; Software skip).
         HeadlessHarness.RunCase(ctx.Report, "Render.Gtao.MathAndEnableWiring", () =>
         {

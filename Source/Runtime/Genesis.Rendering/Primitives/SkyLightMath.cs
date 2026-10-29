@@ -81,18 +81,27 @@ public static class SkyLightMath
     /// The sky light's five terms for the shaders, with its strength, tint and saturation applied
     /// (saturation to the diffuse terms only: a mirror shows the sky as it is drawn).
     /// </summary>
-    public static SkyLightTerms Compute(in SkyDome dome, float strength, Vector3 tint, float saturation)
+    public static SkyLightTerms Compute(in SkyDome dome, float strength, Vector3 tint, float saturation) =>
+        Compute(dome, strength, tint, saturation, tint);
+
+    /// <summary>
+    /// As <see cref="Compute(in SkyDome, float, Vector3, float)"/>, with the light from below (the
+    /// lit ground's term and its mirror) tinted by <paramref name="groundTint"/> and the light from
+    /// above by <paramref name="tint"/>.
+    /// </summary>
+    public static SkyLightTerms Compute(in SkyDome dome, float strength, Vector3 tint, float saturation, Vector3 groundTint)
     {
         Vector3 up = SkyIrradianceUp(dome);
         Vector3 sunOnGround = Vector3.Max(Vector3.Zero, dome.LightRadiance) * MathF.Max(0f, dome.LightHeight);
         Vector3 ground = GroundAlbedo * (sunOnGround + up);
         Vector3 scale = tint * MathF.Max(0f, strength);
+        Vector3 groundScale = groundTint * MathF.Max(0f, strength);
         return new SkyLightTerms(
             Saturate(up, saturation) * scale,
-            Saturate(ground, saturation) * scale,
+            Saturate(ground, saturation) * groundScale,
             SkyRadiance(1f, dome) * scale,
             SkyRadiance(0f, dome) * scale,
-            ground * scale);
+            ground * groundScale);
     }
 
     /// <summary>Moves a colour towards grey of the same brightness (0) or keeps it (1); above 1 deepens it.</summary>

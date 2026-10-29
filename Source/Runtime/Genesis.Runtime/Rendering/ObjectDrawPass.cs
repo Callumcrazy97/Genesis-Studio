@@ -1402,6 +1402,10 @@ namespace Genesis.Runtime.Rendering
         internal static TextureHandle ResolveImageTexture(IRenderController renderer, string projectPath, string image) =>
             TryGetTexture(renderer, projectPath, image, 0, out TextureHandle handle, out _, out _) ? handle : TextureHandle.Invalid;
 
+        /// <summary>An Image resource as data (a normal or roughness map): its values are not colours to decode.</summary>
+        internal static TextureHandle ResolveImageTexture(IRenderController renderer, string projectPath, string image, TextureColorSpace colorSpace) =>
+            TryGetTexture(renderer, projectPath, image, 0, out TextureHandle handle, out _, out _, colorSpace) ? handle : TextureHandle.Invalid;
+
         private static bool TryGetTexture(
             IRenderController renderer,
             string projectPath,

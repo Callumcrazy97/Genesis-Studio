@@ -23,6 +23,11 @@ cbuffer DecalConstants : register(b0)
     float4 CameraPos;     // xyz = eye, w = scene depth is reversed
     float4 Viewport;      // width, height, 1 / width, 1 / height
     float4 DecalParams;   // x = first decal of this draw, y = blend (0 multiply, 1 alpha, 2 add), z = linear colour, w = decals in this draw
+    float4 DecalLayers;   // x = 1: DecalLayerTex holds the decal layers each surface refuses; y = 1 normal map, z = 1 roughness map
+    float4 DecalSun;      // xyz towards the sun, w its brightness (0 with lighting off)
+    float4 DecalSunColor; // rgb the sun's light
+    float4 DecalAmbientSky;
+    float4 DecalAmbientGround;
 };
 
 // One decal: the box is Center + AxisX * x + AxisY * y + AxisZ * z for x, y, z in [-0.5, 0.5].
@@ -34,13 +39,33 @@ struct DecalGpu
     float4 AxisY;
     float4 AxisZ;
     float4 Color;    // linear tint rgb, a = opacity
-    float4 Params;   // x = cosine of the angle with full strength, y = cosine where it is gone
+    float4 Params;   // x = cosine of the angle with full strength, y = cosine where it is gone, z = the decal's layer bit
 };
 
 StructuredBuffer<DecalGpu> Decals    : register(t0);
 Texture2D<float>           SceneDepth : register(t1);
 Texture2D                  DecalTex   : register(t2);
+// The forward pass's flag channel (r): eighths for the fog flags plus the surface's refused decal
+// layers in 1/1024 steps (ForwardShaders MakeOut). A copy, so the decal pass may read it.
+Texture2D                  DecalLayerTex : register(t3);
+Texture2D                  DecalNormalTex : register(t4);
+Texture2D                  DecalRoughTex  : register(t5);
 SamplerState               DecalSamp  : register(s0);
+
+// The sun and ambient light a surface facing n takes, as one brightness.
+float DecalLightAt(float3 n)
+{
+    float3 hemi = lerp(DecalAmbientGround.rgb, DecalAmbientSky.rgb, n.y * 0.5 + 0.5);
+    return dot(hemi, float3(0.2126, 0.7152, 0.0722)) + DecalSun.w * saturate(dot(n, DecalSun.xyz));
+}
+
+// Whether the surface at a pixel refuses a decal layer (its bit).
+bool DecalLayerRefused(int2 pixel, float layerBit)
+{
+    float r = DecalLayerTex.Load(int3(pixel, 0)).r;
+    uint refused = (uint)round((r - floor(r * 8.0) / 8.0) * 1024.0);
+    return (refused & (uint)(layerBit + 0.5)) != 0u;
+}
 
 #define GENESIS_DEPTH_REVERSED (CameraPos.w > 0.5)
 " + SceneDepthHlsl.Helpers + @"
@@ -176,6 +201,9 @@ PSOut PS_Decal(VSOut IN)
     float3 local = float3(dot(rel, IN.InvX.xyz), dot(rel, IN.InvY.xyz), dot(rel, IN.InvZ.xyz));
     if (abs(local.x) > 0.5 || abs(local.y) > 0.5 || abs(local.z) > 0.5)
         discard;
+    // A surface that does not take this decal's layer (MeshDrawCall.DecalLayers) keeps none of it.
+    if (DecalLayers.x > 0.5 && DecalLayerRefused(pixel, IN.Fade.z))
+        discard;
 
     // Full strength on surfaces facing the decal, nothing on those turned past the fade angle,
     // and nothing at all on a surface facing away (the back of a wall).
@@ -185,7 +213,8 @@ PSOut PS_Decal(VSOut IN)
     // Softly out towards the ends of the box, so bumpy ground is not cut by a hard edge.
     float depthFade = saturate((0.5 - abs(local.z)) * 6.0);
 
-    float4 tex = DecalTex.SampleLevel(DecalSamp, float2(local.x + 0.5, 0.5 - local.y), 0.0);
+    float2 uv = float2(local.x + 0.5, 0.5 - local.y);
+    float4 tex = DecalTex.SampleLevel(DecalSamp, uv, 0.0);
     if (DecalParams.z > 0.5)
         tex.rgb = DecalSrgbToLinear(tex.rgb);
     float alpha = saturate(tex.a * IN.Tint.a * angleFade * depthFade);
@@ -193,16 +222,55 @@ PSOut PS_Decal(VSOut IN)
         discard;
     float3 rgb = tex.rgb * IN.Tint.rgb;
 
-    PSOut OUT;
-    if (DecalParams.y < 0.5)
+    // A normal map: the surface's normal bent by the bumps across the decal's own axes (x across
+    // the picture, y up it), and the sun and ambient light re-weighed for the bent normal. The pass
+    // draws over the lit picture, so this scales what light is there rather than lighting anew.
+    float3 bumped = n;
+    float relight = 1.0;
+    if (DecalLayers.y > 0.5)
     {
-        float3 f = lerp(float3(1.0, 1.0, 1.0), rgb, alpha);
+        float3 nm = DecalNormalTex.SampleLevel(DecalSamp, uv, 0.0).xyz * 2.0 - 1.0;
+        // Two-channel maps (BC5) read blue as 0: rebuild it.
+        if (nm.z < -0.99)
+            nm.z = sqrt(saturate(1.0 - dot(nm.xy, nm.xy)));
+        float3 t = IN.InvX.xyz - n * dot(IN.InvX.xyz, n);
+        t = dot(t, t) > 1e-12 ? normalize(t) : float3(1.0, 0.0, 0.0);
+        float3 b = cross(n, t);
+        if (dot(b, IN.InvY.xyz) < 0.0) b = -b;
+        bumped = normalize(t * nm.x + b * nm.y + n * max(nm.z, 0.05));
+        relight = clamp(DecalLightAt(bumped) / max(DecalLightAt(n), 1e-3), 0.0, 2.0);
+    }
+
+    PSOut OUT;
+    if (DecalParams.y > 2.5)
+    {
+        // The decal's sheen (a roughness map): the sun's highlight at its roughness, added.
+        float roughness = clamp(DecalRoughTex.SampleLevel(DecalSamp, uv, 0.0).r, 0.04, 1.0);
+        float3 l = DecalSun.xyz;
+        float3 v = normalize(CameraPos.xyz - p);
+        float3 h = normalize(l + v);
+        float ndotl = saturate(dot(bumped, l));
+        float ndotv = max(saturate(dot(bumped, v)), 1e-3);
+        float ndoth = saturate(dot(bumped, h));
+        float a2 = roughness * roughness * roughness * roughness;
+        float d = ndoth * ndoth * (a2 - 1.0) + 1.0;
+        float D = a2 / max(3.14159265 * d * d, 1e-4);
+        float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+        float G = (ndotv / (ndotv * (1.0 - k) + k)) * (ndotl / max(ndotl * (1.0 - k) + k, 1e-4));
+        float F = 0.04 + 0.96 * pow(1.0 - saturate(dot(v, h)), 5.0);
+        float3 sheen = DecalSunColor.rgb * (D * G * F / max(4.0 * ndotv * max(ndotl, 1e-3), 1e-3)) * ndotl;
+        OUT.Color = float4(sheen * alpha, alpha);
+        OUT.Aux = float4(0.0, 0.0, 0.0, 0.0);
+    }
+    else if (DecalParams.y < 0.5)
+    {
+        float3 f = lerp(float3(1.0, 1.0, 1.0), rgb, alpha) * lerp(1.0, relight, alpha);
         OUT.Color = float4(f, 1.0);
         OUT.Aux = float4(1.0, f);
     }
     else if (DecalParams.y < 1.5)
     {
-        OUT.Color = float4(rgb, alpha);
+        OUT.Color = float4(rgb * relight, alpha);
         // Not written (its blend is off); zero also leaves it as it was under this formula.
         OUT.Aux = float4(0.0, 0.0, 0.0, 0.0);
     }
@@ -212,6 +280,25 @@ PSOut PS_Decal(VSOut IN)
         OUT.Aux = float4(0.0, 0.0, 0.0, 0.0);
     }
     return OUT;
+}
+
+// The flag channel copied for the decal pass (ForwardRenderer.CopyDecalLayers): the decal quad's
+// corners (0..1) cover the whole picture; the source is bound at t3.
+struct CopyOut
+{
+    float4 SvPos : SV_Position;
+};
+
+CopyOut VS_DecalLayerCopy(VSIn IN)
+{
+    CopyOut OUT;
+    OUT.SvPos = float4(saturate(IN.Position.xy) * 2.0 - 1.0, 0.5, 1.0);
+    return OUT;
+}
+
+float4 PS_DecalLayerCopy(CopyOut IN) : SV_Target0
+{
+    return float4(DecalLayerTex.Load(int3(int2(IN.SvPos.xy), 0)).r, 0.0, 0.0, 1.0);
 }
 
 // A decal on a see-through surface (DecalDrawCall.SeeThrough): drawn as a flat picture in its own

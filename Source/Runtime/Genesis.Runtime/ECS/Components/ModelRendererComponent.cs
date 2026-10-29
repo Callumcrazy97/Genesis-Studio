@@ -23,6 +23,11 @@ namespace Genesis.Runtime.ECS.Components
         /// another surface: a window set into a wall, a sign on a door. Off unless set.
         /// </summary>
         public bool InFront;
+        /// <summary>
+        /// The decal layers this model takes, bit n for layer n (MeshDrawCall.DecalLayers): 0, the
+        /// default, takes every layer; 2 takes only layer 1 (no bullet holes from layer 0, say).
+        /// </summary>
+        public int DecalLayers;
         public bool KeepPreviousTransform;
         public int LodPolicy;
         public FaceCullingOverride Culling;

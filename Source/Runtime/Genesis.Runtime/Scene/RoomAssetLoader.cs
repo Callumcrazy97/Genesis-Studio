@@ -556,6 +556,13 @@ public sealed class RoomSceneBuilder
                 Genesis.Shared.Interfaces.SkyLightDefaults.ClampTint(tint[1]),
                 Genesis.Shared.Interfaces.SkyLightDefaults.ClampTint(tint[2]))
             : Vector3.One;
+        float[] groundTint = environment.SkyLightGroundTint;
+        target.SkyLightGroundTint = groundTint is { Length: >= 3 }
+            ? new Vector3(
+                Genesis.Shared.Interfaces.SkyLightDefaults.ClampTint(groundTint[0]),
+                Genesis.Shared.Interfaces.SkyLightDefaults.ClampTint(groundTint[1]),
+                Genesis.Shared.Interfaces.SkyLightDefaults.ClampTint(groundTint[2]))
+            : Vector3.Zero;
         target.SkyLightSaturation = Genesis.Shared.Interfaces.SkyLightDefaults.ClampSaturation(environment.SkyLightSaturation);
         target.AutoExposureEnabled = environment.AutoExposure;
         target.AutoExposureKey = Genesis.Shared.Interfaces.AutoExposureDefaults.ClampKey(environment.AutoExposureKey);

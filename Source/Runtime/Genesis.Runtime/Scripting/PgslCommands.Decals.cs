@@ -89,6 +89,51 @@ public static partial class PgslCommands
     public static bool DecalSetSeeThrough(double decal, bool onSeeThrough) =>
         IsDecalId(decal) && WorldDecals.SetSeeThrough((int)decal, onSeeThrough);
 
+    [PgslCommand("DecalSetLayer", "DecalSetLayer(decal, layer) -> changed",
+        "Put a decal on a layer, 0 to 5 (0 at first, or Engine.Decal.Layer): it shows only on surfaces that take that layer (Engine.Model.DecalLayers; every surface takes every layer unless set), so bullet holes can leave characters alone. False for a layer out of range",
+        "Decals", Namespace = "Engine.Rendering.Decals")]
+    public static bool DecalSetLayer(double decal, double layer) =>
+        IsDecalId(decal) && double.IsFinite(layer) && WorldDecals.SetLayer((int)decal, (int)Math.Round(layer));
+
+    [PgslCommand("DecalSetNormalMap", "DecalSetNormalMap(decal, image) -> changed",
+        "Give a decal a normal map (an Image resource or a texture from TextureCreate, its bumps in tangent space, up the picture is +Y): the surface under it is re-shaded by the bumps in the room's sun and ambient light, a dent or raised paint. \"\" removes it",
+        "Decals", Namespace = "Engine.Rendering.Decals")]
+    public static bool DecalSetNormalMap(double decal, string image) =>
+        IsDecalId(decal) && WorldDecals.SetNormalMap((int)decal, image);
+
+    [PgslCommand("DecalSetRoughnessMap", "DecalSetRoughnessMap(decal, image) -> changed",
+        "Give a decal a roughness map (red: 0 mirror-smooth to 1 matte): the sun's highlight on the decal is added at that roughness, for wet blood, fresh paint or oil. It adds a sheen; it cannot take away the surface's own. \"\" removes it",
+        "Decals", Namespace = "Engine.Rendering.Decals")]
+    public static bool DecalSetRoughnessMap(double decal, string image) =>
+        IsDecalId(decal) && WorldDecals.SetRoughnessMap((int)decal, image);
+
+    [PgslCommand("Enabled", "Engine.Decal.Enabled = true",
+        "Whether decals are drawn; turned off they are kept and come back when turned on. On at each room's start",
+        "Decals", Namespace = "Engine.Decal", Flat = false)]
+    public static bool DecalApiEnabled
+    {
+        get => WorldDecals.Enabled;
+        set => WorldDecals.Enabled = value;
+    }
+
+    [PgslCommand("Layer", "Engine.Decal.Layer = layer",
+        "The layer a new decal goes on, 0 to 5 (0 at each room's start); DecalSetLayer moves one decal",
+        "Decals", Namespace = "Engine.Decal", Flat = false)]
+    public static double DecalApiLayer
+    {
+        get => WorldDecals.DefaultLayer;
+        set { if (double.IsFinite(value)) WorldDecals.DefaultLayer = (int)Math.Round(value); }
+    }
+
+    [PgslCommand("Limit", "Engine.Decal.Limit = count",
+        "How many decals may be in the world at once (256 at first, at most 4096): adding past it removes the oldest",
+        "Decals", Namespace = "Engine.Decal", Flat = false)]
+    public static double DecalApiLimit
+    {
+        get => WorldDecals.Limit;
+        set => DecalSetLimit(value);
+    }
+
     [PgslCommand("DecalSetFade", "DecalSetFade(decal, seconds) -> changed",
         "How many seconds at the end of its life a decal takes to fade out (by default the last quarter of its life, at most 2 seconds; less than 0 goes back to that)",
         "Decals", Namespace = "Engine.Rendering.Decals")]
