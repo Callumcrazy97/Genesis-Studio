@@ -101,7 +101,7 @@ public static class TerrainCommands
         [Description("Most tufts drawn in a frame, nearest first (default 16000, at most 32768).")] public int? MaximumDrawnTufts { get; set; }
         [Description("Colour the blades from baseColor at the root to tipColor at the tip (default true; false keeps the tuft's own colours).")] public bool? ColorEnabled { get; set; }
         [Description("The blades' colour at the root [r, g, b], 0 to 1 (default [0.10, 0.22, 0.06]).")] public float[]? BaseColor { get; set; }
-        [Description("The blades' colour at the tip [r, g, b], 0 to 1 (default [0.30, 0.62, 0.17]).")] public float[]? TipColor { get; set; }
+        [Description("The blades' colour at the tip [r, g, b], 0 to 1 (default [0.27, 0.62, 0.17]).")] public float[]? TipColor { get; set; }
         [Description("How the colour runs up a blade: 1 evenly, below 1 the tip colour reaches further down, above 1 it keeps to the tips (default 0.8).")] public float? ColorCurve { get; set; }
         [Description("An Image resource drawn on each blade, tinted by the colours; its see-through parts cut the blade (default none; empty clears it).")] public string? Texture { get; set; }
         [Description("Sway the blades in the wind (default true).")] public bool? WindEnabled { get; set; }

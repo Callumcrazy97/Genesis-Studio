@@ -25,7 +25,7 @@ public sealed class TerrainGrassRuleSettings : IJsonOnDeserializing, IJsonOnDese
     public static readonly Vector3 DefaultBaseColor = new(0.10f, 0.22f, 0.06f);
 
     /// <summary>The built-in grass's colour at the tip of each blade (a sunlit meadow green).</summary>
-    public static readonly Vector3 DefaultTipColor = new(0.30f, 0.62f, 0.17f);
+    public static readonly Vector3 DefaultTipColor = new(0.27f, 0.62f, 0.17f);
 
     /// <summary>The built-in grass's colour curve: the sunlit tip colour reaches a little further down the blade.</summary>
     public const float DefaultColorCurve = 0.8f;
