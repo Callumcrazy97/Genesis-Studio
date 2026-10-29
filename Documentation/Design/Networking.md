@@ -102,7 +102,7 @@ no case of its own yet.)
   included, as it did before.
 - **Players behind the same router** reach each other only if it supports hairpinning; there is no
   local-address candidate yet. Such players can play as a local game instead.
-- IPv4 only for the punched path (the relay may be reached either way).
+- The punched path uses the address the relay saw, IPv4 or IPv6; only IPv4 is covered by the tests.
 - Each player's public address is given to the players it plays with (only when both offered).
   `Engine.Network.Direct.Enabled = false` keeps a player's address private, at the relay's latency.
 - A relay or a game from before 29 October ignores the new frames, so a mix stays on the relay.
