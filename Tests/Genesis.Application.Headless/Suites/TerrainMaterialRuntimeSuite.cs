@@ -30,8 +30,12 @@ internal static class TerrainMaterialRuntimeSuite
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.Materials.SavedPaintPbrAndLiveImageMatchAuthoring", () => Check(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.Materials.TiledImagesKeepDetailBeyondSurfaceBake", () => FineDetail(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Render.Software.Materials.LinearSamplingSmoothsBakedTerrain", () => SoftwareFiltering(ctx));
-        HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.Paint.ThinPathRimKeepsItsPaintAlongTheWholeEdge", ThinRimKeepsItsPaint);
+        RunRim(ctx);
     }
+
+    /// <summary>The thin-rim paint case alone: it draws nothing, so the quick tiers can run it without a renderer.</summary>
+    public static void RunRim(HeadlessContext ctx) =>
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Terrain.Paint.ThinPathRimKeepsItsPaintAlongTheWholeEdge", ThinRimKeepsItsPaint);
 
     // A path through grass as the Kinfield village's: a lifted path strip over an earth rim 0.2 m wide
     // each side, over the ground, its edges wobbling so the rim crosses the 0.25 m grid at every offset.

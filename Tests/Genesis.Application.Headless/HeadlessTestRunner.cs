@@ -1140,17 +1140,36 @@ internal static class HeadlessTestRunner
         Suites.SkyLightExposureSuite.Run(ctx);
         Suites.ShaderPrecompiledSuite.Run(ctx);
 
+        // Suites the focused targets and the quick tiers ran and this list did not (29 Oct 2026), last so the
+        // suites above run as before. Already covered: the rest of engine-systems (RuntimeSuite, and
+        // InputActionsSuite above), the Music studio and Audio mixer (the build gate's Audio editor case)
+        // and the Particle editor's modules (ParticleWorkbenchSuite.Run).
+        Suites.EngineApiSuite.Run(ctx);
+        Suites.CameraRigSuite.Run(ctx);
+        Suites.BoneTargetsSuite.Run(ctx);
+        Suites.LoadCacheSuite.Run(ctx);
+        Suites.DebugScreenSuite.Run(ctx);
+        Suites.TerrainLayersGrassSuite.Run(ctx);
+        Suites.UiMenuStyleSuite.Run(ctx);
+        Suites.LightProbeSuite.Run(ctx);
+        Suites.PlacedProbeSuite.Run(ctx);
+        Suites.LookGapsSuite.Run(ctx);
+        Suites.GlowingBeamSuite.Run(ctx);
+
         return Finish(report, outputRoot, fastBuildGate: false);
     }
 
     /// <summary>
     /// The quick tiers Build.bat --tiers runs in order, each a few minutes at most: Studio's editors,
     /// the engine, then PGSL in a real game. The full regression stays for releases.
+    /// The last members of the editor and engine tiers (29 Oct 2026) are the ones that need no GPU and take
+    /// under about 30 s: the particle modules (software renderer), the music studio and audio mixer,
+    /// every Engine API value, the direct network path and the terrain paint's thin-rim case.
     /// </summary>
     internal static readonly IReadOnlyDictionary<string, string[]> Tiers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
-        ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips", "automation"],
-        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "sprite-draw-alloc", "opengl-compat", "window-lifecycle", "anti-aliasing", "frame-rate-choice", "light-probes"],
+        ["tier-editor"] = ["studio-foundation", "shell-layout", "resource-names", "code-assistance", "editor-suite", "room-workspace", "model-intake", "model-sprites", "pixel-model", "menu-clips", "automation", "particle-modules", "music", "mixer"],
+        ["tier-engine"] = ["engine-systems", "asset-import", "readback-alpha", "post-effects", "large-world", "runtime", "model-system", "debug-screen", "terrain-layers-grass", "shader-precompiled", "gui-linear", "sprite-draw-alloc", "opengl-compat", "window-lifecycle", "anti-aliasing", "frame-rate-choice", "light-probes", "engine-api-parts", "network-online", "terrain-paint-rim"],
         ["tier-pgsl"] = ["pgsl-values", "pgsl-cache", "pgsl-scripts", "pgsl-logic", "input-replay", "pgsl-project", "export-pgsl", "live-reload", "runtime-resources"],
         // Every PGSL suite in one run (29 Oct 2026, for the final pass): the tier's, then the persistence and
         // preprocessing suites, the language features, the interpreter against the compiled tier, and the VM's speed and result checks.
@@ -1426,6 +1445,10 @@ internal static class HeadlessTestRunner
             case "terrain-material-runtime":
                 PrepareFocusedProject(ctx, requireStudioServices: true);
                 Suites.TerrainMaterialRuntimeSuite.Run(ctx);
+                break;
+            case "terrain-paint-rim":
+                // A model's ground painted by the share of each layer over a cell, so a thin path rim keeps its paint (CPU only).
+                Suites.TerrainMaterialRuntimeSuite.RunRim(ctx);
                 break;
             case "model-collider-runtime":
                 PrepareFocusedProject(ctx, requireStudioServices: true);
