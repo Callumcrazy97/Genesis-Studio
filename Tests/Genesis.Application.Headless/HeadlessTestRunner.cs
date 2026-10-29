@@ -1058,6 +1058,7 @@ internal static class HeadlessTestRunner
         Suites.ShaderTerrainPreviewSuite.Run(ctx);
         Suites.ShaderNodeGraphSuite.Run(ctx);
         Suites.ShaderVertexStageSuite.Run(ctx);
+        Suites.UnlitModelSuite.Run(ctx);
         Suites.RoomSurfacePlacementSuite.Run(ctx);
         Suites.RoomSurfaceAlignmentSuite.Run(ctx);
         Suites.RoomTerrainPreviewSuite.Run(ctx);
@@ -1463,6 +1464,10 @@ internal static class HeadlessTestRunner
                 Suites.ShaderTerrainPreviewSuite.Run(ctx);
                 Suites.ShaderNodeGraphSuite.Run(ctx);
                 Suites.ShaderVertexStageSuite.Run(ctx);
+                break;
+            case "unlit-models":
+                // NV1: unlit (KHR_materials_unlit) static meshes draw their texture's colour; lit when the tick is off.
+                Suites.UnlitModelSuite.Run(ctx);
                 break;
             case "shader-nodes":
                 // The Shader editor's node graph: every node compiles (DXBC, SPIR-V), save and reopen, the node view;
