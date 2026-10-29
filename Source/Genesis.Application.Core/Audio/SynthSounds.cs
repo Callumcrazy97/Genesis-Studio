@@ -46,9 +46,9 @@ public static class SynthSounds
     // Past this the synthesiser would be asked for a pitch it cannot play (it refuses above 20 kHz).
     private const double HighestFrequency = 19000;
 
-    private static readonly string[] CategoryOrder = ["Effects", "Footsteps", "Ambience", "Music"];
+    private static readonly string[] CategoryOrder = ["Effects", "Footsteps", "Ambience", "Music", "Instruments", "Drums"];
 
-    /// <summary>The presets a gallery lists, grouped Effects, Footsteps, Ambience, Music (then any without a description).</summary>
+    /// <summary>The presets a gallery lists, grouped Effects, Footsteps, Ambience, Music, Instruments, Drums (then any without a description).</summary>
     public static IReadOnlyList<string> GalleryPresets() =>
         SoundSynth.Presets.Keys
             .Where(name => Info(name).InGallery)

@@ -258,6 +258,37 @@ public static class SoundSynth
                 { Wave = SynthWave.Saw, Note = note, Duration = 8, Attack = 2, Sustain = 1, Release = 2, LowPass = 1200, Volume = 0.3, Voices = 4, Detune = 14, VibratoRate = 5, VibratoDepth = 0.08 })],
             ["Organ Chord"] = () => [.. new[] { "C3", "G3", "C4", "E4" }.Select(note => new SynthLayer
                 { Wave = SynthWave.Organ, Note = note, Duration = 4, Attack = 0.15, Sustain = 1, Release = 0.8, LowPass = 3000, Volume = 0.35 })],
+            // The Music mode's instruments: one note each, at the key of its first layer, which a
+            // piece moves to each note's key and holds for the note's length.
+            ["Piano"] = () => [
+                new() { Wave = SynthWave.Triangle, Note = "C4", Duration = 1.5, Attack = 0.003, Decay = 1.2, Sustain = 0.15, Release = 0.35, LowPass = 3500, Volume = 0.5 },
+                new() { Wave = SynthWave.Sine, Note = "C5", Duration = 1.5, Attack = 0.002, Decay = 0.5, Sustain = 0.05, Release = 0.3, Volume = 0.25 },
+                new() { Wave = SynthWave.Square, Note = "C4", Duration = 1.5, Attack = 0.001, Decay = 0.15, Sustain = 0, Release = 0.1, Duty = 0.25, LowPass = 2500, Volume = 0.12 }],
+            ["Pluck"] = () => [
+                new() { Wave = SynthWave.Saw, Note = "C4", Duration = 0.8, Attack = 0.002, Decay = 0.35, Sustain = 0, Release = 0.15, LowPass = 2400, Volume = 0.5 },
+                new() { Wave = SynthWave.Triangle, Note = "C4", Duration = 0.8, Attack = 0.002, Decay = 0.6, Sustain = 0.05, Release = 0.15, Volume = 0.3 }],
+            ["Bass"] = () => [
+                new() { Wave = SynthWave.Saw, Note = "C2", Duration = 1, Attack = 0.005, Decay = 0.25, Sustain = 0.6, Release = 0.12, LowPass = 700, Volume = 0.5 },
+                new() { Wave = SynthWave.Sine, Note = "C2", Duration = 1, Attack = 0.005, Decay = 0.1, Sustain = 0.9, Release = 0.12, Volume = 0.5 }],
+            ["Lead"] = () => [
+                new() { Wave = SynthWave.Square, Note = "C5", Duration = 1, Attack = 0.01, Decay = 0.1, Sustain = 0.8, Release = 0.12, Duty = 0.3, LowPass = 4000, VibratoRate = 5.5, VibratoDepth = 0.15, Volume = 0.4 },
+                new() { Wave = SynthWave.Saw, Note = "C5", Duration = 1, Attack = 0.01, Decay = 0.1, Sustain = 0.8, Release = 0.12, LowPass = 3000, Voices = 2, Detune = 10, Volume = 0.2 }],
+            ["Pad"] = () => [
+                new() { Wave = SynthWave.Saw, Note = "C4", Duration = 2.5, Attack = 0.4, Decay = 0.3, Sustain = 0.85, Release = 0.9, LowPass = 1400, Voices = 4, Detune = 14, TremoloRate = 0.3, TremoloDepth = 0.15, Volume = 0.4 },
+                new() { Wave = SynthWave.Triangle, Note = "C3", Duration = 2.5, Attack = 0.5, Sustain = 1, Release = 0.9, Volume = 0.3 }],
+            ["Organ"] = () => [
+                new() { Wave = SynthWave.Organ, Note = "C4", Duration = 1.5, Attack = 0.02, Decay = 0.05, Sustain = 1, Release = 0.08, LowPass = 5000, Volume = 0.45 },
+                new() { Wave = SynthWave.Organ, Note = "C5", Duration = 1.5, Attack = 0.02, Decay = 0.05, Sustain = 1, Release = 0.08, LowPass = 5000, Volume = 0.2 }],
+            ["Drum Kit"] = DrumKitBeat,
+            ["Kick Drum"] = KickDrum,
+            ["Snare Drum"] = SnareDrum,
+            ["Clap"] = Clap,
+            ["Hi-Hat"] = () => [new() { Wave = SynthWave.Noise, Frequency = 9000, Duration = 0.06, Attack = 0.001, Decay = 0.04, Sustain = 0.1, Release = 0.02, Volume = 0.35 }],
+            ["Open Hi-Hat"] = () => [new() { Wave = SynthWave.Noise, Frequency = 9000, Duration = 0.35, Attack = 0.001, Decay = 0.25, Sustain = 0.2, Release = 0.1, Volume = 0.35 }],
+            ["Crash Cymbal"] = () => [new() { Wave = SynthWave.Noise, Frequency = 8000, Duration = 1.4, Attack = 0.002, Decay = 1.0, Sustain = 0.1, Release = 0.4, Volume = 0.4 }],
+            ["Tom"] = () => [
+                new() { Wave = SynthWave.Sine, Frequency = 140, FrequencyEnd = 100, Duration = 0.4, Attack = 0.001, Decay = 0.25, Sustain = 0.2, Release = 0.12, Volume = 0.8 },
+                new() { Wave = SynthWave.Noise, Frequency = 3000, Duration = 0.03, Attack = 0.001, Release = 0.02, LowPass = 3000, Volume = 0.2 }],
         };
 
     /// <summary>What each preset is, by name; the Audio editor's gallery lists the ones with InGallery.</summary>
@@ -280,7 +311,61 @@ public static class SoundSynth
             ["Drone"] = new("Music", "A low organ drone that builds slowly.", Loops: true),
             ["Choir Pad"] = new("Music", "A soft, slow chord of voices.", Loops: true),
             ["Organ Chord"] = new("Music", "A held organ chord."),
+            ["Piano"] = new("Instruments", "A piano-like note that rings and fades; the Music mode plays it at any key."),
+            ["Pluck"] = new("Instruments", "A short plucked string, like a guitar or harp."),
+            ["Bass"] = new("Instruments", "A round, low bass note."),
+            ["Lead"] = new("Instruments", "A bright square-wave lead with a little vibrato, for melodies."),
+            ["Pad"] = new("Instruments", "A soft, slow swell of detuned strings for chords."),
+            ["Organ"] = new("Instruments", "A single organ note, held while the key is."),
+            ["Drum Kit"] = new("Drums", "One bar of kick, snare and hi-hat; in the Music mode each key is a drum."),
+            ["Kick Drum"] = new("Drums", "A deep thump that drops in pitch."),
+            ["Snare Drum"] = new("Drums", "A sharp crack of noise over a short tone."),
+            ["Clap"] = new("Drums", "A hand clap: three quick bursts and a short tail."),
+            ["Hi-Hat"] = new("Drums", "A closed hi-hat tick."),
+            ["Open Hi-Hat"] = new("Drums", "An open hi-hat that rings a little."),
+            ["Crash Cymbal"] = new("Drums", "A long crash of noise."),
+            ["Tom"] = new("Drums", "A tom-tom thud; the drum kit tunes it by key."),
         };
+
+    private static IReadOnlyList<SynthLayer> KickDrum() =>
+    [
+        new() { Wave = SynthWave.Sine, Frequency = 150, FrequencyEnd = 45, Duration = 0.35, Attack = 0.001, Decay = 0.25, Sustain = 0.2, Release = 0.1, Volume = 0.9 },
+        new() { Wave = SynthWave.Noise, Frequency = 3000, Duration = 0.02, Attack = 0.001, Release = 0.015, LowPass = 4000, Volume = 0.25 },
+    ];
+
+    private static IReadOnlyList<SynthLayer> SnareDrum() =>
+    [
+        new() { Wave = SynthWave.Noise, Frequency = 6000, Duration = 0.22, Attack = 0.001, Decay = 0.12, Sustain = 0.15, Release = 0.08, LowPass = 7000, Volume = 0.6 },
+        new() { Wave = SynthWave.Triangle, Frequency = 190, FrequencyEnd = 160, Duration = 0.12, Attack = 0.001, Decay = 0.08, Sustain = 0.2, Release = 0.04, Volume = 0.4 },
+    ];
+
+    private static IReadOnlyList<SynthLayer> Clap() =>
+    [
+        .. new[] { 0, 0.012, 0.024 }.Select(start => new SynthLayer { Wave = SynthWave.Noise, Frequency = 4000, Start = start, Duration = 0.02, Attack = 0.001, Release = 0.012, LowPass = 5000, Volume = 0.5 }),
+        new() { Wave = SynthWave.Noise, Frequency = 4000, Start = 0.036, Duration = 0.15, Attack = 0.001, Decay = 0.08, Sustain = 0.2, Release = 0.06, LowPass = 3000, Volume = 0.4 },
+    ];
+
+    // The drum kit's gallery sound: one bar at 120 beats a minute of kick, snare and eighth-note hi-hats.
+    private static IReadOnlyList<SynthLayer> DrumKitBeat()
+    {
+        var bar = new List<SynthLayer>();
+        void At(IReadOnlyList<SynthLayer> drum, double start)
+        {
+            foreach (SynthLayer layer in drum)
+            {
+                SynthLayer copy = layer.Copy();
+                copy.Start += start;
+                bar.Add(copy);
+            }
+        }
+        for (int beat = 0; beat < 4; beat++)
+        {
+            At(beat % 2 == 0 ? KickDrum() : SnareDrum(), beat * 0.5);
+            At(Presets["Hi-Hat"](), beat * 0.5);
+            At(Presets["Hi-Hat"](), beat * 0.5 + 0.25);
+        }
+        return bar;
+    }
 
     // The step on grass the Nature Walk benchmark plays: a soft puff of low-passed noise.
     private static IReadOnlyList<SynthLayer> FootstepOnGrass() =>
