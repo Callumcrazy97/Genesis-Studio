@@ -155,7 +155,8 @@ public static partial class PgslCommands
     public static double Direction { get => Ctx.Direction; set => Ctx.Direction = value; }
 
     [PgslCommand("SpriteIndex", "SpriteIndex", "Sprite name", "Instance Variables")]
-    public static string SpriteIndex { get => Ctx.SpriteIndex; set => Ctx.SpriteIndex = value; }
+    // Empty text, not nothing, on an instance with no sprite: text reads compare and concatenate.
+    public static string SpriteIndex { get => Ctx.SpriteIndex ?? string.Empty; set => Ctx.SpriteIndex = value; }
 
     [PgslCommand("ImageIndex", "ImageIndex", "Animation frame", "Instance Variables")]
     public static double ImageIndex { get => Ctx.ImageIndex; set => Ctx.ImageIndex = value; }

@@ -156,10 +156,12 @@ New cases alone: `--test engine-api-parts` (118 cases, 1.8 s of case time), `--t
 
 ## Found, not fixed (the tests own no engine code)
 
-- Interpreter and compiled tier word the same fault differently: the recursion limit ("Too much recursion: 'F' is 200 calls
-  deep" against "Function 'F' called itself too deeply (more than 200 calls)") and the line the instruction-limit error names
-  (the interpreter says line 0, the compiled one the caller's line). Their results are identical in all 15 scripts.
+- The line the instruction-limit error names differs between the tiers (the interpreter says line 0, the compiled one the
+  caller's line). Their results are identical in all 15 scripts. The recursion limit's wording differed too ("Function 'F'
+  called itself too deeply (more than 200 calls)" from the compiled tier) until 29 October, when both tiers were given the
+  interpreter's "Too much recursion: 'F' is 200 calls deep" (`PgslVm.TooDeepMessage`).
 - The compiled tier leaves a function that writes `Engine.*` properties interpreted ("writes 'Engine.Image.Frame', not its own
   variable"); the results agree, it only costs speed.
-- `Engine.Instance.SpriteIndex` read on an instance with no sprite gives nothing rather than empty text.
+- `Engine.Instance.SpriteIndex` read on an instance with no sprite gave nothing rather than empty text; since 29 October it
+  gives empty text.
 

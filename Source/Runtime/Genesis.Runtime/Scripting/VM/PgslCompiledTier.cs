@@ -156,7 +156,8 @@ internal static partial class PgslCompiledTier
         if (++_depth > PgslVm.MaxCallDepth || !RuntimeHelpers.TryEnsureSufficientExecutionStack())
         {
             _depth--;
-            throw new InvalidOperationException($"Function '{name}' called itself too deeply (more than {PgslVm.MaxCallDepth} calls).");
+            // The interpreter's words and depth for the same fault, so a game reports one message.
+            throw new InvalidOperationException(PgslVm.TooDeepMessage(name, PgslVm.MaxCallDepth));
         }
     }
 
