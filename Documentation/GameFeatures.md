@@ -1005,10 +1005,19 @@ C#: `WorldDecals` (namespace `Genesis.Runtime.Rendering`) has the same operation
 | `DecalSetRoughnessMap(decal, image)` | A roughness map (red: 0 mirror-smooth to 1 matte): the sun's highlight on the decal is added at that roughness (wet blood, fresh paint, oil). |
 
 Bullet holes on layer 0 and characters set to `Engine.Model.DecalLayers = 2` keep the holes off the
-characters. A decal is drawn over the lit picture, so a normal map scales the light that is there by
-how its bumps face the sun and the sky (lamps are scaled with it, not lit anew), and a roughness map
-adds a sheen but cannot take away the surface's own highlight. The Software renderer shows every
-decal on every surface and draws the pictures alone.
+characters. The Software renderer shows every decal on every surface and draws the pictures alone.
+
+What the maps can and cannot do: decals are painted over the picture after it has been lit, not
+fed into the surface's lighting, so their normal and roughness maps are an approximation. A normal
+map re-weighs the room's sun and sky light for its bumps and scales the lit colour under the decal
+by that ratio: it reads well in daylight and under the sky, but a lamp's light is scaled with the
+rest rather than lit from the lamp's own direction, so a dent lit only by a torch shows little
+relief, and a surface no light reaches stays dark whatever its bumps. A roughness map adds the
+sun's highlight at the decal's roughness in a second, additive draw: it can make a patch shinier
+(wet blood, fresh paint, oil) but cannot make one duller, cannot take away the surface's own
+highlight, gives no highlight from lamps, and its sheen is not reflected in the environment. Neither
+map changes a decal's shape, its shadows or what the depth sees. For a mark that must light exactly
+like the surface (a carved groove, a metal plate), model it, or use a material on the mesh.
 
 ```pgsl
 // Step, when a shot hits: a bullet hole turned at random, gone after 30 seconds.
@@ -2379,6 +2388,18 @@ for a whole run, whatever the game asks, as a comma list: `ao`, `post` (the game
 `transparent` (see-through surfaces), `probes` (the light probe) and `lighting` (every surface its own
 colour). Compare a `game.run` picture with and without each. `GENESIS_RENDER_HIDE` (a comma list) leaves
 out every model whose name contains one of the words, to see what is behind it.
+
+**Lighting term views.** `Engine.DebugView("Albedo")`, `("Ambient")` and `("Direct")` draw one term of
+the lighting alone: each surface's own colour; the indirect light it takes (sky and ground ambient,
+the light probe and reflections, after occlusion); or the direct light of the sun and the lamps.
+`GENESIS_RENDER_VIEW=albedo|ambient|direct` does the same for a whole run. A black area in the
+ambient view gets no indirect light; one black in the direct view gets no lamp or sun. Surface
+shaders show their own material's terms; other project pixel shaders draw as the engine's.
+
+**Sun and fog colours by the hour.** `Engine.Sky.SetSunColorAt(hour, r, g, b)` and
+`Engine.Sky.SetFogColorAt(hour, r, g, b)` (0 to 255) give the climate a colour for an hour of the day
+that it keeps instead of its own; between the hours given it blends, round the clock.
+`Engine.Sky.ClearColorsByHour()` hands both back to the climate. Off until a game sets one.
 
 **Instanced models shade as single ones (29 Oct 2026).** A model drawn through a room's static
 instanced layer, or any `DrawMeshInstances` batch, now keeps its whole material: metallic and

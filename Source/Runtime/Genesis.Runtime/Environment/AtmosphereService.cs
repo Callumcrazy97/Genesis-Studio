@@ -57,6 +57,15 @@ public sealed class AtmosphereOptions
 
     public int Seed { get; set; } = 1337;
 
+    /// <summary>
+    /// The sun's colour by the hour of the day, set by the game (Engine.Sky.SetSunColorAt): the
+    /// climate keeps its own sun colour where none is set. Off (empty) by default.
+    /// </summary>
+    public HourColor[] SunColorHours { get; set; } = [];
+
+    /// <summary>The fog's colour by the hour of the day, set by the game (Engine.Sky.SetFogColorAt). Off (empty) by default.</summary>
+    public HourColor[] FogColorHours { get; set; } = [];
+
     public AtmosphereOptions Clone() => (AtmosphereOptions)MemberwiseClone();
 }
 
