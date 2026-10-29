@@ -226,6 +226,26 @@ Checks a test run reports (`game.run` lists them, and a failed one fails the run
 TestCheck("walker stands on the ground", Abs(y - Engine.Terrain.GetHeight(x, z)) < 0.2, "y " + String(y));
 ```
 
+Two players over the internet: they meet at a relay (`GenesisEngine.exe --relay 7777` on a machine
+both can reach) by a code, then reach each other directly when their routers allow it, and fall back
+to the relay when not. Nothing to do for the direct path; it is on unless set:
+
+```pgsl
+// Host's lobby
+NetHostOnline("relay.example.com", 7777, 4);
+code = NetSessionCode();                   // "" for a moment, then six letters to read out
+// Player's lobby
+NetJoinOnline("relay.example.com", 7777, typedCode);
+// Either, in a DrawGui event: how the game is reaching the others
+DrawText(16, 16, "Path: " + Engine.Network.Direct.Active);   // "direct", "relay", or "" before joining
+// A player who wants their address kept private, at the relay's speed:
+Engine.Network.Direct.Enabled = false;
+```
+
+Messages and shared objects work the same on either path, and a switch loses nothing reliable.
+`Engine.Network.Direct.Path(peerId)` gives one player's path; `Attempts` (3) and `Timeout` (5 s)
+say how hard to try. More in GameFeatures.md, "Online games through a relay".
+
 Work that runs once and long, a world generated or a save upgraded in a Create event: a call may
 run 100 000 instructions before it is stopped as a hang. Raise the limit once for the rest of the game
 (up to 1 000 000 000; a lower number puts back 100 000), and keep ordinary per-frame work short.

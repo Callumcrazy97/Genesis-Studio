@@ -40,7 +40,8 @@ script sets it, then holds); Engine.Audio.Listener.FollowCamera; Engine.Room.Cha
 ProgressBar, Text); Engine.Debug.Keys.Enabled; Engine.Particle.Bursts.Limit; Engine.Mesh.Upload.Budget;
 Engine.Water.Reflections.Enabled; Engine.Tile.Autotile.Enabled; Engine.Model.Shadows (Cast, Receive),
 Model.Glow (Strength, EmissionScale); Engine.Input.Gamepad.KeyboardEmulation; Engine.View.Camera.Zoom;
-Engine.Navigation.Agent (Speed, StoppingDistance); 29 October: Engine.Audio.Music and Engine.Audio.Effects
+Engine.Navigation.Agent (Speed, StoppingDistance); 29 October: Engine.Network.Direct (Enabled, Active,
+Attempts, Timeout, Count, Path()); 29 October: Engine.Audio.Music and Engine.Audio.Effects
 (Filter, Eq, Reverb, Compressor: each with Enabled; Level), Engine.Audio.Snapshot (Enabled, Name, Progress,
 Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Current, Dynamic.Enabled, Dynamic.TargetFps, Dynamic.MinimumScale), Engine.Room.Streaming (Remember, Forget(), Remembered, Save(), Load(text)), Engine.Rendering (Backend, DrawCalls, Triangles, GpuMs, Instances.Drawn, Instances.Culled; read), Engine.Instance.Update.Distance, Engine.Tile.Layer (Visible, SetVisible, Alpha, SetAlpha, OffsetX, OffsetY, SetOffset by name), Engine.Physics.Joint limits (PhysicsJointHinge, PhysicsJointLimitSwing, PhysicsJointLimitTwist); 29 October: Engine.Camera.Rigs (Enabled, Active, BlendTime, BlendCurve, Blending, Progress, Count, Create(), BlendTo(), Cut(), Remove(), Exists(), Clear()), Engine.Camera.Rig (Name, Kind, Target, SetTargetPoint(), OffsetX/Y/Z, LookOffsetX/Y/Z, Fov, Damping, Yaw, Pitch, Distance, MouseLook, Collision) and Engine.Camera.Rig.Path (Position, Speed, Loop, Smooth, Count, Length, Add(), Clear(), Use()); Engine.Animation.LookAt (Enabled, Bone, Target, TargetBone, Height, X/Y/Z, Weight, BlendTime, YawLimit, PitchLimit, Amount, At(), Follow(), Stop(), SetForward()) and Engine.Animation.Reach (the same without the limits). Colours are "#rrggbb" text.
 
@@ -327,6 +328,7 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Engine.Network | + Enabled, ✓ Available, ✓ Host, ✓ Connect, ✓ Disconnect, ✓ IsHost, ✓ IsConnected, ✓ ConnectState, ✓ PeerCount, ✓ PeerId, ✓ Port, ✓ LastError, ✓ LocalAddresses |
 | Engine.Network.Discovery | + Enabled, ✓ Discover, ✓ FoundCount, ✓ FoundName, ✓ FoundAddress, ✓ FoundPort, ✓ FoundPlayers |
 | Engine.Network.Online | ✓ HostOnline, ✓ JoinOnline, ✓ SessionCode, ✓ HostName |
+| Engine.Network.Direct | ✓ Enabled, ✓ Active (read: "direct", "relay", ""), ✓ Attempts, ✓ Timeout, ✓ Count (read), ✓ Path(peerId) [NetDirectPath, NetDirectCount] (29 Oct: NAT punch-through for players who meet through a relay; Design/Networking.md) |
 | Engine.Network.Replication | + Enabled, ✓ Replicate, ✓ Own, ✓ Forget, ✓ IsCopy, ✓ CopyCount, ✓ CopyId, ✓ CopyObject, ✓ CopyOwner, ✓ InterestDistance, + Rate (updates a second), + Smoothing |
 | Engine.Network.Messages | ✓ Send, ✓ SendNumber, ✓ SendText, ✓ Broadcast, ✓ Receive, ✓ Pending, ✓ From, ✓ Tag, ✓ Number, ✓ Text |
 | Engine.Network.Values | ✓ GetNumber, ✓ SetNumber, ✓ GetText, ✓ SetText |

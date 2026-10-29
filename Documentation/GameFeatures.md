@@ -733,8 +733,30 @@ port forwarded).
 
 After that, everything works as it does on a local network: peers join and leave, and messages,
 broadcasts and object replication (with its smoothing of what other players move) all pass through
-the relay. Every message goes through the relay. Machines are not yet put in touch directly (NAT
-punch-through), so the relay carries all the traffic and its distance adds to the latency.
+the relay.
+
+**Direct paths (29 October 2026).** Once a player has joined, the relay tells the host and the player
+each other's internet address, and both try to reach each other directly (NAT punch-through): for a
+few seconds each sends small packets to the other, which opens its own router for the reply. Most
+home routers (full cone, restricted and port restricted) let the packets meet; then the two games'
+messages and shared objects go straight between them, without the relay's distance. A router that
+gives every destination a new port (symmetric, common on mobile networks and some offices) does not,
+and the game stays on the relay as before. A direct path that stops working (a router restarts, a
+connection changes) is noticed within about two and a half seconds and the traffic goes back through
+the relay. Neither switch loses or reorders a reliable message; movement, which is sent unreliably,
+simply carries on from the next update.
+
+- `Engine.Network.Direct.Enabled` (true unless set): false keeps everything on the relay, and this
+  machine's address is then never given to the other players.
+- `Engine.Network.Direct.Active` reads `direct` when every player is reached directly, `relay`
+  otherwise (and `""` when not playing through a relay); `Engine.Network.Direct.Path(peerId)` and
+  `NetDirectPath(peerId)` give one player's path, `Engine.Network.Direct.Count` how many are direct.
+- `Engine.Network.Direct.Attempts` (3) and `Engine.Network.Direct.Timeout` (5 seconds) say how often
+  and how long to try. All three settings are also room settings in the Inspector.
+
+The session still lives at the relay: if the relay goes, the game ends for everyone. Two players
+behind the same router only reach each other directly if the router allows it; they can play as a
+local game instead. The design, the frames and the tests are in `Design/Networking.md`.
 ## User Interface toolkit: lists, focus, typing and themes (22 October 2026)
 
 A User Interface resource has two more element types, and `DrawUi`/`UiUpdate` handle them:
