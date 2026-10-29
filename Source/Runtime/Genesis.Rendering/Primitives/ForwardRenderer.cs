@@ -3266,7 +3266,9 @@ namespace Genesis.Rendering.Primitives
                     NormalId = normalId != 0 ? normalId : normal.Id, Emissive = emissive,
                     NoReceiveShadow = noReceiveShadow, Foliage = true, RasterOverride = foliageRasterOverride,
                     ShaderId = shader.Id, ShaderParams0 = shaderParams0, ShaderParams1 = shaderParams1,
-                    ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3, AuthoredTextures = authoredTextures };
+                    ShaderParams2 = shaderParams2, ShaderParams3 = shaderParams3, AuthoredTextures = authoredTextures,
+                    // The grass shader's colour ramp and wind (FoliageShading).
+                    SurfaceParams = surfaceParams, SubsurfaceColorSteps = subsurfaceColorSteps };
                 if (!_batches.TryGetValue(fKey, out var fBatch))
                 {
                     fBatch = RentBatch(fKey);
@@ -3278,6 +3280,8 @@ namespace Genesis.Rendering.Primitives
                     fBatch.NoFog = noFog;
                     fBatch.NoReceiveShadow = noReceiveShadow;
                     fBatch.Foliage = true;
+                    fBatch.SurfaceParams = surfaceParams;
+                    fBatch.SubsurfaceColorSteps = subsurfaceColorSteps;
                     fBatch.RasterOverride = foliageRasterOverride;
                     fBatch.Shader = shader;
                     fBatch.ShaderParams0 = shaderParams0;
@@ -3387,11 +3391,20 @@ namespace Genesis.Rendering.Primitives
             Vector4 shaderParams1 = default,
             Vector4 shaderParams2 = default,
             Vector4 shaderParams3 = default,
-            AuthoredGpuTextures authoredTextures = default)
+            AuthoredGpuTextures authoredTextures = default,
+            Vector4 surfaceParams = default,
+            Vector4 subsurfaceColorSteps = default)
         {
             if (!mesh.IsValid || instances.IsEmpty || !TryGetMesh(mesh.Id, out MeshEntry meshEntrySource)) return;
             if (RuntimePassMode(shader) != Genesis.Shared.Assets.ShaderMeshPassMode.Surface)
                 flags |= MeshDrawFlags.NoShadow;
+            // Only a foliage draw takes these here: they hold the grass shader's colour ramp and wind
+            // (Genesis.Shared.Rendering.FoliageShading). Other instanced draws keep their old look.
+            if ((flags & MeshDrawFlags.Foliage) == 0)
+            {
+                surfaceParams = default;
+                subsurfaceColorSteps = default;
+            }
 
             bool transparent = (flags & MeshDrawFlags.Transparent) != 0;
             bool additive = (flags & MeshDrawFlags.Additive) != 0;
@@ -3465,7 +3478,8 @@ namespace Genesis.Rendering.Primitives
                     Submit(mesh, instance.World, color, textureId, texture, flags, emissive,
                         normal: normal, shader: shader, shaderParams0: shaderParams0,
                         shaderParams1: shaderParams1, shaderParams2: shaderParams2,
-                        shaderParams3: shaderParams3, authoredTextures: authoredTextures);
+                        shaderParams3: shaderParams3, authoredTextures: authoredTextures,
+                        surfaceParams: surfaceParams, subsurfaceColorSteps: subsurfaceColorSteps);
                 }
                 return;
             }
@@ -3494,6 +3508,8 @@ namespace Genesis.Rendering.Primitives
                 ShaderParams2 = shaderParams2,
                 ShaderParams3 = shaderParams3,
                 AuthoredTextures = authoredTextures,
+                SurfaceParams = surfaceParams,
+                SubsurfaceColorSteps = subsurfaceColorSteps,
             };
             if (!_batches.TryGetValue(key, out Batch batch))
             {
@@ -3507,6 +3523,8 @@ namespace Genesis.Rendering.Primitives
                 batch.NoReceiveShadow = noReceiveShadow;
                 batch.TerrainGround = terrainGround;
                 batch.Foliage = foliage;
+                batch.SurfaceParams = surfaceParams;
+                batch.SubsurfaceColorSteps = subsurfaceColorSteps;
                 batch.Unlit = key.Unlit;
                 batch.IsFloor = isFloor;
                 batch.RasterOverride = rasterOverride;

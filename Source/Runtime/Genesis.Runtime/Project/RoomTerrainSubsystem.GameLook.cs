@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using Genesis.Shared.Interfaces;
 using Genesis.World.Foliage;
 using Genesis.World.Terrain;
 
@@ -41,17 +42,63 @@ public sealed partial class RoomTerrainSubsystem
     /// <summary>How tall the tufts grow, as a multiple of each rule's own, 0.1 to 4.</summary>
     public float GrassHeight { get; set; } = 1f;
 
+    /// <summary>
+    /// The grass's look as the game changed it (Engine.Terrain.Grass.Color, .Wind, .Texture,
+    /// .Pushers, .Paths): every value null leaves each terrain's own.
+    /// </summary>
+    public sealed class GrassLookOverrides
+    {
+        public bool? ColorEnabled { get; set; }
+        public Vector3? BaseColor { get; set; }
+        public Vector3? TipColor { get; set; }
+        public float? ColorCurve { get; set; }
+        /// <summary>An Image resource for the blades; "" for none; null leaves each terrain's own.</summary>
+        public string Texture { get; set; }
+        public bool? WindEnabled { get; set; }
+        public float? WindStrength { get; set; }
+        public float? WindSpeed { get; set; }
+        public float? WindGusts { get; set; }
+        public float? PushStrength { get; set; }
+        public float? SpringBackSeconds { get; set; }
+        /// <summary>Paths kept bare or not; changing it grows the grass again.</summary>
+        public bool? ClearPaths { get; set; }
+    }
+
+    /// <summary>The game's changes to the grass's look; null values leave each terrain's own.</summary>
+    public GrassLookOverrides GameGrassLook { get; } = new();
+
+    /// <summary>The look a terrain's grass is drawn with: its rule's, changed by the game's values.</summary>
+    private TerrainGrassLook GrassLookFor(Entry entry, TerrainGrassRuleSettings rule, IRenderController renderer)
+    {
+        GrassLookOverrides game = GameGrassLook;
+        return new TerrainGrassLook(
+            game.ColorEnabled ?? rule.ColorEnabled,
+            game.BaseColor ?? rule.BaseColor,
+            game.TipColor ?? rule.TipColor,
+            game.ColorCurve ?? rule.ColorCurve,
+            GrassTexture(entry, game.Texture ?? rule.Texture, renderer),
+            game.WindEnabled ?? rule.WindEnabled,
+            game.WindStrength ?? rule.WindStrength,
+            game.WindSpeed ?? rule.WindSpeed,
+            game.WindGusts ?? rule.WindGusts,
+            rule.PushersEnabled && GrassPushersOn,
+            game.PushStrength ?? rule.PushStrength);
+    }
+
     // The rule a terrain's grass grows from: its own, or a copy changed by the game's values.
     // The copy is kept while neither changes, so the grass is not grown again each frame.
     private TerrainGrassRuleSettings GrassRuleFor(Entry entry)
     {
         TerrainGrassRuleSettings rule = entry.Nature?.GrassRule;
-        if (rule == null || GrassOn == null && GrassDensity == 1f && GrassDistance == 1f && GrassHeight == 1f) return rule;
+        bool? clearPaths = GameGrassLook.ClearPaths;
+        if (rule == null || GrassOn == null && GrassDensity == 1f && GrassDistance == 1f && GrassHeight == 1f && clearPaths == null) return rule;
         if (entry.GameGrassRule != null && entry.GameGrassSource != null && entry.GameGrassSource.SameAs(rule)
             && entry.GameGrassRule.Enabled == (GrassOn ?? rule.Enabled)
             && entry.GameGrassRule.Radius == Clamp(rule.Radius * GrassDistance, 4f, 2000f)
             && entry.GameGrassRule.Spacing == Clamp(rule.Spacing / MathF.Sqrt(GrassDensity), 0.1f, 16f)
-            && entry.GameGrassRule.MaximumScale == Clamp(rule.MaximumScale * GrassHeight, 0.05f, 16f))
+            && entry.GameGrassRule.MaximumScale == Clamp(rule.MaximumScale * GrassHeight, 0.05f, 16f)
+            && entry.GameGrassRule.ClearPaths == (clearPaths ?? rule.ClearPaths)
+            && entry.GameGrassSource.SameLookAs(rule))
             return entry.GameGrassRule;
         TerrainGrassRuleSettings changed = rule.Clone();
         changed.Enabled = GrassOn ?? rule.Enabled;
@@ -59,6 +106,7 @@ public sealed partial class RoomTerrainSubsystem
         changed.Spacing = Clamp(rule.Spacing / MathF.Sqrt(GrassDensity), 0.1f, 16f);
         changed.MinimumScale = Clamp(rule.MinimumScale * GrassHeight, 0.05f, 16f);
         changed.MaximumScale = Clamp(rule.MaximumScale * GrassHeight, 0.05f, 16f);
+        changed.ClearPaths = clearPaths ?? rule.ClearPaths;
         entry.GameGrassSource = rule.Clone();
         return entry.GameGrassRule = changed;
     }

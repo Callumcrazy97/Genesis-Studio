@@ -582,6 +582,136 @@ public static partial class PgslCommands
         set { if (double.IsFinite(value)) ForTerrains(terrains => terrains.GrassHeight = (float)Math.Clamp(value, 0.1, 4)); }
     }
 
+    // ── Engine.Terrain.Grass: the grass shader (colour, texture, wind), pushers and paths ──────
+    // Each value is every terrain's own rule's until a script sets it; reading gives the first's.
+
+    private static Genesis.World.Foliage.TerrainGrassRuleSettings GrassRuleNow() =>
+        FirstTerrains()?.FirstGrassRule ?? new Genesis.World.Foliage.TerrainGrassRuleSettings();
+
+    private static RoomTerrainSubsystem.GrassLookOverrides? GrassLookNow() => FirstTerrains()?.GameGrassLook;
+
+    private static void SetGrassLook(Action<RoomTerrainSubsystem.GrassLookOverrides> change) =>
+        ForTerrains(terrains => change(terrains.GameGrassLook));
+
+    [PgslCommand("Enabled", "Engine.Terrain.Grass.Color.Enabled = true", "Whether the grass's blades are coloured from the base colour at the root to the tip colour at the tip (each terrain's own rule unless set; on for new grass); off, each tuft keeps its own colours", "Terrain", Namespace = "Engine.Terrain.Grass.Color", Flat = false)]
+    public static bool TerrainGrassColorEnabled
+    {
+        get => GrassLookNow()?.ColorEnabled ?? GrassRuleNow().ColorEnabled;
+        set => SetGrassLook(look => look.ColorEnabled = value);
+    }
+
+    [PgslCommand("Base", "Engine.Terrain.Grass.Color.Base = \"#264d1a\"", "The grass blades' colour at the root, as \"#rrggbb\" (each terrain's own unless set; a dark meadow green for new grass): darker for a shaded wood, browner for late summer", "Terrain", Namespace = "Engine.Terrain.Grass.Color", Flat = false)]
+    public static string TerrainGrassColorBase
+    {
+        get => Hex(GrassLookNow()?.BaseColor ?? GrassRuleNow().BaseColor);
+        set { if (TryHexColor(value, out Vector3 colour)) SetGrassLook(look => look.BaseColor = colour); }
+    }
+
+    [PgslCommand("Tip", "Engine.Terrain.Grass.Color.Tip = \"#4f9c36\"", "The grass blades' colour at the tip, as \"#rrggbb\" (each terrain's own unless set; a sunlit meadow green for new grass): straw for dry grass, frosted white in winter", "Terrain", Namespace = "Engine.Terrain.Grass.Color", Flat = false)]
+    public static string TerrainGrassColorTip
+    {
+        get => Hex(GrassLookNow()?.TipColor ?? GrassRuleNow().TipColor);
+        set { if (TryHexColor(value, out Vector3 colour)) SetGrassLook(look => look.TipColor = colour); }
+    }
+
+    [PgslCommand("Curve", "Engine.Terrain.Grass.Color.Curve = 1", "How the colour runs up a blade, 0.1 to 8 (each terrain's own unless set; 1 evenly): below 1 the tip colour reaches further down, above 1 it keeps to the tips", "Terrain", Namespace = "Engine.Terrain.Grass.Color", Flat = false)]
+    public static double TerrainGrassColorCurve
+    {
+        get => GrassLookNow()?.ColorCurve ?? GrassRuleNow().ColorCurve;
+        set { if (double.IsFinite(value)) SetGrassLook(look => look.ColorCurve = (float)Math.Clamp(value, 0.1, 8)); }
+    }
+
+    [PgslCommand("Texture", "Engine.Terrain.Grass.Texture = \"Blade\"", "An Image resource drawn on each grass blade, tinted by the blade colours, its see-through parts cutting the blade (each terrain's own unless set; \"\" for plain blades)", "Terrain", Namespace = "Engine.Terrain.Grass", Flat = false)]
+    public static string TerrainGrassTexture
+    {
+        get => GrassLookNow()?.Texture ?? GrassRuleNow().Texture ?? "";
+        set => SetGrassLook(look => look.Texture = value?.Trim() ?? "");
+    }
+
+    [PgslCommand("Enabled", "Engine.Terrain.Grass.Wind.Enabled = false", "Whether the grass sways in the wind (each terrain's own rule unless set; on for new grass); off holds every blade still", "Terrain", Namespace = "Engine.Terrain.Grass.Wind", Flat = false)]
+    public static bool TerrainGrassWindEnabled
+    {
+        get => GrassLookNow()?.WindEnabled ?? GrassRuleNow().WindEnabled;
+        set => SetGrassLook(look => look.WindEnabled = value);
+    }
+
+    [PgslCommand("Strength", "Engine.Terrain.Grass.Wind.Strength = 2", "How far the grass sways, 0 to 4 (each terrain's own unless set; 1 a breeze); the weather's wind still scales it when the room has weather", "Terrain", Namespace = "Engine.Terrain.Grass.Wind", Flat = false)]
+    public static double TerrainGrassWindStrength
+    {
+        get => GrassLookNow()?.WindStrength ?? GrassRuleNow().WindStrength;
+        set { if (double.IsFinite(value)) SetGrassLook(look => look.WindStrength = (float)Math.Clamp(value, 0, 4)); }
+    }
+
+    [PgslCommand("Speed", "Engine.Terrain.Grass.Wind.Speed = 1.5", "How fast the grass sways, 0 to 4 (each terrain's own unless set; 1 unless set)", "Terrain", Namespace = "Engine.Terrain.Grass.Wind", Flat = false)]
+    public static double TerrainGrassWindSpeed
+    {
+        get => GrassLookNow()?.WindSpeed ?? GrassRuleNow().WindSpeed;
+        set { if (double.IsFinite(value)) SetGrassLook(look => look.WindSpeed = (float)Math.Clamp(value, 0, 4)); }
+    }
+
+    [PgslCommand("Gusts", "Engine.Terrain.Grass.Wind.Gusts = 0.6", "Gusts rolling across the grass, 0 (none) to 1 (strong), leaning it as they pass (each terrain's own unless set; 0 for new grass): a storm coming in", "Terrain", Namespace = "Engine.Terrain.Grass.Wind", Flat = false)]
+    public static double TerrainGrassWindGusts
+    {
+        get => GrassLookNow()?.WindGusts ?? GrassRuleNow().WindGusts;
+        set { if (double.IsFinite(value)) SetGrassLook(look => look.WindGusts = (float)Math.Clamp(value, 0, 1)); }
+    }
+
+    [PgslCommand("Enabled", "Engine.Terrain.Grass.Pushers.Enabled = false", "Whether grass and small scattered plants bend away from animated characters and from the pushers a script sets (true unless set)", "Terrain", Namespace = "Engine.Terrain.Grass.Pushers", Flat = false)]
+    public static bool TerrainGrassPushersEnabled
+    {
+        get => FirstTerrains()?.GrassPushersOn ?? true;
+        set => ForTerrains(terrains => terrains.GrassPushersOn = value);
+    }
+
+    [PgslCommand("Characters", "Engine.Terrain.Grass.Pushers.Characters = false", "Whether every animated character (a model playing an animation) near the camera parts the grass round its feet by itself (true unless set)", "Terrain", Namespace = "Engine.Terrain.Grass.Pushers", Flat = false)]
+    public static bool TerrainGrassPushersCharacters
+    {
+        get => FirstTerrains()?.GrassCharactersPush ?? true;
+        set => ForTerrains(terrains => terrains.GrassCharactersPush = value);
+    }
+
+    [PgslCommand("Strength", "Engine.Terrain.Grass.Pushers.Strength = 1", "How far pushed grass bends, 0 to 1 (each terrain's own rule unless set; 0.8 for new grass, 1 lays it nearly flat)", "Terrain", Namespace = "Engine.Terrain.Grass.Pushers", Flat = false)]
+    public static double TerrainGrassPushersStrength
+    {
+        get => GrassLookNow()?.PushStrength ?? GrassRuleNow().PushStrength;
+        set { if (double.IsFinite(value)) SetGrassLook(look => look.PushStrength = (float)Math.Clamp(value, 0, 1)); }
+    }
+
+    [PgslCommand("SpringBack", "Engine.Terrain.Grass.Pushers.SpringBack = 2", "Seconds trodden grass takes to stand up again, 0 to 10 (each terrain's own rule unless set; 0.8 for new grass)", "Terrain", Namespace = "Engine.Terrain.Grass.Pushers", Flat = false)]
+    public static double TerrainGrassPushersSpringBack
+    {
+        get => GrassLookNow()?.SpringBackSeconds ?? GrassRuleNow().SpringBackSeconds;
+        set { if (double.IsFinite(value)) SetGrassLook(look => look.SpringBackSeconds = (float)Math.Clamp(value, 0, 10)); }
+    }
+
+    [PgslCommand("Count", "Engine.Terrain.Grass.Pushers.Count", "How many pushers scripts have set (read; animated characters are not counted)", "Terrain", Namespace = "Engine.Terrain.Grass.Pushers", Flat = false)]
+    public static double TerrainGrassPushersCount => FirstTerrains()?.GrassPusherCount ?? 0;
+
+    [PgslCommand("Set", "Engine.Terrain.Grass.Pushers.Set(key, x, y, z, radius)", "Sets or moves pusher `key` (any number: an instance's id, say) to world x, y, z (its feet); grass within radius metres bends away until it is moved, removed or the room changes, and springs back behind it", "Terrain", Namespace = "Engine.Terrain.Grass.Pushers", Flat = false)]
+    public static void TerrainGrassPushersSet(double key, double x, double y, double z, double radius)
+    {
+        if (!double.IsFinite(key)) return;
+        ForTerrains(terrains => terrains.SetGrassPusher((long)Math.Round(key), new Vector3((float)x, (float)y, (float)z), (float)radius));
+    }
+
+    [PgslCommand("Remove", "Engine.Terrain.Grass.Pushers.Remove(key) -> bool", "Removes pusher `key`; the grass it bent springs back. False when there was none", "Terrain", Namespace = "Engine.Terrain.Grass.Pushers", Flat = false)]
+    public static bool TerrainGrassPushersRemove(double key)
+    {
+        bool removed = false;
+        if (double.IsFinite(key)) ForTerrains(terrains => removed |= terrains.RemoveGrassPusher((long)Math.Round(key)));
+        return removed;
+    }
+
+    [PgslCommand("Clear", "Engine.Terrain.Grass.Pushers.Clear()", "Removes every pusher scripts have set", "Terrain", Namespace = "Engine.Terrain.Grass.Pushers", Flat = false)]
+    public static void TerrainGrassPushersClear() => ForTerrains(terrains => terrains.ClearGrassPushers());
+
+    [PgslCommand("Enabled", "Engine.Terrain.Grass.Paths.Enabled = false", "Whether grass keeps off the terrains' paths, thinning in at their edges (each terrain's own rule unless set; on for new grass); changing it grows the grass again", "Terrain", Namespace = "Engine.Terrain.Grass.Paths", Flat = false)]
+    public static bool TerrainGrassPathsEnabled
+    {
+        get => GrassLookNow()?.ClearPaths ?? GrassRuleNow().ClearPaths;
+        set => SetGrassLook(look => look.ClearPaths = value);
+    }
+
     [PgslCommand("Enabled", "Engine.Terrain.Scatter.Enabled = false", "Whether the terrains' scattered trees and rocks are drawn (true unless set); their collision stays", "Terrain", Namespace = "Engine.Terrain.Scatter", Flat = false)]
     public static bool TerrainScatterEnabled { get => FirstTerrains()?.ScatterDrawn ?? true; set => ForTerrains(terrains => terrains.ScatterDrawn = value); }
 

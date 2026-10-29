@@ -1199,7 +1199,9 @@ namespace Genesis.Rendering.Core
                 shaderParams1: template.ShaderParams1,
                 shaderParams2: template.ShaderParams2,
                 shaderParams3: template.ShaderParams3,
-                authoredTextures: ResolveAuthoredTextures(template.AuthoredTextures));
+                authoredTextures: ResolveAuthoredTextures(template.AuthoredTextures),
+                surfaceParams: template.SurfaceParams,
+                subsurfaceColorSteps: template.SubsurfaceColorSteps);
         }
 
         private GpuTextureHandle GetGpuTexture(TextureHandle handle)

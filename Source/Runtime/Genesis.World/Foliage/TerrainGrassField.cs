@@ -25,6 +25,33 @@ public readonly record struct TerrainGrassStatistics(
     int TuftBudget);
 
 /// <summary>
+/// How a terrain's grass is drawn: the grass shader's colours, texture and wind, and how far
+/// pushers bend it. Taken from the rule (<see cref="From"/>), with whatever a game changes; it can
+/// change every frame without growing a single tuft again.
+/// </summary>
+public readonly record struct TerrainGrassLook(
+    bool ColorEnabled,
+    Vector3 BaseColor,
+    Vector3 TipColor,
+    float ColorCurve,
+    TextureHandle Texture,
+    bool WindEnabled,
+    float WindStrength,
+    float WindSpeed,
+    float WindGusts,
+    bool PushersEnabled,
+    float PushStrength)
+{
+    /// <summary>The rule's own look; <paramref name="texture"/> is its <see cref="TerrainGrassRuleSettings.Texture"/>, loaded.</summary>
+    public static TerrainGrassLook From(TerrainGrassRuleSettings rule, TextureHandle texture = default)
+    {
+        rule ??= new TerrainGrassRuleSettings();
+        return new TerrainGrassLook(rule.ColorEnabled, rule.BaseColor, rule.TipColor, rule.ColorCurve, texture,
+            rule.WindEnabled, rule.WindStrength, rule.WindSpeed, rule.WindGusts, rule.PushersEnabled, rule.PushStrength);
+    }
+}
+
+/// <summary>
 /// Grass grown from a <see cref="TerrainGrassRuleSettings"/> rule in square cells around the camera.
 /// </summary>
 /// <remarks>
@@ -43,7 +70,13 @@ public readonly record struct TerrainGrassStatistics(
 /// <para>
 /// Drawing culls whole cells against the view, draws the nearest first up to a tuft budget, and thins
 /// each cell towards the edge of the radius by drawing only the first part of its tufts, which are
-/// stored in a random order. It reuses the scattered grass's tuft meshes and foliage shading.
+/// stored in a random order. It reuses the scattered grass's tuft meshes and foliage shading, with
+/// the grass shader's colour ramp, texture and wind from its <see cref="TerrainGrassLook"/>, and
+/// bends the tufts near pushers in the copies it draws.
+/// </para>
+/// <para>
+/// The terrain's paths stay bare: a spot within half a path's width grows nothing, and the grass
+/// thins in over <see cref="TerrainGrassRuleSettings.PathEdge"/> beyond that.
 /// </para>
 /// </remarks>
 public sealed class TerrainGrassField : IDisposable
@@ -63,6 +96,12 @@ public sealed class TerrainGrassField : IDisposable
     private readonly TerrainGrassRuleSettings _settings;
     private readonly TerrainGrassRuleSettings _source;
     private readonly TerrainGrassWaterMask _water;
+    private readonly TerrainPathNetwork _paths;
+    private readonly object _pathSource;
+    private TerrainGrassLook _look;
+    private bool _meshRamp;
+    private Vector3 _meshBase, _meshTip;
+    private float _meshCurve;
     private readonly Dictionary<long, Cell> _cells = new();
     private readonly Stack<Cell> _pool = new();
     private readonly List<long> _leaving = new();
@@ -86,14 +125,22 @@ public sealed class TerrainGrassField : IDisposable
     private long _allocated, _reused, _recycled;
 
     /// <param name="waters">Authored water the grass keeps out of, as scattered foliage does; null for none.</param>
+    /// <param name="paths">The terrain's paths (its nature document's), kept bare when the rule clears paths; null for none.</param>
     public TerrainGrassField(TerrainAsset terrain, TerrainGrassRuleSettings settings,
-        IReadOnlyList<TerrainWaterDefinition> waters = null)
+        IReadOnlyList<TerrainWaterDefinition> waters = null, IReadOnlyList<TerrainPathDefinition> paths = null)
     {
         _terrain = terrain ?? throw new ArgumentNullException(nameof(terrain));
         _water = new TerrainGrassWaterMask(waters, TerrainWaterDefinition.FoliageExclusionPadding);
         _source = (settings ?? new TerrainGrassRuleSettings()).Clone();
         _settings = _source.Clone();
         _settings.Normalize();
+        _look = TerrainGrassLook.From(_settings);
+        _pathSource = paths;
+        if (_settings.ClearPaths && paths is { Count: > 0 })
+        {
+            var network = new TerrainPathNetwork(paths);
+            if (network.Paths.Count > 0) _paths = network;
+        }
         for (int layer = 0; layer < _densities.Length; layer++) _densities[layer] = _settings.Density(layer);
         _width = (terrain.ResolutionX - 1) * terrain.CellSize;
         _depth = (terrain.ResolutionZ - 1) * terrain.CellSize;
@@ -111,6 +158,16 @@ public sealed class TerrainGrassField : IDisposable
 
     /// <summary>True when this field was made from a rule that grows the same grass as <paramref name="rule"/>.</summary>
     public bool GrowsFrom(TerrainGrassRuleSettings rule) => _source.SameAs(rule);
+
+    /// <summary>True when this field keeps clear the paths in <paramref name="paths"/> (the same list it was made with).</summary>
+    public bool ClearsPaths(IReadOnlyList<TerrainPathDefinition> paths) => ReferenceEquals(_pathSource, paths);
+
+    /// <summary>How the grass is drawn from now on: colours, texture, wind and bending. Grows nothing again.</summary>
+    public TerrainGrassLook Look
+    {
+        get => _look;
+        set => _look = value;
+    }
 
     /// <summary>Most tufts one cell can hold.</summary>
     public int CellCapacity => _perSide * _perSide;
@@ -240,14 +297,17 @@ public sealed class TerrainGrassField : IDisposable
     /// Draws the grown grass in view: nearest cells first, thinned towards the radius, at most
     /// <see cref="TerrainGrassRuleSettings.MaximumDrawnTufts"/> tufts and at most
     /// <paramref name="maximumTufts"/>, the room the caller has left in the renderer's instance buffer.
+    /// Tufts near <paramref name="pushers"/> are bent away from them when the look lets pushers bend it.
     /// </summary>
-    public void Draw(IRenderController renderer, Vector3 camera, in Matrix4x4 viewProjection, int maximumTufts = int.MaxValue)
+    public void Draw(IRenderController renderer, Vector3 camera, in Matrix4x4 viewProjection, int maximumTufts = int.MaxValue,
+        GrassPushers pushers = null)
     {
         _tuftsDrawn = _nearDrawn = _visibleCells = 0;
         _tuftBudget = Math.Max(0, Math.Min(_settings.MaximumDrawnTufts, maximumTufts));
         if (renderer == null || _cells.Count == 0) return;
         EnsureMeshes(renderer);
         if (!_nearMesh.IsValid || !_farMesh.IsValid) return;
+        bool bend = pushers is { IsEmpty: false } && _look.PushersEnabled && _look.PushStrength > 0f;
 
         var frustum = new CameraFrustum(viewProjection);
         _visible.Clear();
@@ -269,24 +329,38 @@ public sealed class TerrainGrassField : IDisposable
             count = Math.Min(count, budget);
             if (count <= 0) continue;
             budget -= count;
+            Span<MeshInstanceData> copied;
             if (distance < nearDistance)
             {
                 Grow(ref _nearScratch, near + count);
-                cell.Instances.AsSpan(0, count).CopyTo(_nearScratch.AsSpan(near));
+                copied = _nearScratch.AsSpan(near, count);
                 near += count;
             }
             else
             {
                 Grow(ref _farScratch, far + count);
-                cell.Instances.AsSpan(0, count).CopyTo(_farScratch.AsSpan(far));
+                copied = _farScratch.AsSpan(far, count);
                 far += count;
             }
+
+            cell.Instances.AsSpan(0, count).CopyTo(copied);
+            if (bend && pushers.Select(cell.Min, cell.Max)) BendCopies(copied, pushers, _look.PushStrength);
         }
 
         if (near > 0) renderer.DrawMeshInstances(Template(_nearMesh), _nearScratch.AsSpan(0, near));
         if (far > 0) renderer.DrawMeshInstances(Template(_farMesh), _farScratch.AsSpan(0, far));
         _nearDrawn = near;
         _tuftsDrawn = near + far;
+    }
+
+    /// <summary>Bends the drawn copies of tufts near the pushers the cell selected; the grown cell keeps them upright.</summary>
+    private static void BendCopies(Span<MeshInstanceData> copies, GrassPushers pushers, float strength)
+    {
+        for (int i = 0; i < copies.Length; i++)
+        {
+            Matrix4x4 world = copies[i].World;
+            if (pushers.BendNear(ref world, strength)) copies[i] = new MeshInstanceData(world, copies[i].Tint);
+        }
     }
 
     /// <summary>
@@ -358,6 +432,17 @@ public sealed class TerrainGrassField : IDisposable
             _water.BeginCell(cellMinX - step, cellMinZ - step, cellMinX + (perSide + 1) * step, cellMinZ + (perSide + 1) * step);
         }
 
+        // Paths are looked up per tuft only in a cell some path comes near.
+        bool paths = false;
+        float pathEdge = settings.PathEdge;
+        if (_paths != null)
+        {
+            float half = perSide * step * 0.5f;
+            float centreX = terrain.OriginX + cellX * perSide * step + half, centreZ = terrain.OriginZ + cellZ * perSide * step + half;
+            TerrainPathSample nearest = _paths.Sample(centreX, centreZ);
+            paths = nearest.IsValid && nearest.Distance < half * 1.4143f + nearest.Width * 0.5f + pathEdge + 8f;
+        }
+
         for (int j = 0; j < perSide; j++)
         {
             int latticeZ = cellZ * perSide + j;
@@ -370,9 +455,21 @@ public sealed class TerrainGrassField : IDisposable
                 if (offsetX < 0f || offsetZ < 0f || offsetX > _width || offsetZ > _depth) continue;
 
                 float density = DensityAt(terrain, offsetX, offsetZ, weights);
-                if (density <= 0f || Random01(hash + 3u) >= density) continue;
-
+                if (density <= 0f) continue;
                 float x = terrain.OriginX + offsetX, z = terrain.OriginZ + offsetZ;
+                if (paths)
+                {
+                    TerrainPathSample path = _paths.Sample(x, z);
+                    if (path.IsValid)
+                    {
+                        float outside = path.Distance - path.Width * 0.5f;
+                        if (outside <= 0f) continue;
+                        if (outside < pathEdge) density *= outside / pathEdge;
+                    }
+                }
+
+                if (Random01(hash + 3u) >= density) continue;
+
                 if (water && _water.Excludes(x, z)) continue;
                 if (slopeLimited)
                 {
@@ -462,15 +559,38 @@ public sealed class TerrainGrassField : IDisposable
         return new Cell { Instances = new MeshInstanceData[capacity] };
     }
 
+    /// <summary>True when the look colours this field's tufts from root to tip.</summary>
+    private bool RampOn => _look.ColorEnabled && FoliageGeometry.HasBlades(_settings.Species);
+
     private void EnsureMeshes(IRenderController renderer)
     {
-        if (ReferenceEquals(renderer, _renderer) && _nearMesh.IsValid && _farMesh.IsValid) return;
-        ReleaseMeshes();
-        _renderer = renderer;
-        MeshData near = FoliageGeometry.Build(_settings.Species, nearLod: true);
-        MeshData far = FoliageGeometry.Build(_settings.Species, nearLod: false);
-        _nearMesh = renderer.RegisterMesh(near.Vertices, near.Indices);
-        _farMesh = renderer.RegisterMesh(far.Vertices, far.Indices);
+        bool ramp = RampOn;
+        bool sameColours = ramp == _meshRamp
+            && (!ramp || (_meshBase == _look.BaseColor && _meshTip == _look.TipColor && _meshCurve == _look.ColorCurve));
+        if (ReferenceEquals(renderer, _renderer) && _nearMesh.IsValid && _farMesh.IsValid && sameColours) return;
+        // The ramp is in the vertex colours too, for renderers without the grass shader (the GPU
+        // shader colours each pixel instead). A new ramp rewrites the colours in place.
+        MeshData near = ramp ? FoliageGeometry.Build(_settings.Species, true, _look.BaseColor, _look.TipColor, _look.ColorCurve)
+            : FoliageGeometry.Build(_settings.Species, nearLod: true);
+        MeshData far = ramp ? FoliageGeometry.Build(_settings.Species, false, _look.BaseColor, _look.TipColor, _look.ColorCurve)
+            : FoliageGeometry.Build(_settings.Species, nearLod: false);
+        if (ReferenceEquals(renderer, _renderer) && _nearMesh.IsValid && _farMesh.IsValid)
+        {
+            renderer.UpdateMesh(_nearMesh, near.Vertices);
+            renderer.UpdateMesh(_farMesh, far.Vertices);
+        }
+        else
+        {
+            ReleaseMeshes();
+            _renderer = renderer;
+            _nearMesh = renderer.RegisterMesh(near.Vertices, near.Indices);
+            _farMesh = renderer.RegisterMesh(far.Vertices, far.Indices);
+        }
+
+        _meshRamp = ramp;
+        _meshBase = _look.BaseColor;
+        _meshTip = _look.TipColor;
+        _meshCurve = _look.ColorCurve;
     }
 
     private void ReleaseMeshes()
@@ -486,14 +606,26 @@ public sealed class TerrainGrassField : IDisposable
         _renderer = null;
     }
 
-    /// <summary>The same template the scattered grass draws with, so the two look alike.</summary>
-    private static MeshDrawCall Template(MeshHandle mesh) => new()
+    /// <summary>
+    /// The scattered grass's template, so the two look alike, with the grass shader's settings
+    /// (<see cref="FoliageShading"/>): the colour ramp, the blade texture and the wind.
+    /// </summary>
+    private MeshDrawCall Template(MeshHandle mesh)
     {
-        Mesh = mesh,
-        Tint = RenderColor.White,
-        Alpha = 1f,
-        Flags = MeshDrawFlags.Foliage | MeshDrawFlags.NoCull | MeshDrawFlags.NoShadow,
-    };
+        var call = new MeshDrawCall
+        {
+            Mesh = mesh,
+            Tint = RenderColor.White,
+            Alpha = 1f,
+            Flags = MeshDrawFlags.Foliage | MeshDrawFlags.NoCull | MeshDrawFlags.NoShadow,
+            Texture = _look.Texture,
+        };
+        if (RampOn) call.SubsurfaceColorSteps = FoliageShading.ColorRamp(_look.BaseColor, _look.TipColor, _look.ColorCurve);
+        if (!_look.WindEnabled) call.SurfaceParams = FoliageShading.Wind(0f, 1f, 0f);
+        else if (_look.WindStrength != 1f || _look.WindSpeed != 1f || _look.WindGusts != 0f)
+            call.SurfaceParams = FoliageShading.Wind(_look.WindStrength, _look.WindSpeed, _look.WindGusts);
+        return call;
+    }
 
     private static void Grow(ref MeshInstanceData[] buffer, int needed)
     {

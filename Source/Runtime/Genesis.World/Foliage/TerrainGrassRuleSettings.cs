@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Numerics;
 using System.Text.Json.Serialization;
 
 namespace Genesis.World.Foliage;
@@ -10,19 +11,33 @@ namespace Genesis.World.Foliage;
 /// each spot, and handed back for reuse once the camera has left them behind. Off unless switched
 /// on, so a terrain saved before this existed looks exactly as it did.
 /// </summary>
-public sealed class TerrainGrassRuleSettings
+/// <remarks>
+/// A new rule's values are the built-in meadow grass (the Nature Walk's look, 28 October): switched
+/// on with nothing else changed, it gives that grass. The blade colours, wind, parting and paths
+/// came later; a rule saved before them keeps its tuft's own colours (see <see cref="OnDeserializing"/>).
+/// </remarks>
+public sealed class TerrainGrassRuleSettings : IJsonOnDeserializing, IJsonOnDeserialized
 {
     /// <summary>Painted layers a rule can name a density for.</summary>
     public const int LayerCount = TerrainGrassLayerWeights.LayerCount;
+
+    /// <summary>The built-in grass's colour at the root of each blade (a dark meadow green).</summary>
+    public static readonly Vector3 DefaultBaseColor = new(0.15f, 0.30f, 0.10f);
+
+    /// <summary>The built-in grass's colour at the tip of each blade (a sunlit meadow green).</summary>
+    public static readonly Vector3 DefaultTipColor = new(0.31f, 0.61f, 0.21f);
+
+    /// <summary>The colour of a painted Grass layer that suits the built-in grass: the ground between its tufts.</summary>
+    public static readonly Vector3 DefaultGroundColor = new(0.22f, 0.38f, 0.11f);
 
     [Description("Grow grass around the camera from this rule. Off by default.")]
     public bool Enabled { get; set; }
 
     [Description("Distance from the camera, in metres, that grass is grown and drawn to.")]
-    public float Radius { get; set; } = 100f;
+    public float Radius { get; set; } = 90f;
 
     [Description("Distance between neighbouring tufts where a layer's density is 1, in metres.")]
-    public float Spacing { get; set; } = 0.5f;
+    public float Spacing { get; set; } = 0.4f;
 
     [Description("Fraction of the radius that keeps full density; beyond it the grass thins out to nothing at the radius.")]
     public float FullDensityFraction { get; set; } = 0.45f;
@@ -34,8 +49,8 @@ public sealed class TerrainGrassRuleSettings
     [Description("How far a tuft may wander from its lattice point, as a fraction of the spacing.")]
     public float Jitter { get; set; } = 0.9f;
 
-    public float MinimumScale { get; set; } = 0.75f;
-    public float MaximumScale { get; set; } = 1.2f;
+    public float MinimumScale { get; set; } = 0.38f;
+    public float MaximumScale { get; set; } = 0.68f;
 
     [Description("Steepest ground, in degrees, grass grows on.")]
     public float SteepestSlopeDegrees { get; set; } = 40f;
@@ -45,6 +60,62 @@ public sealed class TerrainGrassRuleSettings
 
     [Description("Picks the pattern: where each tuft stands, its size, turn and tone.")]
     public int PatternSeed { get; set; } = 1;
+
+    // ── The grass shader: blade colour, texture and wind ───────────────────────────
+
+    [Description("Colour each blade from the root colour to the tip colour. Off, the tuft keeps its own colours.")]
+    public bool ColorEnabled
+    {
+        get => _colorEnabled;
+        set
+        {
+            _colorEnabled = value;
+            _colorRead = true;
+        }
+    }
+
+    private bool _colorEnabled = true;
+
+    [Description("The blades' colour at the root, red, green and blue from 0 to 1.")]
+    public Vector3 BaseColor { get; set; } = DefaultBaseColor;
+
+    [Description("The blades' colour at the tip, red, green and blue from 0 to 1.")]
+    public Vector3 TipColor { get; set; } = DefaultTipColor;
+
+    [Description("How the colour runs up a blade: 1 evenly, below 1 the tip colour reaches further down, above 1 it keeps to the tips (0.1 to 8).")]
+    public float ColorCurve { get; set; } = 1f;
+
+    [Description("An Image drawn on each blade, tinted by the colours above; its see-through parts cut the blade's shape. Empty for plain blades.")]
+    public string Texture { get; set; } = "";
+
+    [Description("Sway the blades in the wind (the weather's wind, when the room has weather).")]
+    public bool WindEnabled { get; set; } = true;
+
+    [Description("How far the blades sway, 0 to 4 (1 is a breeze).")]
+    public float WindStrength { get; set; } = 1f;
+
+    [Description("How fast the blades sway, 0 to 4.")]
+    public float WindSpeed { get; set; } = 1f;
+
+    [Description("Gusts rolling across the field, 0 (none) to 1 (strong), leaning the grass as they pass.")]
+    public float WindGusts { get; set; }
+
+    // ── Parting and paths ──────────────────────────────────────────────────────────
+
+    [Description("Grass bends away from animated characters and from pushers a game sets (Engine.Terrain.Grass.Pushers), and springs back after.")]
+    public bool PushersEnabled { get; set; } = true;
+
+    [Description("How far pushed grass bends, 0 to 1 (1 lays it nearly flat).")]
+    public float PushStrength { get; set; } = 0.8f;
+
+    [Description("Seconds pushed grass takes to stand up again.")]
+    public float SpringBackSeconds { get; set; } = 0.8f;
+
+    [Description("Keep grass off the terrain's paths (the Paths step), thinning in at their edges.")]
+    public bool ClearPaths { get; set; } = true;
+
+    [Description("Metres over which grass thins in at a path's edge.")]
+    public float PathEdge { get; set; } = 0.6f;
 
     [Description("Side of the square cells grass is grown and recycled in, in metres.")]
     public float CellSize { get; set; } = 8f;
@@ -90,15 +161,25 @@ public sealed class TerrainGrassRuleSettings
 
     public void Normalize()
     {
-        Radius = Clamp(Radius, 4f, 2000f, 100f);
-        Spacing = Clamp(Spacing, 0.1f, 16f, 0.5f);
+        Radius = Clamp(Radius, 4f, 2000f, 90f);
+        Spacing = Clamp(Spacing, 0.1f, 16f, 0.4f);
         FullDensityFraction = Clamp(FullDensityFraction, 0f, 1f, 0.45f);
         DetailDistance = Clamp(DetailDistance, 0f, 2000f, 30f);
         Jitter = Clamp(Jitter, 0f, 1f, 0.9f);
-        MinimumScale = Clamp(MinimumScale, 0.05f, 16f, 0.75f);
+        MinimumScale = Clamp(MinimumScale, 0.05f, 16f, 0.38f);
         MaximumScale = Clamp(MaximumScale, MinimumScale, 16f, MinimumScale);
         SteepestSlopeDegrees = Clamp(SteepestSlopeDegrees, 0f, 90f, 40f);
         if (!Enum.IsDefined(Species)) Species = FoliageSpecies.MeadowGrass;
+        BaseColor = ClampColor(BaseColor, DefaultBaseColor);
+        TipColor = ClampColor(TipColor, DefaultTipColor);
+        ColorCurve = Clamp(ColorCurve, 0.1f, 8f, 1f);
+        Texture = Texture?.Trim() ?? "";
+        WindStrength = Clamp(WindStrength, 0f, 4f, 1f);
+        WindSpeed = Clamp(WindSpeed, 0f, 4f, 1f);
+        WindGusts = Clamp(WindGusts, 0f, 1f, 0f);
+        PushStrength = Clamp(PushStrength, 0f, 1f, 0.8f);
+        SpringBackSeconds = Clamp(SpringBackSeconds, 0f, 10f, 0.8f);
+        PathEdge = Clamp(PathEdge, 0f, 16f, 0.6f);
         CellSize = Clamp(CellSize, 2f, 64f, 8f);
         // A cell holds at most 128 x 128 tufts, so a tiny spacing cannot make one cell enormous.
         Spacing = MathF.Max(Spacing, CellSize / 128f);
@@ -124,7 +205,10 @@ public sealed class TerrainGrassRuleSettings
         return copy;
     }
 
-    /// <summary>True when the two rules grow the same grass.</summary>
+    /// <summary>
+    /// True when the two rules grow the same grass: the same tufts in the same places. The look
+    /// (<see cref="SameLookAs"/>) can differ; it changes how they are drawn, not where they grow.
+    /// </summary>
     public bool SameAs(TerrainGrassRuleSettings other)
     {
         if (other == null) return false;
@@ -133,11 +217,56 @@ public sealed class TerrainGrassRuleSettings
             || Jitter != other.Jitter || MinimumScale != other.MinimumScale || MaximumScale != other.MaximumScale
             || SteepestSlopeDegrees != other.SteepestSlopeDegrees || Species != other.Species || PatternSeed != other.PatternSeed
             || CellSize != other.CellSize || CellsPerFrame != other.CellsPerFrame || MaximumDrawnTufts != other.MaximumDrawnTufts
-            || GenerationBudgetMilliseconds != other.GenerationBudgetMilliseconds)
+            || GenerationBudgetMilliseconds != other.GenerationBudgetMilliseconds
+            || ClearPaths != other.ClearPaths || PathEdge != other.PathEdge)
             return false;
         for (int layer = 0; layer < LayerCount; layer++)
             if (Density(layer) != other.Density(layer)) return false;
         return true;
+    }
+
+    /// <summary>True when the two rules draw their grass alike: colours, texture, wind and parting.</summary>
+    public bool SameLookAs(TerrainGrassRuleSettings other) =>
+        other != null && ColorEnabled == other.ColorEnabled && BaseColor == other.BaseColor && TipColor == other.TipColor
+        && ColorCurve == other.ColorCurve && string.Equals(Texture ?? "", other.Texture ?? "", StringComparison.Ordinal)
+        && WindEnabled == other.WindEnabled && WindStrength == other.WindStrength && WindSpeed == other.WindSpeed
+        && WindGusts == other.WindGusts && PushersEnabled == other.PushersEnabled && PushStrength == other.PushStrength
+        && SpringBackSeconds == other.SpringBackSeconds;
+
+    /// <summary>
+    /// True for a rule read from a document saved before the grass shader (29 October 2026): it keeps
+    /// its tuft's own colours, and <c>terrain.setGrass</c> switching it on starts it as the built-in grass.
+    /// </summary>
+    [JsonIgnore, Browsable(false)]
+    public bool SavedBeforeShader { get; private set; }
+
+    private bool _colorRead;
+
+    /// <summary>A rule read from a document: notes whether the document had the blade colours.</summary>
+    public void OnDeserializing() => _colorRead = false;
+
+    /// <summary>A document without the blade colours keeps its tuft's own colours, as it did.</summary>
+    public void OnDeserialized()
+    {
+        SavedBeforeShader = !_colorRead;
+        if (SavedBeforeShader) ColorEnabled = false;
+    }
+
+    /// <summary>
+    /// True for a switched-off rule nobody chose: saved before the grass shader, or still holding the
+    /// old stock values (radius 100, spacing 0.5, scale 0.75 to 1.2). Switching grass on starts such
+    /// a rule as the built-in grass.
+    /// </summary>
+    [JsonIgnore, Browsable(false)]
+    public bool LooksUnset => !Enabled && (SavedBeforeShader
+        || (Radius == 100f && Spacing == 0.5f && MinimumScale == 0.75f && MaximumScale == 1.2f));
+
+    /// <summary>The built-in grass, keeping this rule's layer densities (which name its own painted layers).</summary>
+    public TerrainGrassRuleSettings BuiltInWithLayers()
+    {
+        var rule = new TerrainGrassRuleSettings { Enabled = Enabled };
+        for (int layer = 0; layer < LayerCount; layer++) rule.SetDensity(layer, Density(layer));
+        return rule;
     }
 
     /// <summary>Tufts along one side of a cell.</summary>
@@ -146,4 +275,9 @@ public sealed class TerrainGrassRuleSettings
 
     private static float Clamp(float value, float minimum, float maximum, float fallback) =>
         float.IsFinite(value) ? Math.Clamp(value, minimum, maximum) : fallback;
+
+    private static Vector3 ClampColor(Vector3 value, Vector3 fallback) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z)
+            ? Vector3.Clamp(value, Vector3.Zero, Vector3.One)
+            : fallback;
 }

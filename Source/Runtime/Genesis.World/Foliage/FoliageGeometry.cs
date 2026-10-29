@@ -34,17 +34,50 @@ public static class FoliageGeometry
         };
     }
 
+    /// <summary>True for the tufts made of blades (grasses and reeds), which a colour ramp colours root to tip.</summary>
+    public static bool HasBlades(FoliageSpecies species) =>
+        species is FoliageSpecies.MeadowGrass or FoliageSpecies.TallGrass or FoliageSpecies.Reed;
+
+    /// <summary>
+    /// A tuft of blades coloured from <paramref name="root"/> at the root to <paramref name="tip"/>
+    /// at the tip along <paramref name="curve"/> (the grass shader's ramp, here per vertex, which
+    /// the GPU shader refines per pixel). Species without blades are built with their own colours.
+    /// </summary>
+    public static MeshData Build(FoliageSpecies species, bool nearLod, Vector3 root, Vector3 tip, float curve)
+    {
+        if (!HasBlades(species)) return Build(species, nearLod);
+        Vector4 At(float t)
+        {
+            Vector3 colour = Genesis.Shared.Rendering.FoliageShading.RampAt(root, tip, curve, t);
+            return new Vector4(colour, 1f);
+        }
+
+        var ramp = (Dark: At(0f), Middle: At(BendHeight), Light: At(1f));
+        return species switch
+        {
+            FoliageSpecies.Reed => BuildBlades(nearLod ? 7 : 3, 1.35f, ramp, nearLod),
+            FoliageSpecies.TallGrass => BuildBlades(nearLod ? 8 : 3, 0.9f, ramp, nearLod),
+            _ => BuildBlades(nearLod ? 7 : 3, 0.72f, ramp, nearLod),
+        };
+    }
+
+    /// <summary>How far up a near blade its bend is, as a share of its height (its UV v is 1 minus this).</summary>
+    private const float BendHeight = 0.55f;
+
     /// <summary>
     /// A tuft of grass. Near the camera each blade is a tapering strip that bends outward towards
     /// its tip; far away it is one triangle. Every blade is dark at the root and lighter at the
     /// tip, as a real tuft is where its own blades shade it. It used to be flat-coloured straight
     /// spikes, which stood out of a meadow like nails.
     /// </summary>
-    private static MeshData BuildBlades(int count, float height, Vector4 color, bool near)
+    private static MeshData BuildBlades(int count, float height, Vector4 color, bool near) =>
+        BuildBlades(count, height, (Shade(color, 0.52f), Shade(color, 0.82f), Shade(color, 1.06f)), near);
+
+    private static MeshData BuildBlades(int count, float height, (Vector4 Dark, Vector4 Middle, Vector4 Light) shades, bool near)
     {
         var vertices = new List<MeshVertex>(count * (near ? 5 : 3));
         var indices = new List<ushort>(count * (near ? 9 : 3));
-        Vector4 dark = Shade(color, 0.52f), middle = Shade(color, 0.82f), light = Shade(color, 1.06f);
+        (Vector4 dark, Vector4 middle, Vector4 light) = shades;
         for (int blade = 0; blade < count; blade++)
         {
             float angle = blade * 2.3999632f;
@@ -66,12 +99,12 @@ public static class FoliageGeometry
                 continue;
             }
 
-            Vector3 bend = root + Vector3.UnitY * h * 0.55f + outward * h * 0.05f;
+            Vector3 bend = root + Vector3.UnitY * h * BendHeight + outward * h * 0.05f;
             Vector3 tip = root + Vector3.UnitY * h + outward * h * 0.22f;
             AddVertex(vertices, root - side * half, normal, dark, 0f, 1f);
             AddVertex(vertices, root + side * half, normal, dark, 1f, 1f);
-            AddVertex(vertices, bend + side * half * 0.62f, normal, middle, 1f, 0.45f);
-            AddVertex(vertices, bend - side * half * 0.62f, normal, middle, 0f, 0.45f);
+            AddVertex(vertices, bend + side * half * 0.62f, normal, middle, 1f, 1f - BendHeight);
+            AddVertex(vertices, bend - side * half * 0.62f, normal, middle, 0f, 1f - BendHeight);
             AddVertex(vertices, tip, normal, light, 0.5f, 0f);
             indices.Add(start); indices.Add((ushort)(start + 1)); indices.Add((ushort)(start + 2));
             indices.Add(start); indices.Add((ushort)(start + 2)); indices.Add((ushort)(start + 3));

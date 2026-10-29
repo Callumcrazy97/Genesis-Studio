@@ -280,16 +280,24 @@ VSOut VS(VSIn IN, uint instanceId : SV_InstanceID)
     // Terrain-editor foliage wind: keep blade roots anchored while the upper cards sway.
     // Height is normalised against a short meadow blade (~0.55m) so Play-mode wind is visible
     // on grassy fields, not only on 2m reeds. Driven by the shared 3D preview time.
+    // The grass shader's wind (FoliageShading): MaterialSurface = strength, speed, gusts, 1 when set.
     if (Foliage > 0.5)
     {
+        float grassWind = MaterialSurface.w > 0.5 ? MaterialSurface.x : 1.0;
+        float grassSpeed = MaterialSurface.w > 0.5 ? MaterialSurface.y : 1.0;
+        float grassGusts = MaterialSurface.w > 0.5 ? MaterialSurface.z : 0.0;
         float bladeT = saturate(localPos.y / 0.55);
         float bend = bladeT * bladeT;
-        float phase = CameraPosTime.w * 2.65 + world._41 * 0.37 + world._43 * 0.29;
+        float windTime = CameraPosTime.w * grassSpeed;
+        float phase = windTime * 2.65 + world._41 * 0.37 + world._43 * 0.29;
         float2 wind = WeatherWindRain.xy;
         float windStrength = WeatherWindRain.w > 0.5 ? saturate(length(wind) / 10.0) : 1.0;
         float2 direction = length(wind) > 0.001 ? normalize(wind) : float2(1, 0);
         float2 sway = direction * sin(phase) * 0.22 + float2(-direction.y, direction.x) * cos(phase * 0.83) * 0.10;
-        localPos.xz += sway * bend * windStrength;
+        // Gusts: broad bands rolling downwind across the field, swaying harder and leaning the blades.
+        float gustWave = saturate(sin(dot(float2(world._41, world._43), direction) * 0.09 - windTime * 1.7) * 0.5 + 0.5);
+        float gust = grassGusts * gustWave * gustWave * gustWave;
+        localPos.xz += (sway * (1.0 + gust * 1.5) + direction * gust * 0.35) * bend * windStrength * grassWind;
     }
 
     float4 worldPos  = mul(float4(localPos, 1.0), world);
@@ -306,6 +314,10 @@ VSOut VS(VSIn IN, uint instanceId : SV_InstanceID)
     OUT.WorldPos    = worldPos.xyz;
     OUT.Normal      = worldNrm;
     OUT.Color       = IN.Color * instColor;
+    // The grass shader's colour ramp colours each pixel (PS): the vertex colours, the same ramp
+    // per vertex for renderers without it, give way to the instance's tint alone.
+    if (Foliage > 0.5 && SubsurfaceAndSteps.w > 0.5)
+        OUT.Color.rgb = instColor.rgb;
     OUT.UV          = IN.UV;
     OUT.ShadowPos   = mul(float4(shadowSamplePos, 1.0), LightViewProjection);
     OUT.ShadowPosNr = mul(float4(shadowSamplePos, 1.0), LightViewProjectionNear);
@@ -1055,12 +1067,31 @@ float3 TerrainAlbedo(float3 worldPos, float3 normal, float4 vertColor, float3 de
     return col;
 }
 
+// A colour packed as 8 bits each of red, green and blue in one float (FoliageShading.PackColor).
+float3 UnpackRgb8(float packed)
+{
+    uint p = (uint)max(packed + 0.5, 0.0);
+    return float3(p & 255u, (p >> 8) & 255u, (p >> 16) & 255u) / 255.0;
+}
+
+// The grass shader's colour at a blade's UV v (1 at the root, 0 at the tip): root colour to tip
+// colour along the curve, from SubsurfaceAndSteps on a foliage draw (FoliageShading.ColorRamp).
+float3 GrassRampColor(float v)
+{
+    float t = saturate(1.0 - v);
+    return lerp(UnpackRgb8(SubsurfaceAndSteps.x), UnpackRgb8(SubsurfaceAndSteps.y), pow(t, max(SubsurfaceAndSteps.z, 0.1)));
+}
+
 PSOut PS(VSOut IN, bool isFront : SV_IsFrontFace)
 {
     float debugMode  = EffectParams.y;
     float3 cameraPos = CameraPosTime.xyz;
     float3 n         = normalize(IN.Normal);
     if (!isFront) n = -n;
+    // The grass shader: each blade coloured root to tip per pixel; the instance tint (in IN.Color,
+    // see VS) still varies each tuft. Everything below treats it as the vertex colour.
+    if (Foliage > 0.5 && SubsurfaceAndSteps.w > 0.5)
+        IN.Color.rgb *= GrassRampColor(IN.UV.y);
 
     float uvScale = MaterialDetail.w > 0.0001 ? MaterialDetail.w : 1.0;
     float2 materialUv = IN.UV * uvScale;
