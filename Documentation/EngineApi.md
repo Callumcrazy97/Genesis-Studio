@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1861 names: 531 properties (452 can be set), 1330 commands.
+1869 names: 536 properties (455 can be set), 1333 commands.
 
 ## Engine.Alarm
 
@@ -1440,6 +1440,8 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `CopyId` | command | The instance id of a copy, counting from 0 up to NetCopyCount(); 0 when there is none |
 | `CopyObject` | command | The Object a shared instance or copy was made from |
 | `CopyOwner` | command | The player a shared instance or copy belongs to, as the host numbers its players; 0 when it is the host's own |
+| `DirectCount` | command | How many players met through a relay this machine reaches directly now |
+| `DirectPath` | command | The path to a player met through a relay (a player: -1, the host): "direct" or "relay"; "" for any other id. Engine.Network.Direct has the rest |
 | `Disconnect` | command | Leave and stop hosting |
 | `Discover` | command | Look for games of this title hosted on this port on the local network and this computer, asking again every second until NetDiscover(0), NetHost or NetConnect. List them with NetFoundCount |
 | `Forget` | command | Stop sharing an instance; its copies on other machines are removed |
@@ -1477,6 +1479,17 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SessionCode` | command | The code players join this online game with (NetHostOnline); empty until the relay has given it |
 | `SetNumber` | command | Give a shared instance a named number every machine can read from its copy. Only the machine that controls the instance can set it |
 | `SetText` | command | Give a shared instance a named piece of text every machine can read from its copy |
+
+## Engine.Network.Direct
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Active` | read only | The path game messages take: "direct" when every player is reached directly, "relay" when any goes through the relay; "" when this game is not playing through a relay (read) |
+| `Attempts` | property | How many tries players who meet through a relay get to reach each other directly, 1 to 10 (3 unless set): one when they meet, and another ten seconds after a try fails or a direct path is lost |
+| `Count` | read only | How many players this machine reaches directly now, not through the relay (read) |
+| `Enabled` | property | Whether players who meet through a relay try to reach each other directly, so their messages skip the relay's distance (true unless set); false keeps every message on the relay and never gives this machine's address to the others |
+| `Path` | command | The path to one player (a player: -1, the host): "direct" or "relay"; "" for an id that is not a player met through a relay |
+| `Timeout` | property | How long one try sends packets both ways before it gives up and the players stay on the relay, 0.5 to 60 seconds (5 unless set) |
 
 ## Engine.Network.Replication
 

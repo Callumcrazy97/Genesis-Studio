@@ -60,6 +60,7 @@ internal static class EngineApiSuite
         "Engine.Display.Window.Maximized", "Engine.Display.Window.Minimized", "Engine.Display.Window.Resizable",
         "Engine.Display.Window.X", "Engine.Display.Window.Y", "Engine.Input.Mouse.Captured", "Engine.Input.MouseCaptured",
         "Engine.Debug.Keys.Enabled", "Engine.Tile.Enabled", "Engine.Network.Replication.Rate",
+        "Engine.Network.Direct.Enabled", "Engine.Network.Direct.Attempts", "Engine.Network.Direct.Timeout",
         "Engine.Physics.Character.SlopeLimit", "Engine.Physics.Character.StepHeight",
         // A setter and no getter.
         "Engine.Animation.Loop", "Engine.Camera.CollisionEnabled", "Engine.Camera.FreeFly", "Engine.Camera.OrbitDistance",
