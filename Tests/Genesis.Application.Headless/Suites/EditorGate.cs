@@ -91,6 +91,7 @@ internal static partial class EditorGate
             "model" => ("Editor.Model", () => Model(ctx, fixture)),
             "audio" => ("Editor.Audio", () => Audio(ctx, fixture)),
             "music" or "midi" => ("Editor.Music", () => MusicStudioWorkflow(ctx)),
+            "mixer" or "synth" => ("Editor.Audio.Mixer", () => AudioMixerWorkflow(ctx)),
             "shader" => ("Editor.Shader", () => Shader(ctx, fixture)),
             "particle" => ("Editor.Particle", () => Particle(ctx, fixture)),
             "physics" => ("Editor.Physics", () => Physics(ctx, fixture)),
