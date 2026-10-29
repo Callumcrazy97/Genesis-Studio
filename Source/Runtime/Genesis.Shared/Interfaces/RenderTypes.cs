@@ -155,16 +155,22 @@ namespace Genesis.Shared.Interfaces
         Normals    = 1,
         SceneDepth = 2,
         ShadowMap  = 3,
+        /// <summary>Each surface's own colour (albedo, tints and vertex colour), unlit.</summary>
+        Albedo     = 4,
+        /// <summary>The indirect light alone: sky and ground ambient, the light probe and reflections, after occlusion.</summary>
+        AmbientLight = 5,
+        /// <summary>The direct light alone: the sun (with its shadows) and the lamps.</summary>
+        DirectLight = 6,
         // The debug screen's other view modes (Engine.Debug.View.Mode), named for the renderer to
-        // draw. The forward shader has no branch for them yet (it reads anything above 2.5 as
-        // ShadowMap), so nothing sends them until it does: DebugScreenSettings.RendererView maps
-        // only the views above, and these modes draw the frame as shaded meanwhile.
+        // draw. The forward shader has no branch for them yet, so nothing sends them until it does:
+        // DebugScreenSettings.RendererView maps only the views above, and these modes draw the
+        // frame as shaded meanwhile.
         /// <summary>Each pixel in the colour of the sun's shadow cascade that covers it.</summary>
-        ShadowCascades = 4,
+        ShadowCascades = 7,
         /// <summary>Where each surface's reflection comes from (probe, screen, planar, sky) and how far it reaches.</summary>
-        Reflections = 5,
+        Reflections = 8,
         /// <summary>How many lights reach each pixel's light cluster, with the lights culled.</summary>
-        LightCount = 6,
+        LightCount = 9,
     }
 
     // Per-draw flags controlling VS/PS path and depth state.

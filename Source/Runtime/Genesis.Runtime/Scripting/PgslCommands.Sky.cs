@@ -311,6 +311,40 @@ public static partial class PgslCommands
         set => SetAtmospherePreset(value);
     }
 
+    [PgslCommand("SetSunColorAt", "Engine.Sky.SetSunColorAt(hour, r, g, b)",
+        "The sun's colour at an hour of the day (0 to 24; r, g, b 0 to 255), which the climate keeps instead of its own: between the hours given the colour blends, round the clock. Off until a game sets one; Engine.Sky.ClearColorsByHour() goes back to the climate's",
+        "Engine · Sky", Namespace = "Engine.Sky")]
+    public static void SkySetSunColorAt(double hour, double r, double g, double b)
+    {
+        AtmosphereOptions atmosphere = ResolveAtmosphere();
+        if (atmosphere != null && double.IsFinite(hour) && Finite3(r, g, b))
+            atmosphere.SunColorHours = HourColors.Set(atmosphere.SunColorHours, (float)hour, ByteColor(r, g, b));
+    }
+
+    [PgslCommand("SetFogColorAt", "Engine.Sky.SetFogColorAt(hour, r, g, b)",
+        "The fog's colour at an hour of the day (0 to 24; r, g, b 0 to 255), which the climate keeps instead of its own, blended between the hours given. Off until a game sets one",
+        "Engine · Sky", Namespace = "Engine.Sky")]
+    public static void SkySetFogColorAt(double hour, double r, double g, double b)
+    {
+        AtmosphereOptions atmosphere = ResolveAtmosphere();
+        if (atmosphere != null && double.IsFinite(hour) && Finite3(r, g, b))
+            atmosphere.FogColorHours = HourColors.Set(atmosphere.FogColorHours, (float)hour, ByteColor(r, g, b));
+    }
+
+    [PgslCommand("ClearColorsByHour", "Engine.Sky.ClearColorsByHour()",
+        "Forget the sun and fog colours set by the hour: the climate's own come back",
+        "Engine · Sky", Namespace = "Engine.Sky")]
+    public static void SkyClearColorsByHour()
+    {
+        AtmosphereOptions atmosphere = ResolveAtmosphere();
+        if (atmosphere == null) return;
+        atmosphere.SunColorHours = [];
+        atmosphere.FogColorHours = [];
+    }
+
+    private static System.Numerics.Vector3 ByteColor(double r, double g, double b) => new(
+        (float)Math.Clamp(r, 0, 255) / 255f, (float)Math.Clamp(g, 0, 255) / 255f, (float)Math.Clamp(b, 0, 255) / 255f);
+
     private static AtmosphereOptions ResolveAtmosphere() => ActiveSkyScene?.Atmosphere?.Options;
 
     private static EnvironmentOptions ResolveClimate() => ActiveSkyScene?.Climate?.Options;

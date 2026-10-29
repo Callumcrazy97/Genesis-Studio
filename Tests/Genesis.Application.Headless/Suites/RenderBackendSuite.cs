@@ -843,6 +843,10 @@ internal static class RenderBackendSuite
             () => SkyInputsSuite.PostEffectsReadTheSky(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Render.SkyLight.GroundTintTintsTheLightFromBelow",
             SkyInputsSuite.GroundTintTintsTheLightFromBelow);
+        HeadlessHarness.RunCase(ctx.Report, "Render.Climate.KeepsTheGameSunAndFogColoursByHour",
+            SkyInputsSuite.ClimateKeepsTheGameColoursByHour);
+        HeadlessHarness.RunCase(ctx.Report, "Render.DebugViews.LightingTermsAlone",
+            () => SkyInputsSuite.LightingTermViews(ctx));
 
         // AF1.2: GTAO math + enable wiring (default off; Software skip).
         HeadlessHarness.RunCase(ctx.Report, "Render.Gtao.MathAndEnableWiring", () =>

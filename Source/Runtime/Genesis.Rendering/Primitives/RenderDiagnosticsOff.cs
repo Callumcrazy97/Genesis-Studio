@@ -42,6 +42,26 @@ public static class RenderDiagnosticsOff
     /// <summary>Lighting: every surface shows its own colour, as an unlit material does.</summary>
     public static bool Lighting { get; } = Parts.Contains("lighting");
 
+    /// <summary>GENESIS_RENDER_VIEW: a debug view for a whole run (albedo, ambient, direct, normals, depth, shadow).</summary>
+    public const string ViewEnvironmentVariable = "GENESIS_RENDER_VIEW";
+
+    /// <summary>The debug view a diagnosis run asks for (GENESIS_RENDER_VIEW); Shaded when unset.</summary>
+    public static Genesis.Shared.Interfaces.RenderDebugView View { get; } =
+        ParseView(Environment.GetEnvironmentVariable(ViewEnvironmentVariable));
+
+    /// <summary>A debug view's name (as Engine.DebugView takes it) to the view; Shaded for anything else.</summary>
+    public static Genesis.Shared.Interfaces.RenderDebugView ParseView(string name) =>
+        (name ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "normals" => Genesis.Shared.Interfaces.RenderDebugView.Normals,
+            "depth" => Genesis.Shared.Interfaces.RenderDebugView.SceneDepth,
+            "shadow" => Genesis.Shared.Interfaces.RenderDebugView.ShadowMap,
+            "albedo" => Genesis.Shared.Interfaces.RenderDebugView.Albedo,
+            "ambient" => Genesis.Shared.Interfaces.RenderDebugView.AmbientLight,
+            "direct" => Genesis.Shared.Interfaces.RenderDebugView.DirectLight,
+            _ => Genesis.Shared.Interfaces.RenderDebugView.Shaded,
+        };
+
     /// <summary>GENESIS_RENDER_HIDE: models whose name contains any of these (a comma list) are not drawn.</summary>
     public const string HideEnvironmentVariable = "GENESIS_RENDER_HIDE";
 

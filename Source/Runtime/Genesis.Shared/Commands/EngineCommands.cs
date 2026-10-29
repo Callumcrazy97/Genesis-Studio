@@ -289,15 +289,18 @@ namespace Genesis.Shared.Commands
         }
 
         [EngineCommand("Engine.DebugView(mode)", "Rendering", phase: 10,
-            description: "\"Shaded\", \"Normals\", \"Depth\", or \"Shadow\"")]
+            description: "\"Shaded\", \"Normals\", \"Depth\", \"Shadow\", or a lighting term alone: \"Albedo\" (the surface's own colour), \"Ambient\" (indirect light) or \"Direct\" (sun and lamps)")]
         public static void DebugView(string mode)
         {
             _debugView = mode;
-            RenderDebugView view = mode?.ToLowerInvariant() switch
+            RenderDebugView view = mode?.Trim().ToLowerInvariant() switch
             {
                 "normals" => RenderDebugView.Normals,
                 "depth"   => RenderDebugView.SceneDepth,
                 "shadow"  => RenderDebugView.ShadowMap,
+                "albedo"  => RenderDebugView.Albedo,
+                "ambient" => RenderDebugView.AmbientLight,
+                "direct"  => RenderDebugView.DirectLight,
                 _         => RenderDebugView.Shaded,
             };
             DebugViewChanged?.Invoke(view);

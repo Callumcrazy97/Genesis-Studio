@@ -81,6 +81,102 @@ internal static class SkyInputsSuite
         HeadlessHarness.Assert(failures.Count == 0, string.Join("; ", failures));
     }
 
+    /// <summary>
+    /// A game's sun and fog colours by the hour (Engine.Sky.SetSunColorAt, SetFogColorAt) are what
+    /// the climate stamps on the frame, blended between the hours given and round the clock; with
+    /// none set, or after clearing, the climate's own colours are back.
+    /// </summary>
+    public static void ClimateKeepsTheGameColoursByHour()
+    {
+        var climate = new Genesis.Runtime.Climate.EnvironmentService(new Genesis.Runtime.Climate.EnvironmentOptions { StartTimeHours = 12f, Paused = true });
+        var atmosphere = new Genesis.Runtime.Climate.AtmosphereService();
+        atmosphere.Update(climate.Current, Vector3.Zero);
+        Mesh3DState Stamp()
+        {
+            Mesh3DState state = Mesh3DState.Default;
+            EnvironmentMapper.StampClimateAtmosphere(ref state, climate, atmosphere);
+            return state;
+        }
+        static bool Same(Vector3 a, Vector3 b) => Vector3.Distance(a, b) < 1e-4f;
+
+        Mesh3DState own = Stamp();
+        Vector3 dawn = new(1f, 0.5f, 0.2f), dusk = new(0.2f, 0.3f, 1f), mist = new(0.4f, 0.8f, 0.4f);
+        var options = atmosphere.Options;
+        options.SunColorHours = Genesis.Runtime.Climate.HourColors.Set(Genesis.Runtime.Climate.HourColors.Set([], 6f, dawn), 18f, dusk);
+        options.FogColorHours = Genesis.Runtime.Climate.HourColors.Set([], 12f, mist);
+        Mesh3DState set = Stamp();
+        HeadlessHarness.Assert(Same(set.SunColor, Vector3.Lerp(dawn, dusk, 0.5f)),
+            $"At noon, halfway between the dawn and dusk colours, the sun was {set.SunColor}.");
+        HeadlessHarness.Assert(Same(new Vector3(set.FogColor.X, set.FogColor.Y, set.FogColor.Z), mist) && set.FogColor.W == own.FogColor.W,
+            $"The fog colour was {set.FogColor}, not the game's.");
+
+        // Round the clock: 22:00 and 02:00 meet at midnight.
+        HeadlessHarness.Assert(Genesis.Runtime.Climate.HourColors.TryEvaluate(
+                Genesis.Runtime.Climate.HourColors.Set(Genesis.Runtime.Climate.HourColors.Set([], 22f, dawn), 2f, dusk), 0f, out Vector3 midnight)
+            && Same(midnight, Vector3.Lerp(dawn, dusk, 0.5f)), $"The colours do not blend round midnight ({midnight}).");
+
+        options.SunColorHours = [];
+        options.FogColorHours = [];
+        Mesh3DState cleared = Stamp();
+        HeadlessHarness.Assert(Same(cleared.SunColor, own.SunColor) && cleared.FogColor == own.FogColor,
+            "With no colours by the hour the climate's own did not come back.");
+    }
+
+    /// <summary>
+    /// The lighting term views: a sunlit wall with no ambient light reads black in the ambient view
+    /// and lit in the direct view; with ambient light and no sun, the other way round; the albedo
+    /// view shows the wall's own colour either way.
+    /// </summary>
+    public static void LightingTermViews(HeadlessContext ctx)
+    {
+        using var host = UnattendedWindowing.NewHost(Width, Height);
+        UnattendedWindowing.ShowWithoutFocus(host);
+        using IRenderController renderer = RenderControllerFactory.Create(RenderBackendOption.SilkNetDx11);
+        renderer.Initialize(host.Handle, Width, Height);
+        var (vertices, indices) = Genesis.Rendering.Meshes.MeshGeometry.BuildCube(RenderColor.White, 1f);
+        MeshHandle wall = renderer.RegisterMesh(vertices, indices);
+        try
+        {
+            double Luma(RenderDebugView view, bool sun, bool ambient)
+            {
+                Mesh3DState state = Mesh3DState.Default;
+                state.ShowFloor = false; state.ShowSunVisual = false; state.FogEnabled = false; state.ShadowsEnabled = false;
+                state.LightingEnabled = true; state.DebugView = view;
+                state.LightDirection = new Vector3(0f, 0f, 1f); state.SunColor = Vector3.One; state.SunIntensity = sun ? 1.2f : 0f;
+                state.AmbientColor = new Vector3(ambient ? 0.8f : 0f); state.AmbientGroundColor = new Vector3(ambient ? 0.8f : 0f);
+                renderer.SetMesh3DState(state); renderer.Set3DFrameActive(true);
+                renderer.SetCamera3D(D3dMatrixHelper.CreateLookAtLh(Vector3.Zero, Vector3.UnitZ, Vector3.UnitY),
+                    D3dMatrixHelper.CreatePerspectiveLh(MathF.PI / 3f, Width / (float)Height, 0.1f, 100f));
+                renderer.BeginFrame(); renderer.Clear(0.3f, 0.3f, 0.3f);
+                renderer.ClearPointLights();
+                renderer.DrawMesh(new MeshDrawCall
+                {
+                    Mesh = wall, World = Matrix4x4.CreateScale(20f, 20f, 0.1f) * Matrix4x4.CreateTranslation(0f, 0f, 4f),
+                    Tint = new RenderColor(0.8f, 0.5f, 0.3f), Alpha = 1f, Flags = MeshDrawFlags.NoShadow | MeshDrawFlags.NoFog,
+                });
+                renderer.EndFrame();
+                HeadlessHarness.Assert(renderer.TryReadSubmittedFramePixels(out int width, out int height, out byte[] pixels), "No frame was read back.");
+                renderer.Present();
+                int offset = (height / 2 * width + width / 2) * 4;
+                return 0.0722 * pixels[offset] + 0.7152 * pixels[offset + 1] + 0.2126 * pixels[offset + 2];
+            }
+
+            double sunAmbient = Luma(RenderDebugView.AmbientLight, sun: true, ambient: false);
+            double sunDirect = Luma(RenderDebugView.DirectLight, sun: true, ambient: false);
+            double skyAmbient = Luma(RenderDebugView.AmbientLight, sun: false, ambient: true);
+            double skyDirect = Luma(RenderDebugView.DirectLight, sun: false, ambient: true);
+            double albedoLit = Luma(RenderDebugView.Albedo, sun: true, ambient: false);
+            double albedoDark = Luma(RenderDebugView.Albedo, sun: false, ambient: false);
+            HeadlessHarness.Assert(sunAmbient < 8 && sunDirect > 40,
+                $"A sunlit wall with no ambient light read {sunAmbient:F0} in the ambient view and {sunDirect:F0} in the direct view.");
+            HeadlessHarness.Assert(skyAmbient > 40 && skyDirect < 8,
+                $"A wall under ambient light alone read {skyAmbient:F0} in the ambient view and {skyDirect:F0} in the direct view.");
+            HeadlessHarness.Assert(albedoLit > 60 && Math.Abs(albedoLit - albedoDark) < 3,
+                $"The albedo view depends on the light ({albedoLit:F0} lit, {albedoDark:F0} unlit).");
+        }
+        finally { renderer.ReleaseMesh(wall); }
+    }
+
     /// <summary>The hemisphere sky light's ground tint tints the light from below and leaves the light from above to the tint.</summary>
     public static void GroundTintTintsTheLightFromBelow()
     {

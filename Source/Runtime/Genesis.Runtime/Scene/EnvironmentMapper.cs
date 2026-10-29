@@ -200,6 +200,13 @@ namespace Genesis.Runtime.Scene
                         state.FogAerialBlend = 0.75f;
                         state.FogHorizonReduction = 1f;
                     }
+                    // The game's own sun and fog colours for this hour, which the climate keeps
+                    // instead of its own (AtmosphereOptions.SunColorHours, FogColorHours; none by default).
+                    float hour = climate.Current.TimeOfDayHours;
+                    if (HourColors.TryEvaluate(options.SunColorHours, hour, out Vector3 sunAtHour))
+                        state.SunColor = sunAtHour;
+                    if (HourColors.TryEvaluate(options.FogColorHours, hour, out Vector3 fogAtHour))
+                        state.FogColor = new Vector4(fogAtHour, state.FogColor.W);
                 }
             }
         }
