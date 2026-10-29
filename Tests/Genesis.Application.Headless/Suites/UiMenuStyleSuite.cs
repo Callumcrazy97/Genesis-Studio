@@ -174,6 +174,268 @@ internal static class UiMenuStyleSuite
                 "An older UI file no longer draws the same calls: " + string.Join("; ", surface.Rectangles) + " | " + string.Join("; ", surface.Texts));
         });
 
+        // The Inspector's Layout, Spacing and Padding rows: edited in the Inspector's own controls, undone and
+        // redone, saved and reopened; the canvas and the game then place the children the same way.
+        HeadlessHarness.RunCase(ctx.Report, "Editor.UI.Inspector.LayoutSpacingAndPaddingEditUndoSaveReopenAndPlaceTheGamesChildren", () =>
+        {
+            const string name = "Inspector Layout";
+            string layoutPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.UserInterface), ResourceKind.UserInterface, name);
+            using Form host = GateSuite.NewHost(1500, 900);
+            using UiEditorControl editor = new(layoutPath, project.RootPath);
+            host.Controls.Add(editor);
+            GateSuite.ShowHost(host);
+            editor.Document.DesignWidth = 640; editor.Document.DesignHeight = 360;
+            void Set(string property, object value) =>
+                HeadlessHarness.Assert(editor.TryApplyInspectorValue(property, value), "The Inspector refused " + property + " = " + value + ".");
+            editor.AddElement(UiElementType.Panel);
+            Set("Ui.Id", "Box"); Set("Ui.X", 20); Set("Ui.Y", 20); Set("Ui.Width", 300); Set("Ui.Height", 200);
+            foreach ((string id, float height) in new[] { ("A", 30f), ("B", 50f) })
+            {
+                editor.AddElement(UiElementType.Button);
+                Set("Ui.Id", id); Set("Ui.Parent", "Box"); Set("Ui.Width", 100); Set("Ui.Height", height);
+            }
+            editor.SelectElement("Box"); GateSuite.Pump(3, 20);
+            ComboBox layout = Named<ComboBox>(editor, "UiLayout");
+            NumericUpDown spacing = Named<NumericUpDown>(editor, "UiSpacing"), padding = Named<NumericUpDown>(editor, "UiPadding");
+            HeadlessHarness.Assert(layout.Parent!.Visible && spacing.Parent!.Visible && padding.Parent!.Visible,
+                "A Panel's Inspector does not show Layout, Spacing and Padding.");
+            UiElement Box() => editor.Document.Elements.Single(item => item.Id == "Box");
+            layout.SelectedItem = UiLayoutMode.Vertical; spacing.Value = 12; padding.Value = 5; GateSuite.Pump(2, 20);
+            HeadlessHarness.Assert(Box() is { Layout: UiLayoutMode.Vertical, Spacing: 12, Padding: 5 },
+                $"The Inspector's controls did not write the document: {Box().Layout}, {Box().Spacing}, {Box().Padding}.");
+
+            // Undo takes back the last edit alone, redo puts it back, and the controls follow.
+            editor.Undo(); GateSuite.Pump(2, 20);
+            HeadlessHarness.Assert(Box() is { Layout: UiLayoutMode.Vertical, Spacing: 12, Padding: 0 } && padding.Value == 0 && spacing.Value == 12,
+                $"Undo did not take back the padding alone: {Box().Padding} (the control shows {padding.Value}).");
+            editor.Redo(); GateSuite.Pump(2, 20);
+            HeadlessHarness.Assert(Box().Padding == 5 && padding.Value == 5 && layout.SelectedItem is UiLayoutMode.Vertical,
+                $"Redo did not bring the padding back: {Box().Padding} (the control shows {padding.Value}).");
+
+            // The canvas places the children as the game will: 5 in, one after another, 12 apart.
+            Control canvas = FindAll<Control>(editor).Single(control => control.GetType().Name == "UiDesignCanvas");
+            Type canvasType = canvas.GetType();
+            RectangleF area = (RectangleF)canvasType.GetMethod("CanvasRect", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(canvas, null)!;
+            var rects = (Dictionary<string, RectangleF>)canvasType.GetMethod("BuildElementRects", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .Invoke(canvas, new object[] { area })!;
+            float sx = area.Width / 640f, sy = area.Height / 360f;
+            RectangleF box = rects["Box"], a = rects["A"], b = rects["B"];
+            HeadlessHarness.Assert(Math.Abs((a.X - box.X) / sx - 5) < .6f && Math.Abs((a.Y - box.Y) / sy - 5) < .6f
+                    && Math.Abs((b.X - a.X) / sx) < .6f && Math.Abs((b.Y - a.Y) / sy - 42) < .6f,
+                $"The canvas does not lay the children out: A at {(a.X - box.X) / sx:0.#},{(a.Y - box.Y) / sy:0.#}, B {(b.Y - a.Y) / sy:0.#} below A (5, 5 and 42 expected).");
+            Control details = (Control)typeof(UiEditorControl).GetField("_detailsDock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(editor)!;
+            HeadlessHarness.Assert(details.Visible, "The Inspector is not shown.");
+            details.Controls.OfType<ScrollableControl>().FirstOrDefault()?.ScrollControlIntoView(padding);
+            GateSuite.Pump(3, 20);
+            string capture = "ui-inspector-layout.png";
+            ctx.Report.Images.Add(ImageResult.From("Editor.UI.Inspector.Layout", capture, VisualCapture.CaptureOpenForm(host, Path.Combine(ctx.Captures, capture))));
+
+            // Padding also takes a button's text in from its box (in the game, and so in the first save).
+            editor.Save();
+            string[] bounds = [];
+            WithGame(project.RootPath, (_, surface) =>
+            {
+                HeadlessHarness.Assert(PgslCommands.UiHitTest(name, 30, 30) == "A" && PgslCommands.UiHitTest(name, 30, 70) == "B" && PgslCommands.UiHitTest(name, 30, 60) == "Box",
+                    $"The game does not place the children as laid out: {PgslCommands.UiHitTest(name, 30, 30)}, {PgslCommands.UiHitTest(name, 30, 70)}, {PgslCommands.UiHitTest(name, 30, 60)} (A, B, Box expected).");
+                PgslCommands.DrawUi(name);
+                bounds = surface.Texts.Select(text => text.UiBounds?.ToString() ?? "-").ToArray();
+            });
+            editor.SelectElement("A"); Set("Ui.Padding", 6); editor.Save();
+            WithGame(project.RootPath, (_, surface) =>
+            {
+                PgslCommands.DrawUi(name);
+                HeadlessHarness.Assert(bounds.Contains("{X=25,Y=25,Width=100,Height=30}")
+                        && surface.Texts.Any(text => text.UiBounds is { X: 31, Y: 31, Width: 88, Height: 18 }),
+                    "Padding did not take the button's text in from its box: " + string.Join("; ", bounds) + " then " + string.Join("; ", surface.Texts.Select(text => text.UiBounds?.ToString() ?? "-")));
+            });
+
+            // Reopened, the saved layout shows in the Inspector's controls and in its live values.
+            using Form reopenedHost = GateSuite.NewHost(1500, 900);
+            using UiEditorControl reopened = new(layoutPath, project.RootPath);
+            reopenedHost.Controls.Add(reopened);
+            GateSuite.ShowHost(reopenedHost);
+            reopened.SelectElement("Box"); GateSuite.Pump(3, 20);
+            var live = reopened.GetLiveInspectorValues().ToDictionary(value => value.PropertyPath, value => value.Value);
+            HeadlessHarness.Assert(Named<ComboBox>(reopened, "UiLayout").SelectedItem is UiLayoutMode.Vertical && Named<NumericUpDown>(reopened, "UiSpacing").Value == 12
+                    && Named<NumericUpDown>(reopened, "UiPadding").Value == 5 && Equals(live["Ui.Layout"], "Vertical") && Convert.ToDouble(live["Ui.Spacing"]) == 12
+                    && Convert.ToDouble(live["Ui.Padding"]) == 5 && reopened.Document.Elements.Single(item => item.Id == "A").Padding == 6,
+                "Reopening lost the layout, spacing or padding.");
+        });
+
+        // The Style row: the styles of the UI's theme are offered, one is chosen (and undone), and the canvas and
+        // the game draw the element with it.
+        HeadlessHarness.RunCase(ctx.Report, "Editor.UI.Inspector.StyleNamesAThemeStyleAndTheCanvasAndTheGameDrawIt", () =>
+        {
+            const string name = "Inspector Style";
+            string stylePath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.UserInterface), ResourceKind.UserInterface, name);
+            UiAssetDocument seed = new() { DesignWidth = 640, DesignHeight = 360,
+                Styles = new() { ["Primary"] = new UiNamedStyle { Background = "#FF112233" }, ["Danger"] = new UiNamedStyle { Background = "#FFAA2211" } } };
+            seed.Elements.Add(new UiElement { Id = "Go", Type = UiElementType.Button, X = 20, Y = 20, Width = 160, Height = 60, Text = "Go" });
+            seed.Elements.Add(new UiElement { Id = "Plain", Type = UiElementType.Panel, X = 300, Y = 20, Width = 100, Height = 60 });
+            UiAssetDocument.Save(stylePath, seed);
+
+            using Form host = GateSuite.NewHost(1500, 900);
+            using UiEditorControl editor = new(stylePath, project.RootPath);
+            host.Controls.Add(editor);
+            GateSuite.ShowHost(host);
+            editor.SelectElement("Go"); GateSuite.Pump(3, 20);
+            ComboBox style = Named<ComboBox>(editor, "UiStyle");
+            HeadlessHarness.Assert(style.Parent!.Visible && style.Items.Cast<object>().Select(item => item.ToString()).SequenceEqual(["", "Danger", "Primary"]),
+                "The Style row does not offer the theme's styles: " + string.Join(", ", style.Items.Cast<object>()));
+            Control canvas = FindAll<Control>(editor).Single(control => control.GetType().Name == "UiDesignCanvas");
+            int Primary()
+            {
+                using Bitmap picture = new(canvas.Width, canvas.Height);
+                canvas.DrawToBitmap(picture, canvas.ClientRectangle);
+                return Count(picture, pixel => Near(pixel, Color.FromArgb(0x11, 0x22, 0x33), 5));
+            }
+            int before = Primary();
+            style.Text = "Primary"; GateSuite.Pump(3, 20);
+            UiElement Go() => editor.Document.Elements.Single(item => item.Id == "Go");
+            int after = Primary();
+            HeadlessHarness.Assert(Go().Style == "Primary" && after > before + 300, $"The canvas does not draw the button in its style: {before} -> {after} matching pixels, style '{Go().Style}'.");
+            editor.Undo(); GateSuite.Pump(3, 20);
+            HeadlessHarness.Assert(Go().Style.Length == 0 && style.Text.Length == 0 && Primary() <= before + 20, "Undo did not take the style back.");
+            editor.Redo(); GateSuite.Pump(3, 20);
+            style.SelectedItem = "Danger"; GateSuite.Pump(3, 20);
+            HeadlessHarness.Assert(Go().Style == "Danger", "Choosing a style from the list did not set it: '" + Go().Style + "'.");
+            Control details = (Control)typeof(UiEditorControl).GetField("_detailsDock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(editor)!;
+            details.Controls.OfType<ScrollableControl>().FirstOrDefault()?.ScrollControlIntoView(style);
+            GateSuite.Pump(3, 20);
+            string capture = "ui-inspector-style.png";
+            ctx.Report.Images.Add(ImageResult.From("Editor.UI.Inspector.Style", capture, VisualCapture.CaptureOpenForm(host, Path.Combine(ctx.Captures, capture))));
+            editor.Save();
+
+            using Form reopenedHost = GateSuite.NewHost(1500, 900);
+            using UiEditorControl reopened = new(stylePath, project.RootPath);
+            reopenedHost.Controls.Add(reopened);
+            GateSuite.ShowHost(reopenedHost);
+            reopened.SelectElement("Go"); GateSuite.Pump(3, 20);
+            HeadlessHarness.Assert(reopened.Document.Elements.Single(item => item.Id == "Go").Style == "Danger" && Named<ComboBox>(reopened, "UiStyle").Text == "Danger"
+                    && reopened.Document.Styles is { Count: 2 } && reopened.GetLiveInspectorValues().Single(value => value.PropertyPath == "Ui.Style").Value is "Danger",
+                "Reopening lost the style or the theme's styles.");
+
+            WithGame(project.RootPath, (_, surface) =>
+            {
+                PgslCommands.DrawUi(name);
+                bool Drew(float x, float y, int r, int g, int b) => surface.Rectangles.Any(rect => rect.Filled && rect.X == x && rect.Y == y
+                    && rect.Color.R == r && rect.Color.G == g && rect.Color.B == b);
+                HeadlessHarness.Assert(Drew(20, 20, 0xAA, 0x22, 0x11) && Drew(300, 20, 22, 27, 34),
+                    "The game did not draw the button in its Danger style and the unstyled panel in its own colours: " + string.Join("; ", surface.Rectangles));
+            });
+        });
+
+        // The Placeholder and Max length rows of a Text input (and its Padding): written, undone, saved and
+        // reopened, then typed into in the game.
+        HeadlessHarness.RunCase(ctx.Report, "Editor.UI.Inspector.PlaceholderAndMaxLengthOfATextInputEditUndoSaveReopenAndLimitTyping", () =>
+        {
+            const string name = "Inspector Input";
+            string inputPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.UserInterface), ResourceKind.UserInterface, name);
+            using Form host = GateSuite.NewHost(1500, 900);
+            using UiEditorControl editor = new(inputPath, project.RootPath);
+            host.Controls.Add(editor);
+            GateSuite.ShowHost(host);
+            editor.Document.DesignWidth = 640; editor.Document.DesignHeight = 360;
+            void Set(string property, object value) =>
+                HeadlessHarness.Assert(editor.TryApplyInspectorValue(property, value), "The Inspector refused " + property + " = " + value + ".");
+            editor.AddElement(UiElementType.TextInput);
+            Set("Ui.Id", "Name"); Set("Ui.X", 20); Set("Ui.Y", 20); Set("Ui.Width", 200); Set("Ui.Height", 40);
+            GateSuite.Pump(3, 20);
+            TextBox placeholder = Named<TextBox>(editor, "UiPlaceholder");
+            NumericUpDown maxLength = Named<NumericUpDown>(editor, "UiMaxLength"), padding = Named<NumericUpDown>(editor, "UiPadding");
+            HeadlessHarness.Assert(placeholder.Parent!.Visible && maxLength.Parent!.Visible && padding.Parent!.Visible && placeholder.Text == "Type here" && maxLength.Value == 0,
+                "A new Text input's Inspector lacks Placeholder and Max length, or they do not start at 'Type here' and 0.");
+            UiElement Input() => editor.Document.Elements.Single(item => item.Id == "Name");
+            placeholder.Text = "Your name"; maxLength.Value = 6; padding.Value = 4; GateSuite.Pump(2, 20);
+            HeadlessHarness.Assert(Input() is { Placeholder: "Your name", MaxLength: 6, Padding: 4 }, $"The controls did not write the document: '{Input().Placeholder}', {Input().MaxLength}, {Input().Padding}.");
+            editor.Undo(); editor.Undo(); GateSuite.Pump(2, 20);
+            HeadlessHarness.Assert(Input() is { Placeholder: "Your name", MaxLength: 0, Padding: 0 } && maxLength.Value == 0,
+                $"Two undos did not take back the padding and the length alone: {Input().MaxLength}, {Input().Padding}.");
+            editor.Redo(); editor.Redo(); GateSuite.Pump(2, 20);
+            HeadlessHarness.Assert(Input() is { MaxLength: 6, Padding: 4 } && maxLength.Value == 6 && padding.Value == 4, "Redo did not bring the length and padding back.");
+            Control details = (Control)typeof(UiEditorControl).GetField("_detailsDock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(editor)!;
+            details.Controls.OfType<ScrollableControl>().FirstOrDefault()?.ScrollControlIntoView(maxLength);
+            GateSuite.Pump(3, 20);
+            string capture = "ui-inspector-text-input.png";
+            ctx.Report.Images.Add(ImageResult.From("Editor.UI.Inspector.TextInput", capture, VisualCapture.CaptureOpenForm(host, Path.Combine(ctx.Captures, capture))));
+            editor.Save();
+
+            using Form reopenedHost = GateSuite.NewHost(1500, 900);
+            using UiEditorControl reopened = new(inputPath, project.RootPath);
+            reopenedHost.Controls.Add(reopened);
+            GateSuite.ShowHost(reopenedHost);
+            reopened.SelectElement("Name"); GateSuite.Pump(3, 20);
+            var live = reopened.GetLiveInspectorValues().ToDictionary(value => value.PropertyPath, value => value.Value);
+            HeadlessHarness.Assert(Named<TextBox>(reopened, "UiPlaceholder").Text == "Your name" && Named<NumericUpDown>(reopened, "UiMaxLength").Value == 6
+                    && Equals(live["Ui.Placeholder"], "Your name") && Convert.ToInt32(live["Ui.MaxLength"]) == 6,
+                "Reopening lost the placeholder or the length.");
+
+            WithGame(project.RootPath, (input, surface) =>
+            {
+                // Empty, the box shows its hint, 8 + 4 pixels in from the sides and 4 from the top and bottom.
+                PgslCommands.DrawUi(name);
+                HeadlessHarness.Assert(surface.Texts.Any(text => text.Text == "Your name" && text.UiBounds is { X: 32, Y: 24, Width: 176, Height: 32 }),
+                    "The game does not show the placeholder inside the padding: " + string.Join("; ", surface.Texts.Select(text => text.Text + " " + text.UiBounds)));
+                input.NextFrame(); input.OnMouseMove(100, 40); input.OnMouseDown(MouseButton.Left); PgslCommands.UiUpdate(name);
+                input.NextFrame(); input.OnMouseUp(MouseButton.Left); PgslCommands.UiUpdate(name);
+                foreach (char c in "abcdefghij") input.OnChar(c);
+                PgslCommands.UiUpdate(name);
+                HeadlessHarness.Assert(PgslCommands.UiGetText(name, "Name") == "abcdef", "The text box took '" + PgslCommands.UiGetText(name, "Name") + "', not the first 6 letters.");
+                surface.Texts.Clear(); PgslCommands.DrawUi(name);
+                HeadlessHarness.Assert(surface.Texts.Any(text => text.Text.StartsWith("abcdef", StringComparison.Ordinal)) && !surface.Texts.Any(text => text.Text == "Your name"),
+                    "The game still shows the hint, or the text, after typing: " + string.Join("; ", surface.Texts.Select(text => text.Text)));
+            });
+        });
+
+        // Each new row is offered to the element types it means something for, and to no others, in the
+        // Inspector's controls and in its live values; values the document would refuse are refused.
+        HeadlessHarness.RunCase(ctx.Report, "Editor.UI.Inspector.NewRowsAreOfferedOnlyToTheElementsTheyApplyTo", () =>
+        {
+            string rowsPath = resources.CreateResource(ResourceFolderPolicy.RootFor(project, ResourceKind.UserInterface), ResourceKind.UserInterface, "Inspector Rows");
+            using Form host = GateSuite.NewHost(1500, 900);
+            using UiEditorControl editor = new(rowsPath, project.RootPath);
+            host.Controls.Add(editor);
+            GateSuite.ShowHost(host);
+            foreach (UiElementType type in Enum.GetValues<UiElementType>())
+            {
+                editor.AddElement(type);
+                HeadlessHarness.Assert(editor.TryApplyInspectorValue("Ui.Id", type.ToString()), "Could not name the " + type + ".");
+            }
+            Control Row(string controlName) => FindAll<Control>(editor).Single(control => control.Name == controlName).Parent!;
+            UiElementType[] containers = [UiElementType.Panel, UiElementType.ScrollList];
+            UiElementType[] padded = [UiElementType.Panel, UiElementType.ScrollList, UiElementType.Text, UiElementType.Button, UiElementType.Toggle, UiElementType.TextInput];
+            var problems = new List<string>();
+            foreach (UiElementType type in Enum.GetValues<UiElementType>())
+            {
+                editor.SelectElement(type.ToString()); GateSuite.Pump(2, 15);
+                HashSet<string> offered = editor.GetLiveInspectorValues().Select(value => value.PropertyPath).ToHashSet();
+                (string Property, string Row, object Good, bool Expected)[] rows =
+                [
+                    ("Ui.Layout", "UiLayout", "Vertical", containers.Contains(type)), ("Ui.Spacing", "UiSpacing", 4, containers.Contains(type)),
+                    ("Ui.Padding", "UiPadding", 3, padded.Contains(type)), ("Ui.Style", "UiStyle", "Anything", true),
+                    ("Ui.Placeholder", "UiPlaceholder", "Hint", type == UiElementType.TextInput), ("Ui.MaxLength", "UiMaxLength", 5, type == UiElementType.TextInput),
+                ];
+                foreach ((string property, string row, object good, bool expected) in rows)
+                {
+                    if (offered.Contains(property) != expected) problems.Add($"{type}: live value {property} {(expected ? "missing" : "offered")}");
+                    if (Row(row).Visible != expected) problems.Add($"{type}: row {row} {(expected ? "hidden" : "shown")}");
+                    if (editor.TryApplyInspectorValue(property, good) != expected) problems.Add($"{type}: {property} {(expected ? "refused" : "accepted")}");
+                }
+            }
+            HeadlessHarness.Assert(problems.Count == 0, string.Join("; ", problems));
+
+            editor.SelectElement("Panel");
+            HeadlessHarness.Assert(!editor.TryApplyInspectorValue("Ui.Layout", "Diagonal") && !editor.TryApplyInspectorValue("Ui.Spacing", -1)
+                    && !editor.TryApplyInspectorValue("Ui.Padding", "wide"), "A layout, spacing or padding the document would refuse was accepted.");
+            editor.SelectElement("TextInput");
+            HeadlessHarness.Assert(!editor.TryApplyInspectorValue("Ui.MaxLength", -1) && !editor.TryApplyInspectorValue("Ui.MaxLength", 3.5), "A max length the document would refuse was accepted.");
+            editor.Save();
+            UiAssetDocument saved = UiAssetDocument.Load(rowsPath);
+            HeadlessHarness.Assert(saved.Elements.Single(item => item.Id == "Panel") is { Layout: UiLayoutMode.Vertical, Spacing: 4, Padding: 3 }
+                    && saved.Elements.Single(item => item.Id == "TextInput") is { Placeholder: "Hint", MaxLength: 5, Padding: 3, Style: "Anything" },
+                "Saving lost the rows' values.");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.UI.MenuStyle.ImagesContainCoverAndCrop", () =>
         {
             string previous = PgslCommands.ProjectPath;
@@ -352,6 +614,22 @@ internal static class UiMenuStyleSuite
         finally { PgslCommands.BindContext(previousContext); PgslCommands.ActiveGameContext = previousGame; PgslCommands.ProjectPath = previousPath; }
         return surface;
     }
+
+    /// <summary>Runs a body with a game context that has a pointer and keys, and a surface that records what the UI draws (640 x 360).</summary>
+    private static void WithGame(string projectRoot, Action<InputState, PgslRecordingDrawSurface> body)
+    {
+        InputState input = new();
+        PgslRecordingDrawSurface surface = new();
+        IGameContext? oldGame = PgslCommands.ActiveGameContext;
+        string oldPath = PgslCommands.ProjectPath;
+        PgslContext? oldContext = PgslCommands.BindContext(new PgslContext { RoomWidth = 640, RoomHeight = 360, DrawSurface = surface });
+        PgslCommands.ActiveGameContext = new NullGameContext { Input = input, ProjectPath = projectRoot };
+        PgslCommands.ProjectPath = projectRoot;
+        try { body(input, surface); }
+        finally { PgslCommands.BindContext(oldContext); PgslCommands.ActiveGameContext = oldGame; PgslCommands.ProjectPath = oldPath; }
+    }
+
+    private static T Named<T>(Control root, string name) where T : Control => FindAll<T>(root).Single(control => control.Name == name);
 
     private static bool Near(Color a, Color b, int tolerance) =>
         Math.Abs(a.R - b.R) <= tolerance && Math.Abs(a.G - b.G) <= tolerance && Math.Abs(a.B - b.B) <= tolerance;

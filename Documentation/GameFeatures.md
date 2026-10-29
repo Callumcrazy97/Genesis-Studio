@@ -660,7 +660,10 @@ A User Interface resource has two more element types, and `DrawUi`/`UiUpdate` ha
 **Layout**: a Panel or Scroll List with `Layout` Vertical or Horizontal places its children one
 after another, in their `Order`, with `Spacing` between them and `Padding` inside its edges.
 The children's own X and Y are ignored, and a child anchored Stretch fills the width (or the
-height). Hidden children keep their place.
+height). Hidden children keep their place. **Padding** also takes the text of a Text, Button, Toggle
+or Text Input element in from its box on every side (a Text Input keeps its own 8 pixels besides);
+with no Padding text sits where it always has. The UI Editor's Inspector has rows for `Layout`,
+`Spacing`, `Padding`, `Style`, `Placeholder` and `MaxLength`, and its canvas lays children out as the game does.
 
 **Keys and controllers**: the arrow keys, any controller's d-pad and its left stick move the focus
 to the nearest button, slider, toggle or text box that way, and the focus takes its Selected look.

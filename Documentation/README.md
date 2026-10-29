@@ -2065,6 +2065,27 @@ scrubbing, bone-line preview, or preview on a body Model picked from the project
 renderers). Pre-existing and unchanged: at 200% interface scale the UI Inspector's paired number
 inputs (Position, Size) are clipped by their row height.
 
+### UI Editor Inspector: layout, padding, style, placeholder and length — 29 October 2026
+
+The toolkit fields a User Interface file already held (22 October) now have Inspector rows, each shown only
+for the elements it means something for, each written to the document, undoable and saved with it:
+
+| Row | Element types | What the game does with it |
+|---|---|---|
+| Layout (None, Vertical, Horizontal) and Spacing | Panel, Scroll list | Places the children one after another, in their Order, `Spacing` apart (their Position is not used) |
+| Padding | Panel, Scroll list (inside the edges), Text, Button, Toggle, Text input (text in from the box) | A container's children keep `Padding` from its edges; a text element's text is taken in by `Padding` on every side (a Text input's own 8 pixels come first). Padding 0 draws as before |
+| Style | every type | The named style of the UI's theme (its `Styles`) takes the place of the element's own colours, corners and font, as `UiSetTheme` can swap them at run time. The list offers this UI's styles; any other name may be typed |
+| Placeholder and Max length | Text input | The grey hint while the box is empty; at most that many characters (0: any number) |
+
+Add element now also offers **Text input** and **Scroll list** (a new Scroll list starts as a vertical layout, 8
+apart and 8 in), so those two types can be made in the editor rather than only loaded. The canvas places laid-out
+children and paints named styles, text inputs and padded text with the code the game uses (`UiLayoutPlacement`
+in `UiAsset.cs`), so it shows what the game draws; a laid-out child's own X and Y are ignored there as in the game.
+Named styles themselves are still written in the file (`styles`) or brought by another UI; the editor has no
+style editor. Cases: `Editor.UI.Inspector.*` in `UiMenuStyleSuite` (`--test menu-clips`), with captures
+`ui-inspector-layout.png`, `ui-inspector-style.png` and `ui-inspector-text-input.png`, and
+`Resources.Delete.KeepsLongerNamedResourcesFiles` (`--test resource-names`).
+
 ### Audio novice workflow and real gameplay playback — 28 September 2026
 
 The primary toolbar is **Quick setup / Use in game / Options**, with pinned Save and state. Play/Stop
