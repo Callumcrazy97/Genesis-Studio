@@ -138,7 +138,7 @@ namespace Genesis.Rendering.Primitives
             public Vector4   ExposureParams;
             // AF1.7: x=vignette strength, yzw unused.
             public Vector4   VignetteParams;
-            // AF2.1: append-only — x=atmosphere LUT enabled, y=sunHeight, z=daylight, w unused.
+            // AF2.1: append-only — x=atmosphere LUT enabled, y=sunHeight, z=daylight, w=sun glow (0 none).
             public Vector4   AtmosphereLutParams;
             // AF2.3: append-only — x=raymarched clouds enabled, y=intensity, zw unused.
             public Vector4   CloudCompositeParams;
@@ -5327,19 +5327,34 @@ namespace Genesis.Rendering.Primitives
 
         private void UploadWaterCB(Vector4 deep, Vector4 waterParams, Vector4 skyHorizon, Vector4 skyZenith, bool reflection)
         {
+            // Under the room's own sky (the dynamic sky) water reflects that sky's horizon and zenith,
+            // not the material's fixed midday blue: a golden-hour lake mirrors a golden sky.
+            bool liveSky = _state.AuthoredSkyEnabled;
+            Vector3 zenith = liveSky ? _state.SkyZenithColor : new Vector3(skyZenith.X, skyZenith.Y, skyZenith.Z);
             var data = new WaterCB
             {
                 DeepColorDepthFade = new Vector4(ToLinearColor(new Vector3(deep.X, deep.Y, deep.Z)), deep.W),
                 WaterParams = waterParams,
                 SkyHorizonFlow = new Vector4(ToLinearColor(new Vector3(skyHorizon.X, skyHorizon.Y, skyHorizon.Z)), skyHorizon.W),
-                SkyZenithPad = new Vector4(ToLinearColor(new Vector3(skyZenith.X, skyZenith.Y, skyZenith.Z)), skyZenith.W),
+                SkyZenithPad = new Vector4(ToLinearColor(zenith), skyZenith.W),
                 ReflectionViewProjection = _reflectionViewProjection,
                 ReflectionParams = new Vector4(reflection ? 1 : 0, .015f * Math.Clamp(Genesis.Rendering.Core.EngineRenderingDefaults.WaterReflectionDistortion, 0f, 5f), _nearPlane,
                     _state.CameraFarPlane > 0f ? _state.CameraFarPlane : 1000f),
                 WeatherWindRain = _state.WeatherWindRain,
-                DepthParams = new Vector4(SceneDepthFlag, 0f, 0f, 0f),
+                DepthParams = WaterDepthParams(liveSky),
             };
             _gpu.UpdateConstantBuffer(_cbWater, data);
+        }
+
+        /// <summary>
+        /// The water pass's DepthParams: x the depth convention; yzw the dynamic sky's horizon colour
+        /// for the water to reflect, linear and never all zero, or zero for the material's own.
+        /// </summary>
+        private Vector4 WaterDepthParams(bool liveSky)
+        {
+            if (!liveSky) return new Vector4(SceneDepthFlag, 0f, 0f, 0f);
+            Vector3 horizon = Vector3.Max(ToLinearColor(_state.SkyHorizonColor), new Vector3(1e-4f));
+            return new Vector4(SceneDepthFlag, horizon.X, horizon.Y, horizon.Z);
         }
 
         private void CompositePost(
@@ -5435,7 +5450,7 @@ namespace Genesis.Rendering.Primitives
                     atmosphereLutEnabled ? 1f : 0f,
                     sunHeight,
                     daylight,
-                    0f),
+                    float.IsFinite(_state.SunGlow) ? Math.Clamp(_state.SunGlow, 0f, 4f) : 0f),
                 CloudCompositeParams    = new Vector4(
                     cloudsEnabled ? 1f : 0f,
                     _state.AuthoredSkyEnabled ? 1f : RaymarchedCloudsMath.DefaultIntensity,

@@ -1805,6 +1805,10 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.SkyLayerSuite.Run(ctx);
                 break;
+            case "look-gaps":
+                // T7: the dynamic sky's glow round the sun, water reflecting the dynamic sky, the built-in grass's green (DX11 pixels).
+                Suites.LookGapsSuite.Run(ctx);
+                break;
             case "glowing-beam":
                 // DrawBeam3D: an unlit, added line of light between two points, on every renderer.
                 PrepareFocusedProject(ctx, requireStudioServices: false);

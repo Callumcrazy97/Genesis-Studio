@@ -65,7 +65,7 @@ cbuffer WaterConstants : register(b3)
     row_major float4x4 ReflectionViewProjection;
     float4 ReflectionParams;
     float4 WeatherWindRain;
-    float4 DepthParams;   // x = scene depth is reversed
+    float4 DepthParams;   // x = scene depth is reversed; yzw = the dynamic sky's horizon (0: the material's)
 };
 
 Texture2D            AlbedoTex       : register(t0);
@@ -239,8 +239,19 @@ PSOut PS_Water(VSOut IN)
     float3 waterColor = shallow * transmittance + deep * (1.0 - transmittance);
 
     float fresnel = pow(1.0 - saturate(dot(-viewDir, n)), 5.0);
-    float3 horizonCol = float3(SkyHorizonFlow.xy, lerp(SkyHorizonFlow.x, SkyZenithPad.y, 0.45));
-    float3 skyRefl = FakeSkyReflection(viewDir, n, horizonCol, SkyZenithPad.rgb);
+    float3 skyRefl;
+    if (any(DepthParams.yzw > 0.0))
+    {
+        // The room's own sky: its horizon and zenith colours, graded by height as the sky composite
+        // grades them, so ripples catching the low sky and the high sky differ as they should.
+        float3 skyDir = reflect(viewDir, n);
+        skyRefl = lerp(DepthParams.yzw, SkyZenithPad.rgb, pow(saturate(skyDir.y), 0.45));
+    }
+    else
+    {
+        float3 horizonCol = float3(SkyHorizonFlow.xy, lerp(SkyHorizonFlow.x, SkyZenithPad.y, 0.45));
+        skyRefl = FakeSkyReflection(viewDir, n, horizonCol, SkyZenithPad.rgb);
+    }
     if (ReflectionParams.x > 0.5)
     {
         float4 projected = mul(float4(IN.WorldPos, 1.0), ReflectionViewProjection);

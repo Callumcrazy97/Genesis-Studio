@@ -30,6 +30,11 @@ public sealed class AtmosphereOptions
     public float CloudDensityScale { get; set; } = 1f;
     /// <summary>How large the sun's disc is drawn against its usual size (0.25 to 8).</summary>
     public float SunDiscScale { get; set; } = 1f;
+    /// <summary>
+    /// How strongly the haze glows round the sun (0 to 4): 0, the default, draws the sky as it was
+    /// before the glow existed; 1 is a clear day's glow. Hidden with the sun's disc.
+    /// </summary>
+    public float SunGlow { get; set; }
     /// <summary>The sun's disc is not drawn; its light is unchanged.</summary>
     public bool HideSunDisc { get; set; }
     /// <summary>The moon's disc is not drawn; moonlight is unchanged.</summary>
@@ -219,6 +224,9 @@ public sealed class AtmosphereService
         return (h ^ (h >> 16)) / (float)uint.MaxValue;
     }
 
+    /// <summary>A sun glow strength the sky can draw: 0 to 4, anything not a number is none.</summary>
+    public static float ClampSunGlow(float glow) => float.IsFinite(glow) ? Math.Clamp(glow, 0f, 4f) : 0f;
+
     private static void Validate(AtmosphereOptions options)
     {
         options.CloudQuality = Math.Clamp(options.CloudQuality, 0, 3);
@@ -227,6 +235,7 @@ public sealed class AtmosphereService
         options.CloudCoverageScale = Math.Clamp(options.CloudCoverageScale, 0f, 4f);
         options.CloudDensityScale = Math.Clamp(options.CloudDensityScale, 0f, 4f);
         options.SunDiscScale = float.IsFinite(options.SunDiscScale) && options.SunDiscScale > 0f ? Math.Clamp(options.SunDiscScale, 0.25f, 8f) : 1f;
+        options.SunGlow = ClampSunGlow(options.SunGlow);
         options.Haze = Math.Clamp(options.Haze, 0f, 1f);
     }
 }

@@ -1064,6 +1064,9 @@ public static partial class PgslCommands
     [PgslCommand("Size", "Engine.Sky.Sun.Size = amount", "How large the sun's disc is drawn (1 unless set)", "Sky", Namespace = "Engine.Sky.Sun", Flat = false)]
     public static double SkySunSizePart { get => SkySunSize; set { if (double.IsFinite(value)) SkySunSize = (float)value; } }
 
+    [PgslCommand("Glow", "Engine.Sky.Sun.Glow = amount", "How strongly the haze glows round the sun, 0 to 4 (the room's unless set: 1 in a Sunny day or Golden hour scene, else 0)", "Sky", Namespace = "Engine.Sky.Sun", Flat = false)]
+    public static double SkySunGlowPart { get => SkySunGlow; set { if (double.IsFinite(value)) SkySunGlow = (float)value; } }
+
     [PgslCommand("Visible", "Engine.Sky.Moon.Visible = true", "Whether the moon's disc is drawn in the sky (true unless set)", "Sky", Namespace = "Engine.Sky.Moon", Flat = false)]
     public static bool SkyMoonVisible { get => SkyMoonDiscVisible; set => SkyMoonDiscVisible = value; }
 

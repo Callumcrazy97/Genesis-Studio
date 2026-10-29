@@ -166,6 +166,7 @@ namespace Genesis.Runtime.Scene
                 state.CloudDensityScale =
                     SkyAuthoringDefaults.ClampDensityScale(options.CloudDensityScale);
                 state.SunDiscScale = options.SunDiscScale > 0f ? Math.Clamp(options.SunDiscScale, 0.25f, 8f) : 1f;
+                state.SunGlow = AtmosphereService.ClampSunGlow(options.SunGlow);
                 state.HideSunDisc = options.HideSunDisc;
                 state.HideMoonDisc = options.HideMoonDisc;
                 // The dynamic sky draws its own sun (disc and glow) in the sky composite: hide that too.

@@ -1620,6 +1620,18 @@ That switch costs a full collection at every change, so leave it off for play.
   atmosphere** (`sunDiscScale`, 0.25 to 8; `Engine.Sky.SunSize` from a script).
 - **A clear sky no longer shows bands.** Where the engine draws a sky, the final image carries
   half a level of fixed noise. Scenes without an engine sky are pixel for pixel as they were.
+- **The sky glows round the sun** (29 Oct). The dynamic sky can draw the light the haze scatters
+  forward: a bright, whitish core a few degrees across and a halo tens of degrees wide, broader
+  near the horizon. A room sets it with `sunGlow` (0 to 4; 1 is a clear day's glow), and a script
+  with `Engine.Sky.Sun.Glow` (or `Engine.Sky.SunGlow`). It is 0 in a room saved before it, so
+  those skies are as they were; the **Sunny day** and **Golden hour** scene presets (and
+  `room.create` 3D, which starts on Sunny day) set 1, the cloudy ones 0. It hides with the sun's disc.
+- **Water reflects the dynamic sky it lies under** (29 Oct). Without planar reflections a lake
+  showed a fixed midday blue in its ripples, and at a low angle a green one (its horizon colour lost
+  its blue on the way to the shader). Under the dynamic sky it now reflects that sky's own horizon
+  and zenith colours, graded by height as the sky is drawn, so a golden-hour lake mirrors a golden
+  sky and ripples catch the low and the high sky differently. Water in a room without the dynamic
+  sky looks as it did.
 
 What the existing settings do, since the numbers are not obvious:
 

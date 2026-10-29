@@ -59,6 +59,19 @@ public static partial class PgslCommands
         }
     }
 
+    [PgslCommand("SunGlow", "Engine.Sky.SunGlow",
+        "How strongly the haze glows round the sun, 0 (none) to 4; 1 is a clear day's glow", "Engine · Sky",
+        Namespace = "Engine.Sky")]
+    public static float SkySunGlow
+    {
+        get => ResolveAtmosphere()?.SunGlow ?? 0f;
+        set
+        {
+            AtmosphereOptions atmosphere = ResolveAtmosphere();
+            if (atmosphere != null && float.IsFinite(value)) atmosphere.SunGlow = AtmosphereService.ClampSunGlow(value);
+        }
+    }
+
     [PgslCommand("SunDiscVisible", "Engine.Sky.SunDiscVisible",
         "Whether the sun's disc is drawn; off keeps its light (for a game drawing its own sky)", "Engine · Sky",
         Namespace = "Engine.Sky")]

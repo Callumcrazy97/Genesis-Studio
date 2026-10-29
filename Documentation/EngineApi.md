@@ -2147,6 +2147,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SunDirectionY` | read only | Y of the unit direction towards the sun (below 0 when it has set) |
 | `SunDirectionZ` | read only | Z of the unit direction towards the sun |
 | `SunDiscVisible` | property | Whether the sun's disc is drawn; off keeps its light (for a game drawing its own sky) |
+| `SunGlow` | property | How strongly the haze glows round the sun, 0 (none) to 4; 1 is a clear day's glow |
 | `SunSize` | property | How large the sun's disc is drawn against its usual size (0.25 to 8) |
 | `Thickness` | property | Cloud slab thickness in metres |
 | `TimeOfDay` | property | Time of day in hours (0..24) |
@@ -2179,6 +2180,7 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
 | Name | Kind | What it is |
 |---|---|---|
+| `Glow` | property | How strongly the haze glows round the sun, 0 to 4 (the room's unless set: 1 in a Sunny day or Golden hour scene, else 0) |
 | `Size` | property | How large the sun's disc is drawn (1 unless set) |
 | `Visible` | property | Whether the sun's disc is drawn in the sky (true unless set) |
 
