@@ -122,6 +122,21 @@ var jumpNow = KeyPressed("Space") || GamepadPressed("A");
 var turn = GetMouseLookDeltaX() * 0.14;
 ```
 
+Controls a player can change: name actions, read them, and give the player the ready-made
+rebinding screen with one call (every action, press-a-key rebinding, reset, save, keyboard and
+controller; it pauses the game until Back). More in GameFeatures.md, "Analogue actions...":
+
+```pgsl
+// Create
+InputActionBind("Jump", "Space"); InputActionBind("Jump", "Pad:A");
+InputActionBind("Steer", "Pad:LeftStickX"); InputActionSetDeadZone("Steer", 0.15);
+InputActionsLoad();
+// Step
+if (InputActionPressed("Jump")) { vspeed = -8; }
+x += InputActionValue("Steer") * 4;
+if (KeyPressed("F1") || GamepadPressed("Back")) { InputRebindingOpen(); }
+```
+
 Turn an Object to face the way it moves (degrees about y):
 
 ```pgsl
