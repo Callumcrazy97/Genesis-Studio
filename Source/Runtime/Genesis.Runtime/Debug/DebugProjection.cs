@@ -52,7 +52,7 @@ internal readonly struct DebugProjection
         if (!Has3D) return false;
         Vector4 clip = Vector4.Transform(new Vector4(world, 1f), ViewProjection);
         if (clip.W < NearW) return false;
-        screen = ToScreen(clip);
+        screen = ToScreen(new Vector2(Math.Clamp(clip.X / clip.W, -2f, 2f), Math.Clamp(clip.Y / clip.W, -2f, 2f)));
         return true;
     }
 
@@ -72,19 +72,42 @@ internal readonly struct DebugProjection
         // Wholly off one side of the view: nothing to draw.
         if ((ca.X > ca.W && cb.X > cb.W) || (ca.X < -ca.W && cb.X < -cb.W)
             || (ca.Y > ca.W && cb.Y > cb.W) || (ca.Y < -ca.W && cb.Y < -cb.W)) return false;
-        screenA = ToScreen(ca);
-        screenB = ToScreen(cb);
+        Vector2 ndcA = new(ca.X / ca.W, ca.Y / ca.W), ndcB = new(cb.X / cb.W, cb.Y / cb.W);
+        // Cut to a little more than the screen, keeping the line's direction, so a canvas is never
+        // handed a coordinate far off it.
+        if (!ClipToBox(ref ndcA, ref ndcB, 2f)) return false;
+        screenA = ToScreen(ndcA);
+        screenB = ToScreen(ndcB);
         return true;
     }
 
-    private Vector2 ToScreen(Vector4 clip)
+    // Liang-Barsky: the part of a segment inside the square of half-size limit.
+    private static bool ClipToBox(ref Vector2 a, ref Vector2 b, float limit)
     {
-        float x = clip.X / clip.W, y = clip.Y / clip.W;
-        // Far off-screen points are pulled in so a canvas is never handed a huge coordinate.
-        x = Math.Clamp(x, -64f, 64f);
-        y = Math.Clamp(y, -64f, 64f);
-        return new Vector2((x * 0.5f + 0.5f) * Width, (1f - (y * 0.5f + 0.5f)) * Height);
+        float enter = 0f, leave = 1f;
+        Vector2 delta = b - a;
+        ReadOnlySpan<float> p = stackalloc float[] { -delta.X, delta.X, -delta.Y, delta.Y };
+        ReadOnlySpan<float> q = stackalloc float[] { a.X + limit, limit - a.X, a.Y + limit, limit - a.Y };
+        for (int edge = 0; edge < 4; edge++)
+        {
+            if (MathF.Abs(p[edge]) < 1e-12f)
+            {
+                if (q[edge] < 0f) return false;
+                continue;
+            }
+            float t = q[edge] / p[edge];
+            if (p[edge] < 0f) enter = MathF.Max(enter, t);
+            else leave = MathF.Min(leave, t);
+            if (enter > leave) return false;
+        }
+        Vector2 start = a;
+        a = start + delta * enter;
+        b = start + delta * leave;
+        return true;
     }
+
+    private Vector2 ToScreen(Vector2 ndc) =>
+        new((ndc.X * 0.5f + 0.5f) * Width, (1f - (ndc.Y * 0.5f + 0.5f)) * Height);
 
     /// <summary>A point of a 2D room (pixels) on the screen in one of its views.</summary>
     public static Vector2 Map(in RoomRenderSubsystem.View2D view, float x, float y) =>
