@@ -153,6 +153,50 @@ TestCheck("walker stands on the ground", Abs(y - Engine.Terrain.GetHeight(x, z))
 - **Exposure**: `Engine.Rendering.AutoExposure(0.18, 1.5)` lets the picture adapt between sun and
   shade; `Engine.Rendering.Exposure` brightens or darkens on top.
 
+## Make a shader from nodes
+
+A look of your own on a model (a tinted pattern with a glowing rim, a dissolve, lit windows) is a
+Shader resource. Build it from nodes rather than HLSL: in Studio with the Shader editor's **Nodes**
+view, or with `shader.graph`, which keeps the graph in the resource and writes the code it makes
+(a surface shader for Model and Terrain targets, so the engine lights it), checked by compiling it
+for DX11 and Vulkan. `shader.nodes` lists the node types and their ports. A texture times a tint,
+with a fresnel rim as emission (`Checker` is an Image resource; the test suite runs this exact call):
+
+```json
+{
+  "shader": "Rim",
+  "target": "Model",
+  "graph": {
+    "nodes": [
+      { "id": "out", "type": "Output", "x": 720, "y": 60 },
+      { "id": "pattern", "type": "TextureParameter", "name": "Pattern", "texture": "Checker", "x": 0, "y": 0 },
+      { "id": "sample", "type": "SampleTexture", "x": 220, "y": 0 },
+      { "id": "tint", "type": "ColorParameter", "name": "Tint", "value": [1, 0.55, 0.3, 1], "x": 220, "y": 200 },
+      { "id": "colour", "type": "Multiply", "x": 480, "y": 40 },
+      { "id": "rim", "type": "Fresnel", "inputs": { "Power": [2.5] }, "x": 220, "y": 340 },
+      { "id": "rimColour", "type": "ColorParameter", "name": "RimColour", "value": [0.2, 0.7, 1, 1], "x": 220, "y": 480 },
+      { "id": "glow", "type": "Multiply", "x": 480, "y": 380 }
+    ],
+    "connections": [
+      { "fromNode": "pattern", "fromPort": "Texture", "toNode": "sample", "toPort": "Texture" },
+      { "fromNode": "sample", "fromPort": "RGB", "toNode": "colour", "toPort": "A" },
+      { "fromNode": "tint", "fromPort": "RGB", "toNode": "colour", "toPort": "B" },
+      { "fromNode": "colour", "fromPort": "Out", "toNode": "out", "toPort": "Colour" },
+      { "fromNode": "rim", "fromPort": "Out", "toNode": "glow", "toPort": "A" },
+      { "fromNode": "rimColour", "fromPort": "RGB", "toNode": "glow", "toPort": "B" },
+      { "fromNode": "glow", "fromPort": "Out", "toNode": "out", "toPort": "Emission" }
+    ]
+  }
+}
+```
+
+Make the resource first (`resource.create` with `"kind": "Shader"`), then put it on an Object
+(`object.setComponent` with a `ShaderComponent`) or a model's material. `Tint` and `RimColour` show in the
+Inspector and scripts set them per instance (`ShaderSetVector("RimColour", 1, 0.3, 0.2, 1)`). An
+Output input left unwired keeps the model's own value: unwired Roughness keeps its material's. The
+Shader editor opens the resource on its graph; [the node view](README.md#node-view-29-october-2026)
+describes the nodes.
+
 ## Pitfalls
 
 - A room's width and height are its size; with no window size of its own the game window takes

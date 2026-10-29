@@ -10083,6 +10083,68 @@ complete variant/sampler management, asynchronous compilation, HLSL navigation/c
 cost/statistics. Particle preview still uses the existing sprite arrangement; terrain preview is
 not a complete terrain simulation.
 
+##### Node view (29 October 2026)
+
+**Nodes** in the Shader editor's command bar builds a shader from a graph of nodes instead of code.
+The graph writes the same HLSL the code view shows, so the compile, the preview, the Inspector and
+the game all use what it made; a game never reads the graph.
+
+- **The document.** The graph is kept in the Shader resource as `graph` (`nodes` with a `type`,
+  `x`, `y`, a parameter's `name` and `value`, a texture's `texture`, a `mode`, unwired `inputs`;
+  `connections` from a node's output port to another's input port). At every change the editor
+  writes the code the graph makes into `source` (the selected pass), with entry `MainPS`. A shader
+  without a `graph` is code, saved exactly as before.
+- **Opening.** A shader made from nodes opens on its graph. A shader written as code opens as before;
+  its Nodes page offers **Start a node graph**, which asks first (the graph replaces the code; Undo
+  brings it back) and starts with the target's own picture times a **Tint** colour into the Output.
+  **Detach graph** keeps the code and removes the graph, for editing by hand. While a graph writes
+  the code, the code view is read-only and says so. Applying a preset, or giving the shader code
+  (`SetSource`), detaches the graph.
+- **What it writes.** For a Mesh target (Model, Terrain, a 3D Object) a surface shader
+  (`#include "GenesisSurface.hlsl"`, [Mesh shaders](MeshShaders.md)), so the engine lights it as its
+  own materials. For an Image, Particle or 2D Object a sprite `MainPS`; for Full screen a post-effect
+  `MainPS` reading `SceneColor`. Changing the target writes the new kind at once.
+- **Nodes.** Inputs: UV, World position, Object position, Normal, View direction, Vertex colour,
+  Time, Screen UV, Main texture (the target's own picture). Constants: Number, Vector. Parameters:
+  Number, Colour, Vector and Texture, shown in the Inspector and the Parameters page like any
+  shader's and set by scripts by their names (`ShaderSetParameter`, `ShaderSetVector`,
+  `ShaderSetTexture`). Sample texture (Colour, Data or Normal map). Maths: Add, Subtract, Multiply,
+  Divide, Lerp, Clamp, Saturate, One minus, Power, Sine, Cosine, Absolute, Floor, Fraction, Dot,
+  Cross, Normalize, Length, Fresnel, Remap, Step, Smoothstep, Split, Combine. Output: Colour, Normal
+  (tangent space, -1 to 1), Emission, Roughness, Metalness, Alpha. Maths ports take the widest
+  vector wired to the node; narrower values are widened (a number fills a vector) or cut.
+- **The view.** Drag the background (or the middle button) to pan, the wheel to zoom, **F** or
+  Frame to fit. **Space**, a double-click, a right-click or Add node opens a searchable node menu;
+  letting go of a wire over empty space opens it too and wires the new node. Drag from a port to
+  wire it; drag a wired input away to move or remove its wire. Click to select (Ctrl or Shift adds),
+  drag to move, **Delete** to remove (the Output stays). The panel on the right shows the selected
+  node: a parameter's name, value, colour or Image; a texture's mode; values for inputs without a
+  wire; for the Output, which values the shader sets (an unticked one keeps the target's own, such
+  as a model's material). The preview sits below it (Play, Frame, Larger for the full page).
+- **Undo.** Every graph edit (add, wire, move, delete, rename, value) is one step of the editor's
+  undo and redo, with its code.
+- **Errors.** A graph that cannot make a shader (no Output, a loop, a taken or bad parameter name,
+  more than 16 parameter numbers or 4 textures) is shown in Diagnostics and above the graph, like a
+  compile error; the code stays as it was, the preview keeps the last shader that worked, and Save
+  waits for a graph that works. Code that does not compile is shown the same way.
+- **Limits.** Normal, Roughness and Metalness apply to Mesh targets. On 2D and full-screen targets
+  the Normal and View direction face the viewer and World position is the pixel's place on screen.
+  Object position undoes the draw's own world matrix, so copies of a mesh drawn together in one
+  instanced batch give their world position (the surface input has no object position yet). There is
+  no vertex stage, no groups, comments or sub-graphs, and no copy and paste yet.
+- **Automation.** `shader.graph` writes a resource's graph and the code it makes, checked by
+  compiling for DX11 and SPIR-V; `shader.nodes` lists the node kinds and their ports
+  ([Automation](Automation.md), [Cookbook](Cookbook.md#make-a-shader-from-nodes)).
+
+Code: `Source/Runtime/Genesis.Shared/Assets/ShaderGraph.cs` (the document),
+`Source/Genesis.Application.Core/Shaders/` (node catalog, generator, graph edits),
+`Source/Genesis.Application.Editors.Suite/Assets/ShaderNodes/` (canvas and node menu) and
+`ShaderEditorControl.Nodes.cs`. Checks: `Build.bat --test shader-nodes`
+(`Editor.Shader.Nodes.*`): every node kind compiles for DXBC and SPIR-V on Mesh, Sprite and
+Fullscreen targets; graph errors are reported, not thrown; texture × tint + fresnel emission saves
+and reopens with its graph and code; a code shader saves without a graph; and the editor builds,
+undoes, previews on a model, saves, reopens on its graph and detaches it (DX11, with captures).
+
 #### Model Editor
 
 ![Procedural tree in the Model Editor](EditorReview/images/08-model-editor.png)
