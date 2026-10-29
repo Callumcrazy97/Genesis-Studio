@@ -14,12 +14,27 @@ public enum SynthWave
     Noise,
     /// <summary>A fundamental with soft octave and fifth harmonics, as an organ stop.</summary>
     Organ,
+    /// <summary>Noise that changes every sample whatever the pitch: an even hiss (Noise holds each value for a time set by the pitch).</summary>
+    WhiteNoise,
+    /// <summary>Noise with as much energy in each octave: rain, a waterfall, a soft surf.</summary>
+    PinkNoise,
+    /// <summary>Noise weighted to the low end: a distant rumble, wind in a room.</summary>
+    BrownNoise,
+}
+
+/// <summary>How the envelope moves between its levels.</summary>
+public enum SynthEnvelope
+{
+    /// <summary>Straight lines (the synthesiser's first shape; every older sound uses it).</summary>
+    Linear,
+    /// <summary>Curves as real instruments fade: fast at first, then slower (decay and release fall about 60 dB).</summary>
+    Exponential,
 }
 
 /// <summary>One voice of a sound: an oscillator, its pitch, its envelope and its filter.</summary>
 public sealed class SynthLayer
 {
-    [Description("Sine, Square, Saw, Triangle, Noise or Organ (default Sine).")] public SynthWave Wave { get; set; } = SynthWave.Sine;
+    [Description("Sine, Square, Saw, Triangle, Noise, Organ, WhiteNoise, PinkNoise or BrownNoise (default Sine).")] public SynthWave Wave { get; set; } = SynthWave.Sine;
     [Description("A note (A4, F#3, Bb2); wins over frequency.")] public string? Note { get; set; }
     [Description("Pitch in Hz (default 440). For Noise, higher hisses and lower rumbles.")] public double Frequency { get; set; } = 440;
     [Description("The pitch it glides to by its end, Hz; 0 keeps it steady.")] public double FrequencyEnd { get; set; }
@@ -38,6 +53,12 @@ public sealed class SynthLayer
     [Description("Spread of the copies, cents (default 8).")] public double Detune { get; set; } = 8;
     [Description("A slow swell in volume, Hz (wind, breathing pads).")] public double TremoloRate { get; set; }
     [Description("How deep the swell goes, 0 to 1.")] public double TremoloDepth { get; set; }
+    [Description("Envelope shape: Linear (default) or Exponential, which fades as instruments do.")] public SynthEnvelope Envelope { get; set; }
+    [Description("High-pass cutoff, Hz; 0 leaves it open. Takes away what is below it: thin, airy, a telephone.")] public double HighPass { get; set; }
+    [Description("Band-pass centre, Hz; 0 leaves it open. Keeps only the band around it (width from Q).")] public double BandPass { get; set; }
+    [Description("How sharp the high-pass and band-pass are (default 0.707): higher rings and narrows, 0.5 is gentle.")] public double Q { get; set; } = 0.707;
+    [Description("Saw and Square without the buzz they alias into at high notes, and Square without the offset its duty gives (default false, as older sounds were made).")] public bool BandLimited { get; set; }
+    [Description("Where it sits left to right, -1 (left) to 1 (right); any layer off centre makes the sound stereo (default 0).")] public double Pan { get; set; }
 
     /// <summary>A separate layer with the same values.</summary>
     public SynthLayer Copy() => (SynthLayer)MemberwiseClone();
@@ -101,6 +122,8 @@ public static class SoundSynth
                         Attack = template.Attack, Decay = template.Decay, Sustain = template.Sustain, Release = Math.Min(template.Release, length * 0.5),
                         VibratoRate = template.VibratoRate, VibratoDepth = template.VibratoDepth, Duty = template.Duty, LowPass = template.LowPass,
                         Voices = template.Voices, Detune = template.Detune, TremoloRate = template.TremoloRate, TremoloDepth = template.TremoloDepth,
+                        Envelope = template.Envelope, HighPass = template.HighPass, BandPass = template.BandPass, Q = template.Q,
+                        BandLimited = template.BandLimited, Pan = template.Pan,
                     };
                 }
             }
@@ -108,23 +131,44 @@ public static class SoundSynth
         }
     }
 
-    /// <summary>Mixes the layers into samples from -1 to 1, with an optional echo, normalised to a peak of 0.9.</summary>
-    public static float[] Render(IReadOnlyList<SynthLayer> layers, double echoDelay = 0, double echoFeedback = 0, int seed = 1)
+    /// <summary>
+    /// Mixes the layers into mono samples from -1 to 1, with an optional echo, normalised to a peak of
+    /// 0.9. Pans are ignored here (<see cref="RenderStereo"/> places layers left and right).
+    /// </summary>
+    public static float[] Render(IReadOnlyList<SynthLayer> layers, double echoDelay = 0, double echoFeedback = 0, int seed = 1) =>
+        Mix(layers, 1, echoDelay, echoFeedback, seed);
+
+    /// <summary>
+    /// As <see cref="Render"/>, in stereo: interleaved left and right samples, each layer placed by its
+    /// <see cref="SynthLayer.Pan"/> (equal power, so a centred layer is at 0.707 in each ear before the
+    /// sound is normalised).
+    /// </summary>
+    public static float[] RenderStereo(IReadOnlyList<SynthLayer> layers, double echoDelay = 0, double echoFeedback = 0, int seed = 1) =>
+        Mix(layers, 2, echoDelay, echoFeedback, seed);
+
+    private static float[] Mix(IReadOnlyList<SynthLayer> layers, int channels, double echoDelay, double echoFeedback, int seed)
     {
         double length = layers.Count == 0 ? 0 : layers.Max(l => l.Start + l.Duration);
         if (echoDelay > 0 && echoFeedback > 0) length += echoDelay * 4;
         if (length > MaximumSeconds) throw new ArgumentException($"The sound would last {length:0.#} s; the most is {MaximumSeconds:0} s.");
-        var mix = new float[Math.Max(1, (int)Math.Ceiling(length * SampleRate))];
+        var mix = new float[Math.Max(1, (int)Math.Ceiling(length * SampleRate)) * channels];
         var random = new Random(seed);
-        foreach (SynthLayer layer in layers) RenderLayer(layer, mix, random);
+        foreach (SynthLayer layer in layers) RenderLayer(layer, mix, channels, random);
 
         if (echoDelay > 0 && echoFeedback > 0)
         {
-            int delay = Math.Max(1, (int)(echoDelay * SampleRate));
+            int delay = Math.Max(1, (int)(echoDelay * SampleRate)) * channels;
             float feedback = (float)Math.Clamp(echoFeedback, 0, 0.9);
             for (int i = delay; i < mix.Length; i++) mix[i] += mix[i - delay] * feedback;
         }
 
+        Normalise(mix);
+        return mix;
+    }
+
+    // To a peak of 0.9; silence is left as it is.
+    private static void Normalise(float[] mix)
+    {
         float peak = 0;
         foreach (float sample in mix) peak = Math.Max(peak, Math.Abs(sample));
         if (peak > 1e-6f)
@@ -132,25 +176,36 @@ public static class SoundSynth
             float gain = 0.9f / peak;
             for (int i = 0; i < mix.Length; i++) mix[i] *= gain;
         }
-        return mix;
     }
 
-    private static void RenderLayer(SynthLayer layer, float[] mix, Random random)
+    // A layer's oscillator, filter and envelope into the mix. The original sound (linear envelope,
+    // no high-pass or band-pass, raw saw and square, mono) runs exactly the arithmetic it always
+    // did, so every sound made before these options sounds as it did, sample for sample.
+    private static void RenderLayer(SynthLayer layer, float[] mix, int channels, Random random)
     {
         double baseFrequency = string.IsNullOrWhiteSpace(layer.Note) ? layer.Frequency : NoteFrequency(layer.Note);
         if (!(baseFrequency > 0) || baseFrequency > 20000) throw new ArgumentException($"A frequency of {baseFrequency:0.#} Hz cannot be played.");
+        int frames = mix.Length / channels;
         int first = (int)(Math.Max(0, layer.Start) * SampleRate);
         int count = (int)(Math.Max(0, layer.Duration) * SampleRate);
         int voices = Math.Clamp(layer.Voices, 1, 8);
         double alpha = layer.LowPass > 0 ? 1 - Math.Exp(-2 * Math.PI * layer.LowPass / SampleRate) : 1;
         double volume = Math.Clamp(layer.Volume, 0, 1) / Math.Sqrt(voices);
+        double duty = Math.Clamp(layer.Duty, 0.05, 0.95);
+        Biquad? highPass = layer.HighPass > 0 ? Biquad.HighPass(layer.HighPass, layer.Q) : null;
+        Biquad? bandPass = layer.BandPass > 0 ? Biquad.BandPass(layer.BandPass, layer.Q) : null;
+        double pan = (Math.Clamp(layer.Pan, -1, 1) + 1) * Math.PI / 4;
+        float leftGain = (float)Math.Cos(pan), rightGain = (float)Math.Sin(pan);
         for (int voice = 0; voice < voices; voice++)
         {
             double cents = voices == 1 ? 0 : layer.Detune * (voice / (double)(voices - 1) - 0.5) * 2;
             double detune = Math.Pow(2, cents / 1200);
             double phase = random.NextDouble(), filtered = 0, noise = 0;
             int noiseHold = 0;
-            for (int i = 0; i < count && first + i < mix.Length; i++)
+            var colour = new NoiseColour();
+            highPass?.Reset();
+            bandPass?.Reset();
+            for (int i = 0; i < count && first + i < frames; i++)
             {
                 double t = i / (double)SampleRate;
                 double progress = count <= 1 ? 0 : i / (double)(count - 1);
@@ -165,7 +220,17 @@ public static class SoundSynth
                 double value;
                 switch (layer.Wave)
                 {
-                    case SynthWave.Square: value = phase < Math.Clamp(layer.Duty, 0.05, 0.95) ? 1 : -1; break;
+                    case SynthWave.Square when layer.BandLimited:
+                        {
+                            // PolyBLEP smooths each step over a sample; the duty's offset is taken away.
+                            double step = Math.Min(0.5, frequency / SampleRate);
+                            double fall = phase - duty;
+                            fall -= Math.Floor(fall);
+                            value = (phase < duty ? 1 : -1) + PolyBlep(phase, step) - PolyBlep(fall, step) - (2 * duty - 1);
+                            break;
+                        }
+                    case SynthWave.Square: value = phase < duty ? 1 : -1; break;
+                    case SynthWave.Saw when layer.BandLimited: value = 2 * phase - 1 - PolyBlep(phase, Math.Min(0.5, frequency / SampleRate)); break;
                     case SynthWave.Saw: value = 2 * phase - 1; break;
                     case SynthWave.Triangle: value = 1 - 4 * Math.Abs(phase - 0.5); break;
                     case SynthWave.Noise:
@@ -177,6 +242,9 @@ public static class SoundSynth
                         }
                         value = noise;
                         break;
+                    case SynthWave.WhiteNoise: value = random.NextDouble() * 2 - 1; break;
+                    case SynthWave.PinkNoise: value = colour.Pink(random.NextDouble() * 2 - 1); break;
+                    case SynthWave.BrownNoise: value = colour.Brown(random.NextDouble() * 2 - 1); break;
                     case SynthWave.Organ:
                         value = Math.Sin(2 * Math.PI * phase) + 0.5 * Math.Sin(4 * Math.PI * phase) + 0.25 * Math.Sin(6 * Math.PI * phase) + 0.12 * Math.Sin(8 * Math.PI * phase);
                         value /= 1.87;
@@ -184,10 +252,101 @@ public static class SoundSynth
                     default: value = Math.Sin(2 * Math.PI * phase); break;
                 }
                 filtered += alpha * (value - filtered);
-                double envelope = Envelope(layer, t, layer.Duration);
+                double shaped = filtered;
+                if (highPass is not null) shaped = highPass.Next(shaped);
+                if (bandPass is not null) shaped = bandPass.Next(shaped);
+                double envelope = layer.Envelope == SynthEnvelope.Exponential ? ExponentialEnvelope(layer, t, layer.Duration) : Envelope(layer, t, layer.Duration);
                 if (layer.TremoloRate > 0) envelope *= 1 - Math.Clamp(layer.TremoloDepth, 0, 1) * 0.5 * (1 + Math.Sin(2 * Math.PI * layer.TremoloRate * t));
-                mix[first + i] += (float)(filtered * envelope * volume);
+                if (channels == 1) mix[first + i] += (float)(shaped * envelope * volume);
+                else
+                {
+                    float sample = (float)(shaped * envelope * volume);
+                    mix[(first + i) * 2] += sample * leftGain;
+                    mix[(first + i) * 2 + 1] += sample * rightGain;
+                }
             }
+        }
+    }
+
+    // The correction that turns a hard step of a saw or square into a band-limited one (two samples wide).
+    private static double PolyBlep(double phase, double step)
+    {
+        if (step <= 0) return 0;
+        if (phase < step)
+        {
+            double x = phase / step;
+            return x + x - x * x - 1;
+        }
+        if (phase > 1 - step)
+        {
+            double x = (phase - 1) / step;
+            return x * x + x + x + 1;
+        }
+        return 0;
+    }
+
+    /// <summary>A two-pole filter (the audio cookbook's): high-pass or band-pass with a Q.</summary>
+    private sealed class Biquad
+    {
+        private readonly double _b0, _b1, _b2, _a1, _a2;
+        private double _x1, _x2, _y1, _y2;
+
+        private Biquad(double b0, double b1, double b2, double a0, double a1, double a2)
+        {
+            _b0 = b0 / a0; _b1 = b1 / a0; _b2 = b2 / a0; _a1 = a1 / a0; _a2 = a2 / a0;
+        }
+
+        private static (double Cos, double Alpha) Shape(double frequency, double q)
+        {
+            double w0 = 2 * Math.PI * Math.Clamp(frequency, 10, SampleRate * 0.45) / SampleRate;
+            return (Math.Cos(w0), Math.Sin(w0) / (2 * Math.Clamp(double.IsFinite(q) ? q : 0.707, 0.1, 40)));
+        }
+
+        public static Biquad HighPass(double frequency, double q)
+        {
+            (double cos, double alpha) = Shape(frequency, q);
+            return new Biquad((1 + cos) / 2, -(1 + cos), (1 + cos) / 2, 1 + alpha, -2 * cos, 1 - alpha);
+        }
+
+        // Unit gain at the centre whatever the Q.
+        public static Biquad BandPass(double frequency, double q)
+        {
+            (double cos, double alpha) = Shape(frequency, q);
+            return new Biquad(alpha, 0, -alpha, 1 + alpha, -2 * cos, 1 - alpha);
+        }
+
+        public void Reset() => _x1 = _x2 = _y1 = _y2 = 0;
+
+        public double Next(double x)
+        {
+            double y = _b0 * x + _b1 * _x1 + _b2 * _x2 - _a1 * _y1 - _a2 * _y2;
+            _x2 = _x1; _x1 = x; _y2 = _y1; _y1 = y;
+            return y;
+        }
+    }
+
+    // Pink noise by Paul Kellet's filter (within 0.05 dB of -3 dB an octave), brown by a leaky sum.
+    private struct NoiseColour
+    {
+        private double _b0, _b1, _b2, _b3, _b4, _b5, _b6, _brown;
+
+        public double Pink(double white)
+        {
+            _b0 = 0.99886 * _b0 + white * 0.0555179;
+            _b1 = 0.99332 * _b1 + white * 0.0750759;
+            _b2 = 0.96900 * _b2 + white * 0.1538520;
+            _b3 = 0.86650 * _b3 + white * 0.3104856;
+            _b4 = 0.55000 * _b4 + white * 0.5329522;
+            _b5 = -0.7616 * _b5 - white * 0.0168980;
+            double pink = _b0 + _b1 + _b2 + _b3 + _b4 + _b5 + _b6 + white * 0.5362;
+            _b6 = white * 0.115926;
+            return pink * 0.11;
+        }
+
+        public double Brown(double white)
+        {
+            _brown = (_brown + 0.02 * white) / 1.02;
+            return _brown * 3.5;
         }
     }
 
@@ -203,9 +362,62 @@ public static class SoundSynth
         return level;
     }
 
-    /// <summary>Writes 16-bit mono PCM.</summary>
-    public static void WriteWav(string path, float[] samples)
+    // How far an exponential decay or release falls over its time: e^-6.9 is a thousandth, -60 dB.
+    private const double ExponentialFall = 6.9;
+
+    // The same stages as Envelope on curves: the attack rises quickly then eases into full, the decay
+    // and release fall fast then slowly, and each still arrives exactly where the linear one does.
+    private static double ExponentialEnvelope(SynthLayer layer, double t, double duration)
     {
+        double attack = Math.Max(0.0005, layer.Attack), decay = Math.Max(0, layer.Decay), release = Math.Clamp(layer.Release, 0.0005, duration);
+        double sustain = Math.Clamp(layer.Sustain, 0, 1);
+        static double Fall(double progress) => (Math.Exp(-ExponentialFall * progress) - Math.Exp(-ExponentialFall)) / (1 - Math.Exp(-ExponentialFall));
+        double level = t < attack ? 1 - Fall(t / attack)
+            : t < attack + decay ? sustain + (1 - sustain) * Fall((t - attack) / Math.Max(1e-6, decay))
+            : sustain;
+        double releaseStart = duration - release;
+        if (t > releaseStart) level *= Fall(Math.Clamp((t - releaseStart) / release, 0, 1));
+        return level;
+    }
+
+    /// <summary>
+    /// Makes the sound loop seamlessly in exactly <paramref name="seconds"/>: what runs on past that
+    /// length is faded into the start (over a quarter of a second, or a quarter of the loop if that is
+    /// shorter), so the last sample leads on to the first as the sound itself would have. The sound is
+    /// normalised again afterwards. Samples are interleaved for <paramref name="channels"/>.
+    /// </summary>
+    public static float[] MakeLoop(float[] samples, int channels, double seconds)
+    {
+        if (!(seconds > 0) || seconds > MaximumSeconds) throw new ArgumentException($"A loop lasts more than 0 and at most {MaximumSeconds:0} seconds.");
+        int loop = Math.Max(2, (int)Math.Round(seconds * SampleRate));
+        int fade = Math.Max(1, Math.Min(SampleRate / 4, loop / 4));
+        int frames = samples.Length / channels;
+        var result = new float[loop * channels];
+        for (int frame = 0; frame < loop; frame++)
+            for (int channel = 0; channel < channels; channel++)
+            {
+                float value = frame < frames ? samples[frame * channels + channel] : 0f;
+                if (frame < fade)
+                {
+                    // The start fades in under what ran on past the loop's end, which fades out.
+                    int tail = loop + frame;
+                    float after = tail < frames ? samples[tail * channels + channel] : 0f;
+                    float mixIn = (frame + 0.5f) / fade;
+                    value = value * mixIn + after * (1 - mixIn);
+                }
+                result[frame * channels + channel] = value;
+            }
+        Normalise(result);
+        return result;
+    }
+
+    /// <summary>Writes 16-bit mono PCM.</summary>
+    public static void WriteWav(string path, float[] samples) => WriteWav(path, samples, 1);
+
+    /// <summary>Writes 16-bit PCM of one or two channels (interleaved left and right).</summary>
+    public static void WriteWav(string path, float[] samples, int channels)
+    {
+        if (channels is not (1 or 2)) throw new ArgumentOutOfRangeException(nameof(channels), "A sound is mono or stereo.");
         using var stream = new FileStream(path, FileMode.Create, FileAccess.Write);
         using var writer = new BinaryWriter(stream);
         int dataBytes = samples.Length * 2;
@@ -215,10 +427,10 @@ public static class SoundSynth
         writer.Write("fmt "u8);
         writer.Write(16);
         writer.Write((short)1);
-        writer.Write((short)1);
+        writer.Write((short)channels);
         writer.Write(SampleRate);
-        writer.Write(SampleRate * 2);
-        writer.Write((short)2);
+        writer.Write(SampleRate * 2 * channels);
+        writer.Write((short)(2 * channels));
         writer.Write((short)16);
         writer.Write("data"u8);
         writer.Write(dataBytes);
