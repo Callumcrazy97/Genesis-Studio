@@ -19,6 +19,7 @@ public sealed partial class ParticleEditorControl
     private Panel? _moduleStackHost;
     private FlowLayoutPanel? _moduleStackList;
     private Label? _moduleStackMessage;
+    private ThemedComboBox? _moduleEmitterChoice;
     private TrackBar? _moduleScrub;
     private Button? _modulePlayButton;
     private ToolStripMenuItem? _moduleStackMenu;
@@ -201,9 +202,22 @@ public sealed partial class ParticleEditorControl
             ForeColor = EditorChrome.Error, BackColor = EditorChrome.Surface, Visible = false, AutoEllipsis = true,
             AccessibleName = "Module stack message",
         };
+        // A layered effect: which emitter's stack is shown (the same choice as the Emitters list).
+        _moduleEmitterChoice = new ThemedComboBox
+        {
+            Dock = DockStyle.Top, DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Emitter whose modules are shown",
+            Margin = new Padding(8, 2, 8, 2),
+        };
+        EditorChrome.StyleField(_moduleEmitterChoice);
+        _moduleEmitterChoice.SelectedIndexChanged += (_, _) =>
+        {
+            if (_syncingModules || _moduleEmitterChoice.SelectedIndex < 0 || _moduleEmitterChoice.SelectedIndex == _selectedEmitterIndex) return;
+            ModuleUi(() => SelectEmitter(_moduleEmitterChoice.SelectedIndex));
+        };
         host.Controls.Add(_moduleStackList);
         host.Controls.Add(_moduleStackMessage);
         host.Controls.Add(transport);
+        host.Controls.Add(_moduleEmitterChoice);
         Control dock = _particleQuickSetup!.Parent ?? throw new InvalidOperationException("The particle inspector dock is missing.");
         dock.Controls.Add(host);
         _moduleStackHost = host;
@@ -401,9 +415,16 @@ public sealed partial class ParticleEditorControl
         };
         control.Tag = module.Id + "/" + field.Key;
         control.AccessibleName ??= module.Title + " " + field.Label;
-        AddInspectorRow(card, field.PreviewOnly ? field.Label + " · preview only" : field.Label, control);
+        AddInspectorRow(card, field.Label, control);
         if (!string.IsNullOrEmpty(field.Hint) && control.Parent is Control row)
             foreach (Label label in row.Controls.OfType<Label>()) label.AccessibleDescription = field.Hint;
+        // Honest about what a game reads: a preview-only field says so under itself.
+        if (field.PreviewOnly)
+            card.Controls.Add(new Label
+            {
+                Name = "ParticleModuleHint", Text = "Preview only. " + field.Hint, AutoSize = false, ForeColor = EditorChrome.Warning,
+                Font = EditorChrome.SmallFont, UseMnemonic = false, Margin = new Padding(0, 0, 0, 4),
+            });
     }
 
     private NumericUpDown ModuleNumber(ParticleModuleDefinition module, ParticleModuleField field)
@@ -494,7 +515,11 @@ public sealed partial class ParticleEditorControl
         EditorChrome.StyleField(low); EditorChrome.StyleField(high);
         pair.Controls.Add(low, 0, 0);
         pair.Controls.Add(high, 1, 0);
-        CheckBox random = new() { Text = "Random between two values", AutoSize = true, ForeColor = EditorChrome.Text };
+        CheckBox random = new()
+        {
+            Text = "Random range", AutoSize = true, ForeColor = EditorChrome.Text,
+            AccessibleName = module.Title + ": a random value between the two numbers for each particle",
+        };
         ParticleValueRange Current() => field.Read(ModuleContext) is ParticleValueRange range ? range : default;
         void Write() => ModuleUi(() => SetModuleField(module.Id, field.Key,
             new ParticleValueRange((double)low.Value, random.Checked ? (double)high.Value : (double)low.Value)));
@@ -623,6 +648,18 @@ public sealed partial class ParticleEditorControl
         try
         {
             foreach (Action refresh in _moduleRefreshers) refresh();
+            if (_moduleEmitterChoice is not null)
+            {
+                string[] names = Enumerable.Range(0, ParticleEffectEditing.Count(_effect))
+                    .Select(index => ParticleEffectEditing.Name(_effect, index)).ToArray();
+                if (!_moduleEmitterChoice.Items.Cast<string>().SequenceEqual(names))
+                {
+                    _moduleEmitterChoice.Items.Clear();
+                    _moduleEmitterChoice.Items.AddRange(names);
+                }
+                _moduleEmitterChoice.SelectedIndex = Math.Clamp(_selectedEmitterIndex, 0, names.Length - 1);
+                _moduleEmitterChoice.Visible = names.Length > 1;
+            }
         }
         finally { _syncingModules = false; }
         UpdateModuleTransport();

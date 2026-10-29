@@ -125,7 +125,7 @@ public static class ParticleModuleCatalog
                 {
                     Key = "previewLength", Label = "Preview length (s)", Kind = ParticleModuleFieldKind.Number,
                     Minimum = 0.05, Maximum = 3600, Decimals = 2, PreviewOnly = true,
-                    Hint = "How much of the effect the timeline scrubs. Preview only: a game plays the effect for as long as its Object lives.",
+                    Hint = "How much of the effect the timeline scrubs; a game plays it for as long as its Object lives.",
                     Read = context => context.Effect.Duration,
                     Write = (context, value) => context.Effect.Duration = Math.Clamp(ToNumber(value), 0.05, 3600),
                 },
@@ -517,7 +517,8 @@ public static class ParticleModuleCatalog
 
     // ── Field builders ──────────────────────────────────────────────────────────
 
-    private static readonly Func<ParticleModuleContext, bool> Always = _ => true;
+    // A method, not a static field: All is built first, before any field declared below it is set.
+    private static bool Always(ParticleModuleContext context) => true;
 
     private static ParticleModuleField Number(string key, string label, double minimum, double maximum, int decimals,
         Func<ParticleConfig, double> get, Action<ParticleConfig, double> set,
