@@ -1341,7 +1341,40 @@ video memory. **F7** opens the full panel:
   Click the search box and type (`grass`, `kind:texture`, `>1mb`); sort by size, count, name or kind.
 - **Game**: each PGSL object's instances, event calls and time, the slowest events, script errors.
 - **World** and **AI & Navigation**: the inspector, view toggles and navigation telemetry.
+- **Draw** (29 October 2026): what is drawn over the frame to see why something looks wrong.
+  **Colliders** draws the colliders the game's collisions use, as wireframes in 3D and outlines in
+  2D, one colour each: static bodies blue, moving green, kinematic yellow, characters magenta,
+  triggers orange, a 2D room's solid tiles red, sprite hitboxes (the mask box collisions test) cyan;
+  the kinds can be left out one by one, and the legend counts what was drawn. In 3D they are the
+  physics engine's own shapes within 60 m of the camera, model and terrain meshes included (a dense
+  mesh is sampled); a game that collides in its own script, as Cathedral Test's walls do, shows none.
+  **GUI layer
+  outlines** boxes each layer's area with its owner. **View mode** draws the frame in a diagnostic
+  way, with a legend in the corner: *LOD level* (models in their level of detail's colour, full
+  detail green to coarsest red), *Overdraw* (models added up, brighter where more cover a pixel),
+  *Depth*, *Normals* and *Shadow coverage* (the sun's shadow map). *Shadow cascades*,
+  *Reflections* and *Light count* are offered but not drawn yet (they need the renderer's forward
+  shader); the legend says so and the frame stays shaded.
+- **GUI**: which instances' Draw GUI events and C# HUDs drew in the last frame, the draw calls each
+  made, the area it covered, and the User Interface resources it drew (their elements and the GUI
+  size they were laid out for).
+- **Object**: the report on one instance. Turn on *Pick with the mouse* and click it in the game,
+  or step through the room's instances with Previous and Next. It says its Object, position,
+  model, materials and their shaders, body, size on screen and level of detail, and whether it is
+  drawn this frame, and if not why: invisible, deactivated, outside the camera's view, behind an
+  occluder, too small on screen, past the far plane, in a hidden model layer, off a 2D room's
+  view. The reasons come from the same tests the draw makes.
 - **Engine** appears only when Studio's developer setting *Show Engine debug category* is on.
+
+Everything on Draw, GUI and Object is off unless turned on, costs nothing while the screen is closed,
+and is reachable from a script or a room's Inspector as `Engine.Debug.*` (`Engine.Debug.Overlay.Colliders.Enabled`,
+`Engine.Debug.View.Mode = "lod"`, `Engine.Debug.Inspect.Instance`, `Engine.Debug.Inspect.Report`; see
+Design/EngineApiAreas.md). For an unattended run, `GENESIS_DEBUG_SCREEN` holds settings separated by `;`
+(`Engine.Debug.Overlay.Colliders.Enabled=true;Engine.Debug.View.Mode=lod`), `panel=Object` to open a tab,
+`report=4` to write after four seconds of play one line per placed instance to the game's log
+(`debug object #12 Pew: not drawn, outside the camera's view (frustum culled)`), and `inspect=culled`
+(or `drawn`, or an instance id) to put the Object report on the first instance not drawn (or drawn)
+and log it.
 
 **F8** (or the Record button) records a profile. A debug run (Studio's Debug button) records from
 the start unless *Start recording when debugging starts* is turned off in Preferences → Runtime.

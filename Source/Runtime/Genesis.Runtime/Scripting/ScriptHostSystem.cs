@@ -470,12 +470,17 @@ namespace Genesis.Runtime.Scripting
         public void DispatchDrawHud(IHudCanvas hud)
         {
             if (_instances.Count == 0 || hud == null) return;
+            // The debug screen's GUI page counts each behaviour's drawing (off unless it is showing).
+            bool trace = Genesis.Runtime.Debugger.GuiLayerTrace.Enabled;
+            if (trace) hud = Genesis.Runtime.Debugger.GuiLayerTrace.Wrap(hud);
             FillDispatchSnapshot();
             foreach (var b in _dispatchSnapshot)
             {
                 if (b.World == null || !b.World.IsAlive(b.Entity)) continue;
+                if (trace) Genesis.Runtime.Debugger.GuiLayerTrace.BeginLayer("HUD", b is PgslBehavior named ? named.ScriptName : b.GetType().Name, b.Entity.Id);
                 try { b.OnDrawHud(hud); }
                 catch (Exception ex) { LogBehaviorError(b, "OnDrawHud", ex); }
+                finally { if (trace) Genesis.Runtime.Debugger.GuiLayerTrace.EndLayer(); }
             }
         }
 
@@ -553,11 +558,15 @@ namespace Genesis.Runtime.Scripting
             if (_instances.Count == 0 || (renderer == null && hud == null && surfaceOverride == null)) return;
 
             IPgslDrawSurface surface = surfaceOverride;
+            // The debug screen's GUI page counts each instance's drawing (off unless it is showing).
+            bool trace = Genesis.Runtime.Debugger.GuiLayerTrace.Enabled && surfaceOverride == null && hud != null;
+            if (trace) hud = Genesis.Runtime.Debugger.GuiLayerTrace.Wrap(hud);
             FillDispatchSnapshot();
             foreach (var b in _dispatchSnapshot)
             {
                 if (b is not PgslBehavior pgsl || !pgsl.HasGuiDrawScript) continue;
                 if (b.World == null || !b.World.IsAlive(b.Entity)) continue;
+                if (trace) Genesis.Runtime.Debugger.GuiLayerTrace.BeginLayer("Draw GUI", pgsl.ScriptName, b.Entity.Id);
                 surface ??= new PgslRenderDrawSurface(
                     renderer,
                     hud,
@@ -575,6 +584,7 @@ namespace Genesis.Runtime.Scripting
                 {
                     surface.SetClip(System.Drawing.RectangleF.Empty);
                     if (linearDefault || surface.BlendLinear) surface.SetBlendLinear(false);
+                    if (trace) Genesis.Runtime.Debugger.GuiLayerTrace.EndLayer();
                 }
             }
 

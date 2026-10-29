@@ -321,6 +321,7 @@ namespace Genesis.Runtime.Debugger
             float stripHeight = rowY - y + height;
             hud.Rect(x, y, stripWidth, stripHeight, DebugOverlayPalette.Canvas, filled: true);
             hud.Rect(x, y, stripWidth, stripHeight, DebugOverlayPalette.Border, filled: false);
+            _stripBounds = new System.Drawing.RectangleF(x, y, stripWidth, stripHeight);
             foreach ((string text, Vector4 color, float textX, float textY) in placed)
                 hud.Text(text, textX, textY + 6f, textSize, color);
 
@@ -355,6 +356,9 @@ namespace Genesis.Runtime.Debugger
                 var panels = new List<DebugHudPanel> { DebugHudPanel.Overview, DebugHudPanel.Resources, DebugHudPanel.Game };
                 if (EngineCategoryEnabled) panels.Add(DebugHudPanel.Engine);
                 panels.Add(DebugHudPanel.World);
+                panels.Add(DebugHudPanel.Draw);
+                panels.Add(DebugHudPanel.Gui);
+                panels.Add(DebugHudPanel.Object);
                 panels.Add(DebugHudPanel.AiNavigation);
                 return panels;
             }
@@ -368,12 +372,13 @@ namespace Genesis.Runtime.Debugger
             float panelH = Math.Max(200f, height - panelY - 8f);
             hud.Rect(panelX, panelY, panelW, panelH, DebugOverlayPalette.Surface, filled: true);
             hud.Rect(panelX, panelY, panelW, panelH, DebugOverlayPalette.Border, filled: false);
+            _panelBounds = new System.Drawing.RectangleF(panelX, panelY, panelW, panelH);
 
             float tabX = panelX + 8f;
             foreach (DebugHudPanel panel in AvailablePanels)
             {
                 string label = PanelName(panel);
-                float tabW = Math.Max(70f, hud.MeasureText(label, 10f).X + 18f);
+                float tabW = Math.Max(52f, hud.MeasureText(label, 10f).X + 14f);
                 if (DrawButton(hud, tabX, panelY + 8f, tabW, 24f, label, ActivePanel == panel, DebugOverlayPalette.Accent))
                     SelectPanel(panel);
                 tabX += tabW + 4f;
@@ -399,6 +404,15 @@ namespace Genesis.Runtime.Debugger
                     break;
                 case DebugHudPanel.World:
                     DrawWorldTab(hud, contentX, contentY, contentW, contentH);
+                    break;
+                case DebugHudPanel.Draw:
+                    DrawDrawTab(hud, contentX, contentY, contentW, contentH);
+                    break;
+                case DebugHudPanel.Gui:
+                    DrawGuiTab(hud, contentX, contentY, contentW, contentH);
+                    break;
+                case DebugHudPanel.Object:
+                    DrawObjectTab(hud, contentX, contentY, contentW, contentH);
                     break;
                 case DebugHudPanel.AiNavigation:
                     DrawAiNavigationPanel(hud, width, height);
@@ -880,6 +894,9 @@ namespace Genesis.Runtime.Debugger
             DebugHudPanel.Game => "Game",
             DebugHudPanel.Engine => "Engine",
             DebugHudPanel.World => "World",
+            DebugHudPanel.Draw => "Draw",
+            DebugHudPanel.Gui => "GUI",
+            DebugHudPanel.Object => "Object",
             DebugHudPanel.AiNavigation => "AI & Navigation",
             _ => "Overview",
         };

@@ -63,12 +63,20 @@ namespace Genesis.Runtime.Debugger
             float camOffsetY = screenHeight * 0.5f;
             float zoom = 1.0f;
 
-            // Compute camera offset & zoom from scene 2D camera if available
-            // By default Level 1 room is 1280x720 with center at (640, 360)
-            float cx = 640f;
-            float cy = 360f;
-            camOffsetX = screenWidth * 0.5f - (cx * zoom);
-            camOffsetY = screenHeight * 0.5f - (cy * zoom);
+            // Where the 2D room's last frame put it (its first view); a room 1280x720 centred otherwise.
+            DebugProjection projection = DebugProjection.For(scene, screenWidth, screenHeight);
+            if (projection.Is2D)
+            {
+                RoomRenderSubsystem.View2D view = projection.Views2D[0];
+                zoom = view.Zoom;
+                camOffsetX = view.Port.X + view.OffsetX;
+                camOffsetY = view.Port.Y + view.OffsetY;
+            }
+            else
+            {
+                camOffsetX = screenWidth * 0.5f - 640f * zoom;
+                camOffsetY = screenHeight * 0.5f - 360f * zoom;
+            }
 
             // Query living entities in the ECS world
             InspectedEntityInfo bestHover = null;

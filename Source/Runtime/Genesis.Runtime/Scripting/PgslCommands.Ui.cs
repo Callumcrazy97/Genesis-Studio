@@ -48,6 +48,10 @@ public static partial class PgslCommands
 
         // Children of a Scroll List are moved by its scroll and seen only through it.
         RectangleF? clipped = null;
+        // The debug screen's GUI page lists each resource drawn, its elements and their area.
+        bool trace = Genesis.Runtime.Debugger.GuiLayerTrace.Enabled;
+        int traced = 0;
+        RectangleF tracedArea = RectangleF.Empty;
         foreach (UiElement element in layout.Ordered)
         {
             if (!IsUiElementVisible(context, uiAsset, element, layout.Elements)) continue;
@@ -62,8 +66,14 @@ public static partial class PgslCommands
             }
             DrawUiElement(surface, context, uiAsset, element, rect, MathF.Min(scaleX, scaleY), UiElementState(context, uiAsset, element, pointer),
                 UiNamed(context, uiAsset, document, element));
+            if (trace)
+            {
+                traced++;
+                tracedArea = tracedArea.IsEmpty ? rect : RectangleF.Union(tracedArea, rect);
+            }
         }
         if (clipped != null) surface.SetClip(RectangleF.Empty);
+        if (trace) Genesis.Runtime.Debugger.GuiLayerTrace.NoteUi(uiAsset, traced, tracedArea, UiTargetSize(context));
     }
 
     [PgslCommand("UiSetText", "UiSetText(uiAsset, elementId, text)", "Override text for one UI element on this instance", "User Interface")]

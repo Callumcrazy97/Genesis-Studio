@@ -64,9 +64,18 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
     /// <summary>How sprites (and GUI sprites) are sampled in this room, 2D or 3D: the room's pixel-art setting.</summary>
     public SamplerFilter SpriteFilter => _room.Settings.PixelArtSampling ? SamplerFilter.Point : SamplerFilter.Linear;
 
+    /// <summary>Where a 2D frame put the room in one view: the window rectangle it drew into, and screen = port + offset + world * zoom.</summary>
+    public readonly record struct View2D(System.Drawing.Rectangle Port, float OffsetX, float OffsetY, float Zoom);
+
+    private readonly List<View2D> _views2D = new();
+
+    /// <summary>The views the last 2D frame drew, so the debug screen can draw over the room where it is.</summary>
+    public IReadOnlyList<View2D> Views2D => _views2D;
+
     public void Render2D(RuntimeScene scene, IRenderController renderer, IRenderCommandSink commands)
     {
         if (!IsTwoD || commands == null) return;
+        _views2D.Clear();
         renderer.SetSamplerState(SpriteFilter);
 
         // A room with viewports configured draws once per enabled viewport, into that viewport's
@@ -106,6 +115,7 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
             float zoom = viewport.SourceWidth <= 0f ? 1f : port.Width / viewport.SourceWidth;
             float offsetX = -sourceX * zoom;
             float offsetY = -sourceY * zoom;
+            _views2D.Add(new View2D(port, offsetX, offsetY, zoom));
 
             // The final sprite pass uses one full-target orthographic camera. Each command owns
             // its destination offset and clip; changing GPU state while queuing does not work.
@@ -147,6 +157,7 @@ public sealed partial class RoomRenderSubsystem : ISceneSubsystem
         float cy = cameraState?.Position.Y ?? _room.Settings.Height * .5f;
         float zoom = cameraState?.Zoom2D ?? 1f;
         float offsetX = renderer.PixelWidth * .5f - cx * zoom, offsetY = renderer.PixelHeight * .5f - cy * zoom;
+        _views2D.Add(new View2D(new System.Drawing.Rectangle(0, 0, renderer.PixelWidth, renderer.PixelHeight), offsetX, offsetY, zoom));
         // The 2D camera is derived from several values that are individually plausible and only
         // wrong in combination, so state them once. A room that draws in the wrong place is
         // otherwise pure guesswork from a screenshot.

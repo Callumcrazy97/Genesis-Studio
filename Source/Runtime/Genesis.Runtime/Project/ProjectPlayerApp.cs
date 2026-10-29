@@ -655,6 +655,7 @@ namespace Genesis.Runtime.Project
                         if (built.Debugger == null) return;
                         built.Debugger.RecordingStarted += folder => logger.Line("profile recording: " + folder);
                         built.Debugger.RecordingSaved += folder => logger.Line("profile saved: " + folder);
+                        built.Debugger.DiagnosticLine += line => logger.Line(line);
                         if (profile && !built.Debugger.StartRecording())
                             logger.Line("profile recording could not start (no debug folder to write to)");
                     };
