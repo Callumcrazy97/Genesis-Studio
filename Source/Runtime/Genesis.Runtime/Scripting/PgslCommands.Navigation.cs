@@ -147,13 +147,24 @@ public static partial class PgslCommands
                 obstacles.Add(new(new Vector3(tile.Left, -1, tile.Top), new Vector3(tile.Right, 2, tile.Bottom)));
         // In a 3D room the tops of static boxes an agent fits on are floors of their own.
         var data = NavMeshBuilder.Build((float)originX, (float)originZ, (int)widthCells, (int)depthCells, (float)cellSize,
-            planarXY ? (_, _) => 0f : game.GetTerrainHeight, obstacles,
+            planarXY ? (_, _) => 0f : NavigationGround(game), obstacles,
             agentRadius: (float)_bakeRadius, agentHeight: (float)_bakeHeight, maxStep: (float)_bakeStep, maxSlope: (float)_bakeSlope, floors: !planarXY);
         session.Query = new NavMeshQuery(data); session.Paths.Clear();
         game.World.Query<NavMeshAgentComponent>((entity, ref agent) => agent.Agent?.SetPath([]));
         string? file = NavigationFile();
         if (file != null) data.Save(file);
     }
+    /// <summary>
+    /// The ground's height for a bake. A terrain's hole has no ground: its height reads as not a
+    /// number, so its cells (and those whose edges reach into it) are not walkable.
+    /// </summary>
+    private static Func<float, float, float> NavigationGround(IGameContext game)
+    {
+        RoomTerrainSubsystem? terrains = FirstTerrains();
+        if (terrains is not { HoleCount: > 0, HolesEnabled: true }) return game.GetTerrainHeight;
+        return terrains.NavigationHeightAt;
+    }
+
     [PgslCommand("NavMeshSetAreaCost", "NavMeshSetAreaCost(x1, z1, x2, z2, cost) -> number",
         "Make the navigation cells in a rectangle cheaper or dearer to cross (a road 0.5, mud 3; 1 is normal, 0.05 to 1000), so routes prefer or avoid them; in a 2D room z is y. Set after NavMeshBake or a room load. Returns how many cells changed", "Navigation")]
     public static double NavMeshSetAreaCost(double x1, double z1, double x2, double z2, double cost)

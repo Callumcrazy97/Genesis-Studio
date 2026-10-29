@@ -66,6 +66,12 @@ public static class TerrainTiling
             Array.Copy(splat, from * 4, tileSplat, to * 4, samplesX * 4);
             if (tileExtended != null) Array.Copy(extended, from * 4, tileExtended, to * 4, samplesX * 4);
         }
+
+        // The tile keeps the holes inside it.
+        if (source.HoleCount > 0)
+            for (int z = 0; z < samplesZ - 1; z++)
+            for (int x = 0; x < samplesX - 1; x++)
+                if (source.IsHole(startX + x, startZ + z)) tile.SetHole(x, z, true);
         return tile;
     }
 

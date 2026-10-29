@@ -162,6 +162,7 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 | Engine.Terrain.Scatter (trees, rocks) | ✓ Enabled, ✓ Density, ✓ Distance, ✓ Shadows |
 | Engine.Terrain.Collision | – Enabled (everything would fall through; Engine.Terrain.Enabled hides the ground instead), ✓ Distance (how far collision is built around bodies) |
 | Engine.Terrain.Edit | ✓ Raise(x, z, radius, metres), ✓ Lower(...), ✓ Flatten(x, z, radius, height), ✓ Smooth(...), ✓ Paint(x, z, radius, layer, strength) |
+| Engine.Terrain.Holes (29 Oct) | ✓ Enabled (false covers every hole with solid, walkable ground), ✓ Count (read), ✓ At(x, z), ✓ Cut(x, z, radius), ✓ Fill(x, z, radius) |
 
 ## Engine.Rendering
 

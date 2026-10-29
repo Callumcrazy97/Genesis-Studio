@@ -26,9 +26,12 @@ public static class TerrainColliderMesh
 
         indices = new int[(terrain.ResolutionX - 1) * (terrain.ResolutionZ - 1) * 6];
         int index = 0;
+        // Holes have no ground to stand on: a body over one falls through.
+        bool holes = terrain.HasHoles;
         for (int z = 0; z < terrain.ResolutionZ - 1; z++)
         for (int x = 0; x < terrain.ResolutionX - 1; x++)
         {
+            if (holes && terrain.IsHole(x, z)) continue;
             int a = z * terrain.ResolutionX + x;
             int b = a + 1;
             int c = a + terrain.ResolutionX;
@@ -38,6 +41,8 @@ public static class TerrainColliderMesh
             indices[index++] = a; indices[index++] = b; indices[index++] = d;
             indices[index++] = a; indices[index++] = d; indices[index++] = c;
         }
+
+        if (index < indices.Length) Array.Resize(ref indices, index);
     }
 
     /// <summary>
@@ -63,13 +68,17 @@ public static class TerrainColliderMesh
 
         indices = new int[cellsX * cellsZ * 6];
         int index = 0;
+        bool holes = terrain.AnyHole(startX, startZ, startX + cellsX - 1, startZ + cellsZ - 1);
         for (int z = 0; z < cellsZ; z++)
         for (int x = 0; x < cellsX; x++)
         {
+            if (holes && terrain.IsHole(startX + x, startZ + z)) continue;
             int a = z * pointsX + x, b = a + 1, c = a + pointsX, d = c + 1;
             indices[index++] = a; indices[index++] = b; indices[index++] = d;
             indices[index++] = a; indices[index++] = d; indices[index++] = c;
         }
+
+        if (index < indices.Length) Array.Resize(ref indices, index);
     }
 
     public static PhysicsWaterVolume CreateVolume(TerrainWaterDefinition definition, Matrix4x4 placement)

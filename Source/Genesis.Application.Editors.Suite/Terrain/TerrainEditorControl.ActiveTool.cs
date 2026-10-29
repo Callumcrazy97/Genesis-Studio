@@ -100,6 +100,8 @@ public sealed partial class TerrainEditorControl
         });
         if (brush == TerrainBrush.Paint)
             InvalidatePaint(Rectangle.FromLTRB(bounds.MinX, bounds.MinZ, bounds.MaxX + 1, bounds.MaxZ + 1));
+        else if (brush is TerrainBrush.Hole or TerrainBrush.FillHole)
+            AfterHoles(bounds.MinX, bounds.MinZ, bounds.MaxX, bounds.MaxZ);
         else QueueSculptRegion(bounds.MinX, bounds.MinZ, bounds.MaxX, bounds.MaxZ);
     }
 }

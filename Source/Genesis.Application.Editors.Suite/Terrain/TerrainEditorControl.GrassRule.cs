@@ -16,6 +16,7 @@ public sealed partial class TerrainEditorControl
     private TerrainAsset? _grassFieldTerrain;
     private int _grassFieldGroundRevision;
     private int _grassFieldPaintRevision;
+    private int _grassFieldHoleRevision;
     private List<TerrainWaterDefinition>? _grassFieldWaters;
 
     /// <summary>What the viewport's grass around the camera held and drew in the last frame.</summary>
@@ -329,12 +330,14 @@ public sealed partial class TerrainEditorControl
             _grassFieldGroundRevision = _groundRevision;
             _grassFieldPaintRevision = MaterialPreviewRevision;
         }
-        else if (_grassFieldGroundRevision != _groundRevision || _grassFieldPaintRevision != MaterialPreviewRevision)
+        else if (_grassFieldGroundRevision != _groundRevision || _grassFieldPaintRevision != MaterialPreviewRevision
+            || _grassFieldHoleRevision != _holeRevision)
         {
-            // Sculpted or painted: regrow in place, so the grass follows the stroke without going bare.
+            // Sculpted, painted or holed: regrow in place, so the grass follows the stroke without going bare.
             _grassField.Refresh();
             _grassFieldGroundRevision = _groundRevision;
             _grassFieldPaintRevision = MaterialPreviewRevision;
+            _grassFieldHoleRevision = _holeRevision;
         }
 
         // Colours, texture and wind change how the grass is drawn, never where it grows.

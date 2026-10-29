@@ -13,8 +13,8 @@ namespace Genesis.Runtime.Project;
 /// </summary>
 public sealed partial class RoomTerrainSubsystem
 {
-    /// <summary>What a game's edit does to the ground under its brush.</summary>
-    public enum GroundEdit { Raise, Lower, Flatten, Smooth, Paint }
+    /// <summary>What a game's edit does to the ground under its brush. Hole cuts the ground away; Fill puts it back.</summary>
+    public enum GroundEdit { Raise, Lower, Flatten, Smooth, Paint, Hole, Fill }
 
     /// <summary>Edits made so far (for checks).</summary>
     public int GroundEdits { get; private set; }
@@ -54,20 +54,97 @@ public sealed partial class RoomTerrainSubsystem
                 case GroundEdit.Flatten: terrain.ApplyFlattenBrush(local.X, local.Z, reach, 1f, (amount - place.Y) / up); break;
                 case GroundEdit.Smooth: terrain.ApplySmoothBrush(local.X, local.Z, reach, Math.Clamp(amount, 0f, 1f)); break;
                 case GroundEdit.Paint: terrain.ApplyPaintBrush(local.X, local.Z, reach, Math.Clamp(amount, 0f, 1f), Math.Clamp(layer - 1, 0, TerrainAsset.MaximumPaintLayers - 1)); break;
+                case GroundEdit.Hole:
+                case GroundEdit.Fill:
+                    if (terrain.ApplyHoleBrush(local.X, local.Z, reach, fill: edit == GroundEdit.Fill) == 0) continue;
+                    break;
                 default: continue;
             }
 
             float cx = (local.X - terrain.OriginX) / terrain.CellSize, cz = (local.Z - terrain.OriginZ) / terrain.CellSize;
             float cells = reach / terrain.CellSize;
-            entry.Ground?.RebuildRegion(
-                Math.Max(0, (int)MathF.Floor(cx - cells)), Math.Max(0, (int)MathF.Floor(cz - cells)),
-                Math.Min(terrain.ResolutionX - 1, (int)MathF.Ceiling(cx + cells)), Math.Min(terrain.ResolutionZ - 1, (int)MathF.Ceiling(cz + cells)));
+            int minX = Math.Max(0, (int)MathF.Floor(cx - cells)), minZ = Math.Max(0, (int)MathF.Floor(cz - cells));
+            int maxX = Math.Min(terrain.ResolutionX - 1, (int)MathF.Ceiling(cx + cells)), maxZ = Math.Min(terrain.ResolutionZ - 1, (int)MathF.Ceiling(cz + cells));
+            if (edit is GroundEdit.Hole or GroundEdit.Fill) AfterHoles(scene, entry, minX, minZ, maxX, maxZ);
+            else entry.Ground?.RebuildRegion(minX, minZ, maxX, maxZ);
             entry.GrassField?.Refresh();
-            if (edit != GroundEdit.Paint) Resolid(scene, entry);
+            if (edit is not (GroundEdit.Paint or GroundEdit.Hole or GroundEdit.Fill)) Resolid(scene, entry);
             changed = true;
         }
         if (changed) GroundEdits++;
         return changed;
+    }
+
+    // ── Holes (Engine.Terrain.Holes) ───────────────────────────────────────────────
+
+    /// <summary>True when the ground of a terrain at world x, z is cut away (a hole), with nothing under it in the same terrain.</summary>
+    public bool IsHoleAt(float worldX, float worldZ)
+    {
+        if (!float.IsFinite(worldX) || !float.IsFinite(worldZ)) return false;
+        foreach (Entry entry in _entries)
+        {
+            if (entry.Terrain is not { HasHoles: true } terrain || !Matrix4x4.Invert(Placement(entry), out Matrix4x4 toTerrain)) continue;
+            Vector3 local = Vector3.Transform(new Vector3(worldX, 0f, worldZ), toTerrain);
+            if (terrain.IsHoleAt(local.X, local.Z)) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The ground's height for a navigation bake: none (not a number) over a hole, so the bake does
+    /// not let agents walk there.
+    /// </summary>
+    public float NavigationHeightAt(float worldX, float worldZ) =>
+        IsHoleAt(worldX, worldZ) ? float.NaN : SampleHeight(worldX, worldZ);
+
+    /// <summary>Cells cut away across the room's terrains.</summary>
+    public int HoleCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (Entry entry in _entries) count += entry.Terrain?.HoleCount ?? 0;
+            return count;
+        }
+    }
+
+    /// <summary>Whether the terrains' holes are cut (true unless set); false draws, collides and walks solid ground over them.</summary>
+    public bool HolesEnabled { get; private set; } = true;
+
+    /// <summary>Cuts the holes again, or covers them, on every terrain of the room.</summary>
+    public void SetHolesEnabled(RuntimeScene scene, bool enabled)
+    {
+        if (enabled == HolesEnabled) return;
+        HolesEnabled = enabled;
+        foreach (Entry entry in _entries)
+        {
+            if (entry.Terrain is not { } terrain) continue;
+            terrain.HolesEnabled = enabled;
+            if (terrain.HoleCount == 0) continue;
+            AfterHoles(scene, entry, 0, 0, terrain.ResolutionX - 1, terrain.ResolutionZ - 1);
+            entry.GrassField?.Refresh();
+        }
+    }
+
+    // Holes changed under a rectangle of samples: the ground's triangles there, its collision and
+    // the scattered copies (placed again, without the ones now over a hole).
+    private void AfterHoles(RuntimeScene scene, Entry entry, int minX, int minZ, int maxX, int maxZ)
+    {
+        entry.Ground?.RebuildHoleRegion(minX - 1, minZ - 1, maxX, maxZ);
+        Resolid(scene, entry);
+        if (entry.Scatter != null && entry.Nature != null)
+        {
+            float near = entry.Scatter.NearDistance, mid = entry.Scatter.MidDistance;
+            float far = entry.Scatter.MaximumDistance, shadow = entry.Scatter.ShadowDistance;
+            entry.Scatter.Dispose();
+            entry.Scatter = new TerrainScatterRenderer(_projectPath, entry.Terrain, entry.Nature.ScatterLayers)
+            {
+                NearDistance = near, MidDistance = mid, MaximumDistance = far, ShadowDistance = shadow,
+            };
+            entry.ScatterColliders?.Clear(scene?.Physics);
+            entry.ScatterColliders = null;
+        }
     }
 
     // Collision after the ground moved: a small terrain's made again where it stood; a large one's

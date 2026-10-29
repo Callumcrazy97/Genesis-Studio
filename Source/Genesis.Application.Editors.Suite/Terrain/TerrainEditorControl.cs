@@ -33,6 +33,10 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         Paint,
         Erase,
         InFill,
+        /// <summary>Cuts the ground away (a cave mouth, a pit): not drawn, solid or walkable.</summary>
+        Hole,
+        /// <summary>Puts cut-away ground back.</summary>
+        FillHole,
     }
 
     public enum TerrainEditorMode
@@ -285,19 +289,24 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
             Name = "TerrainSculptBrushes",
             AutoSize = true,
             ColumnCount = 2,
-            RowCount = 3,
+            RowCount = 4,
             Margin = new Padding(0, 0, 0, 6),
             Width = 248,
         };
         brushRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         brushRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        for (int row = 0; row < 3; row++) brushRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (int row = 0; row < 4; row++) brushRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         foreach (TerrainBrush brush in Enum.GetValues<TerrainBrush>().Where(value => value != TerrainBrush.Paint))
         {
             TerrainBrush captured = brush;
             Button button = MakeContextAction(
-                brush.ToString(),
-                $"Use the {brush.ToString().ToLowerInvariant()} terrain brush",
+                brush == TerrainBrush.FillHole ? "Fill hole" : brush.ToString(),
+                brush switch
+                {
+                    TerrainBrush.Hole => "Cut the ground away under the brush: a cave mouth or a pit, not drawn, solid or walkable",
+                    TerrainBrush.FillHole => "Put cut-away ground back under the brush",
+                    _ => $"Use the {brush.ToString().ToLowerInvariant()} terrain brush",
+                },
                 () => { ActiveBrush = captured; SyncToolbar(); });
             button.Dock = DockStyle.Fill;
             button.Height = 34;
@@ -695,8 +704,29 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         // before and after cover the same planes.
         if (ActiveBrush == TerrainBrush.Paint && SelectedLayer >= 4) _terrain.EnsureExtendedSplatmap();
         _strokeSplatBefore = _terrain.CaptureSplatState();
+        _strokeHolesBefore = _terrain.CaptureHoleState();
         _flattenTarget = _terrain.SampleHeight(worldX, worldZ);
     }
+
+    private byte[]? _strokeHolesBefore;
+
+    /// <summary>Holes cut or filled since the terrain view last grew its grass (it regrows on a change).</summary>
+    private int _holeRevision;
+
+    /// <summary>Remakes the ground's triangles, collision preview and grass after holes changed under a cell rectangle.</summary>
+    private void AfterHoles(int minCellX, int minCellZ, int maxCellX, int maxCellZ)
+    {
+        foreach (AuthoredTerrainGround ground in _terrainGrounds.Values)
+            ground.RebuildHoleRegion(minCellX - 1, minCellZ - 1, maxCellX + 1, maxCellZ + 1);
+        _holeRevision++;
+        _viewport.Invalidate(true);
+    }
+
+    /// <summary>Cells cut away in this terrain (holes).</summary>
+    public int HoleCount => _terrain.HoleCount;
+
+    /// <summary>True when the ground at a world point is cut away.</summary>
+    public bool IsHoleAt(float worldX, float worldZ) => _terrain.IsHoleAt(worldX, worldZ);
 
     public void EndStroke()
     {
@@ -715,8 +745,24 @@ public sealed partial class TerrainEditorControl : EditorSurfaceControl, IResour
         byte[] beforeSplat = _strokeSplatBefore;
         ushort[] after = (ushort[])_terrain.HeightsData.Clone();
         byte[] afterSplat = _terrain.CaptureSplatState();
+        byte[] holesBefore = _strokeHolesBefore ?? [], holesAfter = _terrain.CaptureHoleState();
         _strokeHeightsBefore = null;
         _strokeSplatBefore = null;
+        _strokeHolesBefore = null;
+        if (!holesBefore.AsSpan().SequenceEqual(holesAfter))
+        {
+            // A Hole or Fill hole stroke: the cut cells are the change, one undo step.
+            void RestoreHoles(byte[] state)
+            {
+                _terrain.RestoreHoles(state);
+                AfterHoles(0, 0, _terrain.CellsX - 1, _terrain.CellsZ - 1);
+                MarkDirty();
+            }
+
+            PushEdit($"{(ActiveBrush == TerrainBrush.FillHole ? "Fill hole" : "Hole")} stroke",
+                () => RestoreHoles(holesAfter), () => RestoreHoles(holesBefore));
+            return;
+        }
         // A brush that reached layers 5-8 for the first time mid-stroke: the plane was empty before.
         if (afterSplat.Length != beforeSplat.Length)
         {

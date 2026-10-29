@@ -106,6 +106,8 @@ public sealed class TerrainLodGround : IDisposable
         public float MinY, MaxY;
         public NodeState State;
         public MeshHandle Mesh;
+        /// <summary>The indices <see cref="Mesh"/> was made with: shared by size, or the node's own where holes cut it.</summary>
+        public ushort[] Indices;
         public int TriangleCount;
         public int LastUsedFrame;
         public bool Dirty;               // heights changed while a mesh exists
@@ -528,13 +530,22 @@ public sealed class TerrainLodGround : IDisposable
 
     private void Install(Node node, MeshVertex[] vertices, ushort[] indices)
     {
-        if (node.State == NodeState.Ready && node.Mesh.IsValid)
+        if (node.State == NodeState.Ready && node.Mesh.IsValid && ReferenceEquals(node.Indices, indices))
         {
             _render.UpdateMesh(node.Mesh, vertices);
+        }
+        else if (node.State == NodeState.Ready && node.Mesh.IsValid)
+        {
+            // Holes were cut or filled under it: other triangles need a new mesh.
+            _render.ReleaseMesh(node.Mesh);
+            node.Mesh = _render.RegisterMesh(vertices, indices);
+            node.Indices = indices;
+            node.TriangleCount = indices.Length / 3;
         }
         else
         {
             node.Mesh = _render.RegisterMesh(vertices, indices);
+            node.Indices = indices;
             node.TriangleCount = indices.Length / 3;
             node.State = NodeState.Ready;
             node.LastUsedFrame = _frame;
@@ -663,7 +674,34 @@ public sealed class TerrainLodGround : IDisposable
             }
         }
 
+        // Holes: the node's own copy without the quads cut away. A coarse quad is cut where the
+        // fine cell at its middle is, so a far hole keeps about its size.
+        if (asset.AnyHole(startX, startZ, lastX - 1, lastZ - 1))
+            indices = WithoutHoles(indices, cellsX, cellsZ, startX, startZ, stride);
         return (vertices, indices);
+    }
+
+    private ushort[] WithoutHoles(ushort[] indices, int cellsX, int cellsZ, int startX, int startZ, int stride)
+    {
+        var kept = new ushort[indices.Length];
+        int at = 0;
+        // The grid's quads come first, row by row, six indices each; the skirt follows.
+        for (int z = 0; z < cellsZ; z++)
+        for (int x = 0; x < cellsX; x++)
+        {
+            int middleX = Math.Min(startX + x * stride + stride / 2, _cellsX - 1);
+            int middleZ = Math.Min(startZ + z * stride + stride / 2, _cellsZ - 1);
+            int from = (z * cellsX + x) * 6;
+            if (_asset.IsHole(middleX, middleZ)) continue;
+            Array.Copy(indices, from, kept, at, 6);
+            at += 6;
+        }
+
+        int skirt = cellsX * cellsZ * 6;
+        Array.Copy(indices, skirt, kept, at, indices.Length - skirt);
+        at += indices.Length - skirt;
+        Array.Resize(ref kept, at);
+        return kept;
     }
 
     private static MeshVertex Lowered(MeshVertex vertex, float drop)

@@ -509,6 +509,30 @@ public static partial class PgslCommands
     public static bool TerrainEditPaint(double x, double z, double radius, double layer, double strength) =>
         double.IsFinite(layer) && EditGround(RoomTerrainSubsystem.GroundEdit.Paint, x, z, radius, strength, (int)Math.Round(layer));
 
+    // ── Engine.Terrain.Holes: ground cut away (a cave mouth, a pit, a well) ─────────────────
+
+    [PgslCommand("Enabled", "Engine.Terrain.Holes.Enabled = false", "Whether the terrains' holes are cut (true unless set); false draws solid ground over them that bodies stand and agents walk on, for a hole that opens later", "Terrain", Namespace = "Engine.Terrain.Holes", Flat = false)]
+    public static bool TerrainHolesEnabled
+    {
+        get => FirstTerrains()?.HolesEnabled ?? true;
+        set { if (ActiveGameContext?.Scene is { } scene) ForTerrains(terrains => terrains.SetHolesEnabled(scene, value)); }
+    }
+
+    [PgslCommand("Count", "Engine.Terrain.Holes.Count", "How many terrain cells are cut away across the room's terrains (read; 0 without holes)", "Terrain", Namespace = "Engine.Terrain.Holes", Flat = false)]
+    public static double TerrainHolesCount => FirstTerrains()?.HoleCount ?? 0;
+
+    [PgslCommand("At", "Engine.Terrain.Holes.At(x, z) -> bool", "Whether the ground at world x, z is cut away: nothing to stand on there", "Terrain", Namespace = "Engine.Terrain.Holes", Flat = false)]
+    public static bool TerrainHolesAt(double x, double z) =>
+        double.IsFinite(x) && double.IsFinite(z) && (FirstTerrains()?.IsHoleAt((float)x, (float)z) ?? false);
+
+    [PgslCommand("Cut", "Engine.Terrain.Holes.Cut(x, z, radius) -> bool", "Cuts the ground of the room's terrains away within radius of world x, z (a pit opening, a mine shaft): it is no longer drawn, solid or walkable and its grass goes; lasts while the room runs; false where nothing changed", "Terrain", Namespace = "Engine.Terrain.Holes", Flat = false)]
+    public static bool TerrainHolesCut(double x, double z, double radius) =>
+        EditGround(RoomTerrainSubsystem.GroundEdit.Hole, x, z, radius, 1);
+
+    [PgslCommand("Fill", "Engine.Terrain.Holes.Fill(x, z, radius) -> bool", "Puts the ground of the room's terrains back within radius of world x, z where it was cut away; false where nothing changed", "Terrain", Namespace = "Engine.Terrain.Holes", Flat = false)]
+    public static bool TerrainHolesFill(double x, double z, double radius) =>
+        EditGround(RoomTerrainSubsystem.GroundEdit.Fill, x, z, radius, 1);
+
     // The room's terrain subsystems: each value is set on all and read from the first.
     private static void ForTerrains(Action<RoomTerrainSubsystem> change)
     {

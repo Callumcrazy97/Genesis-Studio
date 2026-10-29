@@ -63,7 +63,23 @@ Measured on the development PC (DX11, 1280 × 720, a 2 km terrain seen from walk
 
 **Generate PBR** preserves existing channels and saves missing channels into the assigned Image. Albedo, Normal, Roughness and AO update the open terrain and entity previews. Normal relief does not displace geometry. Texture components expose the same generation action. Generation saves to the Image; terrain material assignment and Fill use terrain undo.
 
+## Holes
+
+A terrain can have **holes**: cells cut away from the ground for a cave mouth, a pit, a well or a mine shaft (Unity's terrain holes). On the **Sculpt** page pick **Hole** and drag over the ground; **Fill hole** puts it back. Every cell whose middle lies inside the brush is cut (a hole is all or nothing, so Strength and Falloff do not apply); one stroke is one undo step, and **File → Save** writes the holes into the `.gterrain` file.
+
+A hole is the same everywhere:
+- **Drawn:** its cells have no triangles, so the room, the Terrain view and the game draw nothing there, on every backend and in every pass: the sun's and the lamps' shadows fall through, and what lies below (a cave, the sky) shows. Large terrains drawn with level of detail cut the hole at full detail near the camera; far away a coarse cell is cut where the fine cell at its middle is.
+- **Solid:** the collision has no ground there, so a body or a character over a hole falls through, and a ray down through it finds nothing.
+- **Grown on:** grass around the camera, scatter layers and ecological foliage keep off holes.
+- **Walked:** a navigation bake reads no ground over a hole, so its cells, and those whose edges reach into it, are not walkable.
+
+Nothing is stored for a terrain without holes, and it saves the version 1 or 2 file as before. A terrain with holes saves **version 3**: the first splat plane is followed by flags (bit 1 the second plane, bit 2 the holes), the second plane if flagged, then one bit per cell, row by row.
+
+Scripts: `Engine.Terrain.Holes.Cut(x, z, radius)` and `Fill(x, z, radius)` change the ground while the room runs (its look, collision, grass and scatter follow at once; the resource is untouched), `At(x, z)` asks, `Count` counts, and `Enabled = false` covers every hole with solid, walkable ground until set back (a trapdoor, a pit that opens later). Automation: `terrain.setHole` (`points`, `radius`, `fill`, `clear`) and the Hole and FillHole brushes of `terrain.sculpt`.
+
 ## Verification scope
+
+`Genesis.Application.Headless.exe --test terrain-grass` checks holes (cut, saved as version 3 and reopened; a terrain without holes still saves version 1; collision, raycast, grass and scatter leave them out; a dropped body falls through; the navigation grid refuses them; scripts cut, fill and switch them off; `terrain.setHole`; a DX11 pixel through a hole shows what lies below; the Terrain editor's brush, undo, save and reopen, with a capture).
 
 `Genesis.Application.Headless.exe --test terrain-layers-grass` checks eight-layer paint, version 1/2 files and undo snapshots, atlas cells, compiles the per-layer shader to DXBC, DXIL, SPIR-V and GLSL, renders all eight layers on DX11, DX12, Vulkan and OpenGL, and captures height blending and tiled per-layer normals on DX11.
 
