@@ -21,8 +21,9 @@ namespace Genesis.Rendering.SilkNet.DX12
     /// b0..b15 / t0..t63 / u0..u15 as headroom. Descriptors for a table are copied per draw, so the
     /// declared width is what every draw costs: those ranges come to 176 descriptors per draw and
     /// would exhaust a heap in a few hundred draws. These are sized to the renderer's actual
-    /// surface (b0..b4, t0..t20, s0..s1) plus a little room — AF1.1 mid cascade is t14 and
-    /// AF1.3 omni faces are t15..t20 — instead of the full readiness headroom.</para>
+    /// surface (b0..b7, t0..t23, s0..s3) instead of the full readiness headroom: AF1.1 mid cascade
+    /// is t14, AF1.3 omni faces are t15..t20, the terrain layers and a Mesh shader's own textures
+    /// end at t23, and the sky constants are b7.</para>
     /// </remarks>
     internal sealed unsafe class Dx12Bindings : IDisposable
     {
