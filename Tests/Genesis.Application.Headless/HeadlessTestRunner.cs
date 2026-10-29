@@ -1304,11 +1304,15 @@ internal static class HeadlessTestRunner
             case "engine-systems":
                 Suites.EngineSystemsSuite.Run(ctx);
                 Suites.InputActionsSuite.Run(ctx);
+                Suites.CameraRigSuite.Run(ctx);
                 Suites.FramePathAssetIoSuite.Run(ctx);
                 Suites.LoadCacheSuite.Run(ctx);
                 break;
             case "input-actions":
                 Suites.InputActionsSuite.Run(ctx);
+                break;
+            case "camera-rigs":
+                Suites.CameraRigSuite.Run(ctx);
                 break;
             case "load-cache":
                 Suites.LoadCacheSuite.Run(ctx);

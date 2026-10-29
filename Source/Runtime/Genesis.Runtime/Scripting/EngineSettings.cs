@@ -44,6 +44,7 @@ public static class EngineSettings
         ["Engine.Audio.Acoustics.Place"] = new[] { "outdoors", "room", "hall", "cave" },
         ["Engine.Rendering.AntiAliasing.Mode"] = new[] { "off", "fxaa", "smaa", "taa" },
         ["Engine.Lighting.Ambient.Mode"] = new[] { "zenith", "hemisphere" },
+        ["Engine.Camera.Rigs.BlendCurve"] = new[] { "easeinout", "linear", "easein", "easeout", "cut" },
     };
 
     /// <summary>One setting a resource can carry: its full name, the type of its value and what it is.</summary>
@@ -240,8 +241,12 @@ public static class EngineSettings
         return Read(names, context);
     }
 
-    /// <summary>The world values the debug screen shows: physics, the audio buses and the game's speed.</summary>
-    public static IReadOnlyList<(Setting Setting, object? Value)> WorldValuesNow() => Read(WorldValues, new PgslContext());
+    // Shown only once the room has camera rigs, so a game without them sees the list it always had.
+    private static readonly string[] CameraRigValues = { "Engine.Camera.Rigs.Enabled", "Engine.Camera.Rigs.Active", "Engine.Camera.Rigs.BlendTime" };
+
+    /// <summary>The world values the debug screen shows: physics, the audio buses, the game's speed and any camera rigs.</summary>
+    public static IReadOnlyList<(Setting Setting, object? Value)> WorldValuesNow() =>
+        Read(PgslCommands.CameraRigsCount > 0 ? WorldValues.Concat(CameraRigValues) : WorldValues, new PgslContext());
 
     private static List<(Setting Setting, object? Value)> Read(IEnumerable<string> names, PgslContext context)
     {
@@ -289,6 +294,8 @@ public static class EngineSettings
             foreach (var row in PgslApi.Reference())
             {
                 if (!row.IsProperty || !row.CanSet || PgslApi.ValueType(row.Name) is not { } type) continue;
+                // One camera rig's values are for the script that makes it; a resource has no rig to give them to.
+                if (row.Name.StartsWith("Engine.Camera.Rig.", StringComparison.OrdinalIgnoreCase)) continue;
                 KnownChoices.TryGetValue(row.Name, out string[]? choices);
                 settings[row.Name] = new Setting(row.Name, ScopeOf(row.Name), type, row.Description ?? "", choices);
             }
