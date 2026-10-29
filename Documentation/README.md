@@ -1694,7 +1694,12 @@ language checks, `input-replay` (a script's input recorded and replayed frame fo
 `pgsl-project`: a two-room game the staged Player runs on DX11, checking every
 language group, instances, `with`, a library Script, the event order, a room change and two
 pictures by their pixels). Each tier is also a target on its own (`--test tier-pgsl`); the members
-are listed in `HeadlessTestRunner.Tiers`. The Full Build remains the release check.
+are listed in `HeadlessTestRunner.Tiers`. The Full Build remains the release check. Since 29 Oct the
+Editor tier also runs the particle modules, the music studio and the audio mixer, and the Engine tier
+every Engine API value (`engine-api-parts`), the direct network path (`network-online`) and the
+terrain paint's thin-rim case (`terrain-paint-rim`); the Full run also has the camera rigs, look at
+and reach, load caches, the F6 screen, the grass rule, the menu styles, the light and placed probes,
+`look-gaps` and `glowing-beam`.
 `--test speed` times opening the 3D Nature Walk project in Studio, opening each 3D editor, F5's
 script check, and the newest built Player's start and idle allocation rate, and writes the numbers
 to `Logs\speed-timings.json`; `GENESIS_SPEED_PROJECT=<a copy of a project>` also times opening that

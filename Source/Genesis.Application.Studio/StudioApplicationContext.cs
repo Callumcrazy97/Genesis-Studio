@@ -149,7 +149,7 @@ internal sealed class StudioApplicationContext : ApplicationContext
 
         sequence.Add("Locating the Ember player…", () =>
         {
-            string? runtimeDirectory = Genesis.Runtime.RuntimePaths.ResolveRuntimeDir();
+            string? runtimeDirectory = Genesis.Runtime.RuntimePaths.ResolveRunDir();
             _services.Log.Information(
                 "Startup",
                 runtimeDirectory is null

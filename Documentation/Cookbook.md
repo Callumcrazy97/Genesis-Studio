@@ -403,3 +403,8 @@ models.
   (they get a new id), not folder copies.
 - `game.run` and `game.benchmark` open a game window. On a shared machine take the test lock
   (`Global\GenesisAgentTestRun`) for each run and release it straight after.
+- In a git worktree `game.run`, `game.benchmark` and Studio's Run play that worktree's own Player: the
+  build output (`Source\Genesis.Player\bin\Release\net10.0-windows`) or the package its `Build.bat`
+  published (`Genesis Application\Player`). They never fall back to the main checkout's older one; with
+  none they stop and say which Player they would have played and how to build the worktree's
+  (`dotnet build Source\Genesis.Player\Genesis.Player.csproj -c Release`, or `Build.bat --quick`).

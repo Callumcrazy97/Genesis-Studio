@@ -288,7 +288,8 @@ namespace Genesis.Runtime.Project
             bool liveReload = true)
         {
             projectPath = ProjectRoomResolver.ResolveProjectRoot(projectPath);
-            runtimeDir ??= RuntimePaths.ResolveRuntimeDir();
+            // From a git worktree a run uses that worktree's own Player, never the main checkout's older one.
+            runtimeDir ??= RuntimePaths.ResolveRunDir();
             string exePath = runtimeDir == null ? null : Path.Combine(runtimeDir, RuntimePaths.RuntimeExeName);
 
             if (string.IsNullOrEmpty(projectPath))
@@ -299,7 +300,7 @@ namespace Genesis.Runtime.Project
                 return new LaunchOutcome
                 {
                     Success = false,
-                    ErrorMessage = "Could not find GenesisEngine.exe. Build Genesis Studio first (Build.bat).",
+                    ErrorMessage = RuntimePaths.MissingPlayerMessage(),
                 };
             }
 
