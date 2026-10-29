@@ -1193,6 +1193,8 @@ public sealed partial class StudioShellForm : DpiAwareForm
             resource, (path, projectRoot) => new Genesis.Application.Editors.Suite.Scripts.PgslScriptEditorControl(path, projectRoot), "PGSL Editor"));
         _editorRegistry.Register(ResourceKind.Audio, resource => Wrap(
             resource, (path, projectRoot) => new Genesis.Application.Editors.Suite.Assets.AudioEditorControl(path, projectRoot), "Audio Editor"));
+        _editorRegistry.Register(ResourceKind.Music, resource => Wrap(
+            resource, (path, projectRoot) => new Genesis.Application.Editors.Suite.Assets.MusicEditorControl(path, projectRoot), "Audio Editor · Music"));
         _editorRegistry.Register(ResourceKind.Shader, resource => Wrap(
             resource, (path, projectRoot) => new Genesis.Application.Editors.Suite.Assets.ShaderEditorControl(path, projectRoot), "Shader Editor"));
         _editorRegistry.Register(ResourceKind.UserInterface, resource => Wrap(

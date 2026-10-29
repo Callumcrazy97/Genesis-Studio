@@ -54,8 +54,8 @@ internal static class TwoDShowcaseSuite
             ProjectSession p = Require(project);
             ResourceService resources = new(p);
             Assert(!Directory.Exists(Path.Combine(p.AssetsPath, "Voxels")), "A voxel root was created.");
-            // Fourteen since Animation Controllers became resources of their own (22 October).
-            Assert(ResourceFolderPolicy.Roots.Count == 14, $"The supported standalone resource kinds need fourteen roots, not {ResourceFolderPolicy.Roots.Count}.");
+            // Fourteen since Animation Controllers became resources of their own (22 October); fifteen with Music (29 October).
+            Assert(ResourceFolderPolicy.Roots.Count == 15, $"The supported standalone resource kinds need fifteen roots, not {ResourceFolderPolicy.Roots.Count}.");
             foreach (ResourceRootFolder root in ResourceFolderPolicy.Roots)
             {
                 string folder = Path.Combine(p.AssetsPath, root.Name);

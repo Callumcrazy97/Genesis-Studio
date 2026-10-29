@@ -54,6 +54,14 @@ rate. A new project already has a room called Start, so give yours another name.
 | Floors, walls, platforms | `room.paintTiles` with `"solid": true` and `rects` (`{ "x", "y", "width", "height", "tile" }` in cells) or `cells`. The Platformer and Move with arrow keys recipes stop at solid tiles. |
 | A player | `object.create` with a `sprite` and `"recipes": ["Platformer"]`, placed above the floor. |
 
+## Music
+
+| Want | Do |
+|---|---|
+| A tune of your own | New › Music (it lives in Assets/Music) opens the Audio editor's Music mode: tracks of notes, each with an instrument (`Piano`, `Pluck`, `Bass`, `Lead`, `Pad`, `Organ`, `Drum Kit`, or any Make a sound preset), mute, solo and volume. Click the piano roll for a note, drag to move or resize it, drag in the lane under it for velocity; Play, Loop (drag on the ruler) and Undo work as you would expect. |
+| A song from another program | Import MIDI… in the Music mode reads a `.mid` file (format 0 or 1): a track per channel, channel 10 as the drum kit. Export MIDI… writes it back for other programs. |
+| The music in the game | Render to Audio makes the Audio resource `<piece> Audio` (music bus, repeating) beside your other sounds; play it with `PlaySound("Theme Song Audio", 0.5, 1, true)`. Render again after an edit: the same resource is updated. |
+
 ## A player
 
 `object.create` with `recipes` gives an Object the Object editor's Behaviour cards, as ordinary

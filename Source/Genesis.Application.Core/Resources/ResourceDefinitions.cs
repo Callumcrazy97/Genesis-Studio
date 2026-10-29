@@ -176,6 +176,8 @@ public static class ResourceDefinitions
             }
             """),
         new(ResourceKind.Note, "Note", ".md", "≡", "# New Note\n"),
+        new(ResourceKind.Music, "Music", ".music.json", "♫",
+            Genesis.Application.Core.Audio.Music.MusicDocumentSerializer.Serialize(Genesis.Application.Core.Audio.Music.MusicDocument.CreateDefault())),
     ];
 
     // Retain the legacy definition for decoding existing projects, but Terrain owns
