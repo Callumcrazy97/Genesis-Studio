@@ -630,7 +630,9 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             string.Equals(parameter.Name, name, StringComparison.OrdinalIgnoreCase))?.Value.ToArray()
         ?? [];
 
-    public bool PreviewVisible => _referenceShaderLayout ? _shaderWorkspacePages["Preview"].Visible : !_main.Panel2Collapsed;
+    public bool PreviewVisible => _referenceShaderLayout
+        ? _shaderWorkspacePages["Preview"].Visible || NodesPreviewShown
+        : !_main.Panel2Collapsed;
 
     public bool DiagnosticsVisible => _referenceShaderLayout
         ? _referenceDiagnosticsHost?.Visible == true
@@ -823,6 +825,8 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         {
             bool wasUpdating = _updatingUi;
             _updatingUi = true;
+            // Code given by hand replaces what a node graph wrote: the graph is detached.
+            _document.Graph = null;
             _code.CodeText = source;
             _document.Source = _code.CodeText;
             _document.Preset = string.Empty;
@@ -830,6 +834,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             MarkDirty();
             QueueLiveCompile();
         });
+        RefreshNodeView();
     }
 
     public void SetPipeline(ShaderAssetPipeline pipeline)
@@ -1399,6 +1404,14 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
     public void CompileNow()
     {
         _liveCompileTimer?.Stop();
+        // A shader made from nodes compiles what its graph makes; a graph that cannot make one is
+        // reported like a compile error, and the last working preview stays.
+        if (!RegenerateGraphSource(showDiagnostics: true))
+        {
+            CommitPendingSourceEdit();
+            InspectorStateChanged?.Invoke(this, EventArgs.Empty);
+            return;
+        }
         _document.Source = _code.CodeText;
         _document.Entry = string.IsNullOrWhiteSpace(_entryBox.Text) ? "MainPS" : _entryBox.Text.Trim();
         _document.VertexEntry = _vertexEntryBox.Text.Trim();
@@ -1803,6 +1816,8 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
             ? _document.TargetComponent
             : string.Empty;
         _viewport.Mode2D = _document.Pipeline != ShaderAssetPipeline.Mesh;
+        // A graph writes the new pipeline's kind of shader (surface, sprite or full screen).
+        RegenerateGraphSource(showDiagnostics: false);
 
         bool previousUpdating = _updatingUi;
         _updatingUi = true;
@@ -1832,6 +1847,8 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
     {
         bool previousUpdating = _updatingUi;
         _updatingUi = true;
+        // A preset replaces the whole shader, a node graph included.
+        _document.Graph = null;
         _document.Preset = preset.Name;
         _document.AuthoringMode = ShaderAuthoringMode.Preset;
         bool keepObject = _document.TargetType == ShaderTargetType.Object
@@ -1866,6 +1883,7 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         UpdatePreviewContext();
         MarkDirty();
         CompileNow();
+        RefreshNodeView();
     }
 
     private void SelectPresetInList(string name)
@@ -2115,8 +2133,9 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
         UpdatePreviewContext();
         CompileNow();
         ApplyResponsiveLayout();
-        if (_referenceShaderLayout && workspace is "Presets" or "Parameters" or "Buffers" or "Preview settings")
+        if (_referenceShaderLayout && workspace is "Presets" or "Parameters" or "Buffers" or "Preview settings" or "Nodes")
             SelectShaderWorkspaceMode(workspace);
+        RefreshNodeView();
         InspectorStateChanged?.Invoke(this, EventArgs.Empty);
     }
 

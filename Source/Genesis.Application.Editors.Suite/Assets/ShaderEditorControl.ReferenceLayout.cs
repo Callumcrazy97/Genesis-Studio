@@ -126,6 +126,7 @@ public sealed partial class ShaderEditorControl
         _shaderWorkspacePages["Buffers"] = buffers;
         _shaderGameGuide = MakeShaderWorkflowPage("ShaderUseInGame");
         _shaderWorkspacePages["Use in game"] = _shaderGameGuide;
+        _shaderWorkspacePages["Nodes"] = BuildShaderNodesDock();
         foreach (Control page in _shaderWorkspacePages.Values)
         {
             page.Dock = DockStyle.Fill;
@@ -143,7 +144,10 @@ public sealed partial class ShaderEditorControl
         Controls.Add(_statusLabel);
         body.BringToFront();
         BuildShaderWorkflowBar();
-        SelectShaderWorkspaceMode(_document.AuthoringMode == ShaderAuthoringMode.Code ? "Code" : "Preview");
+        // A shader made from nodes opens on its graph.
+        SelectShaderWorkspaceMode(_document.Graph is not null ? "Nodes"
+            : _document.AuthoringMode == ShaderAuthoringMode.Code ? "Code" : "Preview");
+        RefreshNodeView();
         RefreshShaderPassList();
         RefreshShaderBufferCards();
     }
@@ -161,6 +165,7 @@ public sealed partial class ShaderEditorControl
             "Code" => "Code",
             "Buffers" => "Buffers",
             "Use in game" => "Use in game",
+            "Nodes" => "Nodes",
             _ => "Preview",
         };
         string side = mode switch { "Parameters" => "Parameters", "Presets" => "Presets",
@@ -175,6 +180,9 @@ public sealed partial class ShaderEditorControl
             page.Visible = string.Equals(key, workspace, StringComparison.OrdinalIgnoreCase);
         foreach ((string key, Control page) in _shaderSidePages)
             page.Visible = string.Equals(key, side, StringComparison.OrdinalIgnoreCase);
+        PlaceNodesPreview(workspace);
+        if (_shaderNodesButton is not null) _shaderNodesButton.Checked = mode == "Nodes";
+        if (workspace == "Nodes") _graphView?.Focus();
         if (_shaderModeRail is not null)
         {
             foreach (Button button in _shaderModeRail.Controls.OfType<Button>())
@@ -275,7 +283,8 @@ public sealed partial class ShaderEditorControl
         save.BackColor = EditorChrome.Accent; _toolbar.Items.Add(save);
         _shaderQuickButton = EditorChrome.ToolButton("Quick setup", "Choose an effect and tune its live preview", () => SelectShaderWorkspaceMode("Preview"), toggle: true);
         _shaderCodeButton = EditorChrome.ToolButton("</> Code", "Edit this shader's HLSL source", () => SetAuthoringMode(ShaderAuthoringMode.Code), toggle: true);
-        _toolbar.Items.Add(_shaderQuickButton); _toolbar.Items.Add(_shaderCodeButton);
+        _shaderNodesButton = EditorChrome.ToolButton("Nodes", "Build this shader from nodes; the graph writes its code", () => SelectShaderWorkspaceMode("Nodes"), toggle: true);
+        _toolbar.Items.Add(_shaderQuickButton); _toolbar.Items.Add(_shaderCodeButton); _toolbar.Items.Add(_shaderNodesButton);
         _toolbar.Items.Add(EditorChrome.ToolButton("Use in game", "Create a shaded Object or see how to attach the saved Shader", ShowShaderGameGuide));
         ToolStripDropDownButton options = new("Options") { AccessibleName = "Shader advanced options" };
         foreach ((string label, string mode) in new[] { ("Presets and passes", "Presets"), ("Parameters and textures", "Parameters"), ("Texture bindings", "Buffers"), ("Preview settings", "Preview settings") })
