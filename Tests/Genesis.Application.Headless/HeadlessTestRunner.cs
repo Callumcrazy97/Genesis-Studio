@@ -1057,6 +1057,7 @@ internal static class HeadlessTestRunner
         Suites.ShaderWorkspaceSuite.Run(ctx);
         Suites.ShaderTerrainPreviewSuite.Run(ctx);
         Suites.ShaderNodeGraphSuite.Run(ctx);
+        Suites.ShaderVertexStageSuite.Run(ctx);
         Suites.RoomSurfacePlacementSuite.Run(ctx);
         Suites.RoomSurfaceAlignmentSuite.Run(ctx);
         Suites.RoomTerrainPreviewSuite.Run(ctx);
@@ -1439,10 +1440,13 @@ internal static class HeadlessTestRunner
                 Suites.ShaderWorkspaceSuite.Run(ctx);
                 Suites.ShaderTerrainPreviewSuite.Run(ctx);
                 Suites.ShaderNodeGraphSuite.Run(ctx);
+                Suites.ShaderVertexStageSuite.Run(ctx);
                 break;
             case "shader-nodes":
-                // The Shader editor's node graph: every node compiles (DXBC, SPIR-V), save and reopen, the node view.
+                // The Shader editor's node graph: every node compiles (DXBC, SPIR-V), save and reopen, the node view;
+                // and a surface shader's vertex stage.
                 Suites.ShaderNodeGraphSuite.Run(ctx);
+                Suites.ShaderVertexStageSuite.Run(ctx);
                 break;
             case "shader-terrain-preview":
                 Suites.ShaderTerrainPreviewSuite.Run(ctx);
