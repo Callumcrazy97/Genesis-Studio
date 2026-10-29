@@ -171,6 +171,17 @@ public static partial class GameExportService
                 if (File.Exists(strayScripts)) File.Delete(strayScripts);
             }
 
+            // The project's large PGSL Scripts compiled now, into the export's ScriptCache folder, so
+            // the first launch reads them back instead of compiling them (GC4: GenesisCraft's cold
+            // start was about 30 s against 10 s after). The game starts the same without them.
+            cancellationToken.ThrowIfCancellationRequested();
+            progress?.Report("Preparing large scripts to load quickly…");
+            try { Genesis.Runtime.Scripting.ScriptAssetRegistry.WriteExportCache(projectRoot, staging); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                // Without the entries the first launch compiles, as every launch did before.
+            }
+
             var shaderFailures = new List<string>();
             if (request.PrecompileShaders)
             {

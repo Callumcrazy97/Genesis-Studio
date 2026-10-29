@@ -745,6 +745,14 @@ internal static class PgslScriptsSuite
                 string compiled = Dump(fresh.CompileResult);
                 Check(ScriptCompileCache.Writes > writes, "A large Script compiled was not written to the cache.");
 
+                // An export ships the entries: written now into <export>\ScriptCache\<build>, one per large Script.
+                string export = Path.Combine(ctx.Workspace, "ZcExport");
+                int shipped = ScriptAssetRegistry.WriteExportCache(project.RootPath, export);
+                string shippedFolder = Path.Combine(export, ScriptCompileCache.ShippedFolderName, ScriptCompileCache.EngineBuildName);
+                int shippedFiles = Directory.Exists(shippedFolder) ? Directory.GetFiles(shippedFolder, "*.pgslc").Length : -1;
+                Check(shipped >= 1 && shippedFiles == shipped,
+                    $"An export's shipped script cache was not written ({shipped} entries written, {shippedFiles} files in {shippedFolder}).");
+
                 ScriptAssetRegistry.ClearCache();
                 ScriptAssetRegistry.LoadFromProject(project.RootPath);
                 ScriptAssetRegistry.TryGet("ZcLarge", out CompiledScriptAsset cached);
