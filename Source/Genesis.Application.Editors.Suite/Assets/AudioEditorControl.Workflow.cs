@@ -30,6 +30,12 @@ public sealed partial class AudioEditorControl
         options.DropDownItems.Add(EditorDocumentMenuChrome.Item("Advanced ambience", "Show adaptive environment roles", () =>
         { _advancedAudio = !_advancedAudio; ShowAudioQuickSetup(); }));
         options.DropDownItems.Add(EditorDocumentMenuChrome.Item("Reuse an Audio clip…", "Choose the WAV used by an existing Audio resource", ChooseAudioResource));
+        options.DropDownItems.Add(EditorDocumentMenuChrome.Item("Make music for this sound…", "Write a tune of notes and instruments (Music mode); its Render to Audio puts the music in this sound", () =>
+        {
+            try { CreateMusicForThisSound(); }
+            catch (Exception exception) when (exception is InvalidOperationException or IOException or ArgumentException or InvalidDataException)
+            { _statusLabel.Text = exception.Message; }
+        }));
         ToolStripMenuItem presets = new("Ambience presets");
         foreach (Genesis.Runtime.Climate.EnvironmentAudioRole role in Enum.GetValues<Genesis.Runtime.Climate.EnvironmentAudioRole>().Where(role => role != Genesis.Runtime.Climate.EnvironmentAudioRole.None))
             presets.DropDownItems.Add(EditorDocumentMenuChrome.Item(role.ToString(), "Apply this saved ambience role", () =>
@@ -154,6 +160,27 @@ public sealed partial class AudioEditorControl
             ["Create"] = call, ["Step"] = "if (KeyPressed(\"Space\")) { StopSound(soundChannel); " + call + " }", ["Destroy"] = "StopSound(soundChannel);",
         });
         ResourceNames.Invalidate(ProjectRoot); RequestOpenLinkedResource(path); return path;
+    }
+
+    /// <summary>
+    /// Makes a Music piece (in Assets/Music, from the Music template) whose Render to Audio writes this
+    /// sound, and asks Studio to open it in the Music mode. This sound is saved first, so the render
+    /// starts from its settings. Returns the piece's path.
+    /// </summary>
+    public string CreateMusicForThisSound()
+    {
+        if (IsDirty) Save();
+        string audioName = ResourceNames.Name(ProjectRoot, ResourcePath, ResourceType.Audio);
+        ResourceService resources = ProjectAssetIndex.OpenResourceService(ProjectRoot);
+        string name = ResourceNames.For(ProjectRoot).UniqueName(audioName + " Music");
+        string path = resources.CreateResource(ResourceFolderPolicy.RootFor(resources.Project, ResourceKind.Music), ResourceKind.Music, name);
+        Genesis.Application.Core.Audio.Music.MusicDocument piece = Genesis.Application.Core.Audio.Music.MusicDocumentSerializer.Load(path);
+        piece.Audio = audioName;
+        ProjectAssetWriteRegistry.MarkLocalWrite(path);
+        File.WriteAllText(path, Genesis.Application.Core.Audio.Music.MusicDocumentSerializer.Serialize(piece), new UTF8Encoding(false));
+        ResourceNames.Invalidate(ProjectRoot);
+        RequestOpenLinkedResource(path);
+        return path;
     }
 
     // Both full-page panels (Use in game, Make a sound) are laid out the same way.

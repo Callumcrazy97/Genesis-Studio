@@ -119,6 +119,7 @@ internal static partial class EditorGate
             finally { scripts.Shutdown(); PgslCommands.BindContext(oldContext); PgslCommands.ActiveGameContext = oldGame; PgslCommands.ProjectPath = oldPath; }
         });
         AudioSynthWorkflow(ctx);
+        MusicStudioWorkflow(ctx);
     }
 
     // ── Make a sound here: the synthesiser from inside the Audio editor ─────────────────────────────
