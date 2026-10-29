@@ -568,7 +568,8 @@ internal static class PgslLogicSuite
         });
     }
 
-    public static void Run(HeadlessContext ctx)
+    /// <param name="engineApiOnly">Only the standard engine API's checks (the EngineApi group and PgslEngineApiChecks), without the rest of the language.</param>
+    public static void Run(HeadlessContext ctx, bool engineApiOnly = false)
     {
         HeadlessHarness.BeginMajor(ctx.Report, "PgslLogic");
         string parent = Path.Combine(ctx.Workspace, "PgslLogic");
@@ -617,6 +618,13 @@ internal static class PgslLogicSuite
 
 
 
+
+        if (engineApiOnly)
+        {
+            Group("EngineApi", PgslEngineApiChecks.Script);
+            PgslEngineApiChecks.Run(ctx, project, (group, name, result, detail) => rows.Add(new Row(group, name, result, detail)));
+            return;
+        }
 
         foreach ((string name, string code) in LogicScripts) Group(name, code);
 
