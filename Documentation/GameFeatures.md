@@ -975,6 +975,13 @@ cubes that reads as a row of beads. The colour is the draw colour (`DrawSetColor
 strength the draw alpha (`DrawSetAlpha`, 0 to 1). Like every `Draw*3D` command it is called each
 frame it should show, from a Draw event. C#: `IPgslDrawSurface.QueueBeam3D`.
 
+**On the Software renderer (29 October 2026).** An additive mesh draw that carries its fade in its
+own colour (a beam, a glowing model drawn at `DrawSetAlpha` below 1, an additive mesh particle) now
+adds that colour as it is, as Direct3D 11 and 12, Vulkan and OpenGL do. The Software renderer used
+to weight it by alpha a second time, so a half-strength beam read half as bright as on the others
+(67 where they read 132). Sprites and particles drawn as sprites use a source-alpha additive blend
+and are unchanged.
+
 ## Particles: a burst that cleans up after itself
 
 `Game.PlayParticleBurst(asset, position, scale, emitSeconds)` (events: `ParticleBurstAt`) plays a
@@ -1421,9 +1428,15 @@ video memory. **F7** opens the full panel:
   outlines** boxes each layer's area with its owner. **View mode** draws the frame in a diagnostic
   way, with a legend in the corner: *LOD level* (models in their level of detail's colour, full
   detail green to coarsest red), *Overdraw* (models added up, brighter where more cover a pixel),
-  *Depth*, *Normals* and *Shadow coverage* (the sun's shadow map). *Shadow cascades*,
+  *Depth*, *Normals* and *Shadow coverage* (the sun's shadow map), and one term of the lighting
+  alone: *Albedo* (each surface's own colour, unlit), *Ambient light* (the indirect light: sky and
+  ground, the light probe and reflections) and *Direct light* (the sun with its shadows, and the
+  lamps), the same views `Engine.DebugView("Albedo")`, `("Ambient")` and `("Direct")` draw; black in
+  the ambient view takes no indirect light, black in the direct view gets no sun or lamp. Their
+  `Engine.Debug.View.Mode` names are `"albedo"`, `"ambient"` and `"direct"`. *Shadow cascades*,
   *Reflections* and *Light count* are offered but not drawn yet (they need the renderer's forward
-  shader); the legend says so and the frame stays shaded.
+  shader); the legend says so and the frame stays shaded. (The World tab's older pass row, with its
+  Lighting and Fog buttons, is separate and still draws only Depth and Normals.)
 - **GUI**: which instances' Draw GUI events and C# HUDs drew in the last frame, the draw calls each
   made, the area it covered, and the User Interface resources it drew (their elements and the GUI
   size they were laid out for). A call is one command to the GUI canvas: a text, an image, a

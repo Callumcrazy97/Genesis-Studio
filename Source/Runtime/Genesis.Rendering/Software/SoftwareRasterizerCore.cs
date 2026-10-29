@@ -1120,9 +1120,13 @@ namespace Genesis.Rendering.Software
                         float dstB = framePixels[dstIdx + 0] / 255f;
                         float dstG = framePixels[dstIdx + 1] / 255f;
                         float dstR = framePixels[dstIdx + 2] / 255f;
-                        b = b * finalA + dstB;
-                        g = g * finalA + dstG;
-                        r = r * finalA + dstR;
+                        // The source factor says whether alpha weights the colour: the forward renderer's additive
+                        // state (One, One) adds it as it is, as the GPU backends do, because whoever draws fades the
+                        // colour itself; only a source-alpha state scales it, and weighting it again halved a half-alpha beam.
+                        float weight = draw.BlendState.SrcColor == GpuBlendFactor.SrcAlpha ? finalA : 1f;
+                        b = b * weight + dstB;
+                        g = g * weight + dstG;
+                        r = r * weight + dstR;
                     }
                     else if (alphaBlend || finalA < 0.995f)
                     {

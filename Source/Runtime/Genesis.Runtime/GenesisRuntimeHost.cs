@@ -647,22 +647,30 @@ namespace Genesis.Runtime
         /// F6 pass dropdown drives the live debug view when the overlay is visible;
         /// otherwise Engine.DebugView / command binding wins.
         /// </summary>
-        private RenderDebugView ResolveDebugView()
+        private RenderDebugView ResolveDebugView() =>
+            ResolveDebugView(Debugger, _commandBinding?.DebugView ?? RenderDebugView.Shaded);
+
+        /// <summary>
+        /// The view the renderer is told to draw: the debug screen's view mode where the renderer
+        /// draws it (depth, normals, shadow coverage, albedo, ambient and direct light), else the
+        /// screen's pass row, else the one Engine.DebugView asked for (<paramref name="commandView"/>).
+        /// </summary>
+        internal static RenderDebugView ResolveDebugView(DebugOverlay debugger, RenderDebugView commandView)
         {
             // The debug screen's view mode (Engine.Debug.View.Mode) where the renderer draws it.
             if (DebugScreenSettings.RendererView(DebugScreenSettings.ActiveView) is RenderDebugView diagnostic)
                 return diagnostic;
-            if (Debugger != null && Debugger.IsVisible)
+            if (debugger != null && debugger.IsVisible)
             {
-                return Debugger.ActiveRenderPass switch
+                return debugger.ActiveRenderPass switch
                 {
                     DebugRenderPass.Normals => RenderDebugView.Normals,
                     DebugRenderPass.Depth => RenderDebugView.SceneDepth,
-                    _ => _commandBinding?.DebugView ?? RenderDebugView.Shaded,
+                    _ => commandView,
                 };
             }
 
-            return _commandBinding?.DebugView ?? RenderDebugView.Shaded;
+            return commandView;
         }
 
         private void FinishRender()
