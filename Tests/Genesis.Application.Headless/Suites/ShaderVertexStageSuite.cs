@@ -88,7 +88,8 @@ internal static class ShaderVertexStageSuite
 
             const string plain = "#include \"GenesisSurface.hlsl\"\nvoid Surface(GenesisSurfaceInput i, inout GenesisSurface s) { s.Roughness = 0.2; }\n";
             string composed = MeshSurfaceShaders.Compose(plain);
-            Assert(!MeshSurfaceShaders.HasVertexStage(plain) && !composed.Contains("GENESIS_SURFACE_VERTEX", StringComparison.Ordinal)
+            // The engine's own text names GENESIS_SURFACE_VERTEX in its hooks; only a vertex stage defines it.
+            Assert(!MeshSurfaceShaders.HasVertexStage(plain) && !composed.Contains("#define GENESIS_SURFACE_VERTEX", StringComparison.Ordinal)
                 && !composed.Contains("GenesisVertexInput", StringComparison.Ordinal), "A surface shader without Vertex was given the vertex stage.");
             Assert(!MeshSurfaceShaders.HasVertexStage("// void Vertex(\n" + plain), "A Vertex function in a comment counted.");
             ShaderGraphGenerationResult graph = ShaderGraphGenerator.Generate(ShaderNodeGraphSuite.TextureTintFresnel("Checker"), ShaderAssetPipeline.Mesh);
