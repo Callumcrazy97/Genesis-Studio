@@ -67,7 +67,7 @@ public static partial class PgslCommands
     [PgslCommand("Enabled", "Engine.Debug.View.Enabled = true", "The frame drawn in a diagnostic way while the debug screen is open (false unless set), as Engine.Debug.View.Mode says", "Debug", Namespace = "Engine.Debug.View", Flat = false)]
     public static bool DebugViewEnabled { get => DebugScreenSettings.View; set => DebugScreenSettings.View = value; }
 
-    [PgslCommand("Mode", "Engine.Debug.View.Mode = \"lod\"", "The diagnostic view (\"lod\" unless set): \"lod\" (models in their level of detail's colour), \"overdraw\", \"depth\", \"normals\", \"shadows\" (the sun's shadow coverage), \"cascades\", \"reflections\", \"lights\"; setting one turns the view on, \"off\" turns it off", "Debug", Namespace = "Engine.Debug.View", Flat = false)]
+    [PgslCommand("Mode", "Engine.Debug.View.Mode = \"lod\"", "The diagnostic view (\"lod\" unless set): \"lod\" (models in their level of detail's colour), \"overdraw\", \"depth\", \"normals\", \"shadows\" (the sun's shadow coverage), \"albedo\", \"ambient\" and \"direct\" (one term of the lighting alone), \"cascades\", \"reflections\", \"lights\" (these three are not drawn yet); setting one turns the view on, \"off\" turns it off", "Debug", Namespace = "Engine.Debug.View", Flat = false)]
     public static string DebugViewModePart
     {
         get => DebugScreenSettings.NameOf(DebugScreenSettings.ViewMode);

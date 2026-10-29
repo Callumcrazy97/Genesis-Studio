@@ -20,6 +20,12 @@ public enum DebugViewMode
     Normals,
     /// <summary>Lit (white) and shadowed (black) by the sun's farthest shadow map.</summary>
     ShadowCoverage,
+    /// <summary>Each surface's own colour, unlit: texture, tint and vertex colour.</summary>
+    Albedo,
+    /// <summary>The indirect light alone: sky and ground ambient, the light probe and reflections, after occlusion.</summary>
+    AmbientLight,
+    /// <summary>The direct light alone: the sun with its shadows, and the lamps.</summary>
+    DirectLight,
     /// <summary>Which of the sun's shadow cascades covers each pixel (needs the forward shader's branch).</summary>
     ShadowCascades,
     /// <summary>Where each surface's reflection comes from and how far it reaches (needs the forward shader's branch).</summary>
@@ -141,6 +147,9 @@ public static class DebugScreenSettings
         (DebugViewMode.Depth, "depth", "Depth"),
         (DebugViewMode.Normals, "normals", "Normals"),
         (DebugViewMode.ShadowCoverage, "shadows", "Shadow coverage"),
+        (DebugViewMode.Albedo, "albedo", "Albedo"),
+        (DebugViewMode.AmbientLight, "ambient", "Ambient light"),
+        (DebugViewMode.DirectLight, "direct", "Direct light"),
         (DebugViewMode.ShadowCascades, "cascades", "Shadow cascades"),
         (DebugViewMode.Reflections, "reflections", "Reflections"),
         (DebugViewMode.LightCount, "lights", "Light count"),
@@ -180,14 +189,18 @@ public static class DebugScreenSettings
 
     /// <summary>
     /// What the renderer draws for a mode: the debug views its forward shader has (normals, depth,
-    /// the sun's shadow map), or null for a mode it draws as shaded (LOD and overdraw are tints the
-    /// model draws carry; cascades, reflections and light count have no shader branch yet).
+    /// the sun's shadow map, and the albedo, ambient and direct terms of the lighting), or null for a
+    /// mode it draws as shaded (LOD and overdraw are tints the model draws carry; cascades,
+    /// reflections and light count have no shader branch yet).
     /// </summary>
     public static RenderDebugView? RendererView(DebugViewMode mode) => mode switch
     {
         DebugViewMode.Depth => RenderDebugView.SceneDepth,
         DebugViewMode.Normals => RenderDebugView.Normals,
         DebugViewMode.ShadowCoverage => RenderDebugView.ShadowMap,
+        DebugViewMode.Albedo => RenderDebugView.Albedo,
+        DebugViewMode.AmbientLight => RenderDebugView.AmbientLight,
+        DebugViewMode.DirectLight => RenderDebugView.DirectLight,
         _ => null,
     };
 
@@ -259,6 +272,21 @@ public static class DebugScreenSettings
         {
             (new Vector4(1f), "Lit by the sun"), (new Vector4(0f, 0f, 0f, 1f), "In the sun's shadow"),
             (new Vector4(0.02f, 0.02f, 0.06f, 1f), "Outside the shadow map"),
+        },
+        DebugViewMode.Albedo => new (Vector4?, string)[]
+        {
+            (null, "Each surface's own colour: texture, tint, vertex colour"),
+            (null, "No light, shadow or fog: what lighting starts from"),
+        },
+        DebugViewMode.AmbientLight => new (Vector4?, string)[]
+        {
+            (null, "Indirect light alone: sky, ground, probe, reflections"),
+            (null, "Black: no indirect light reaches the surface"),
+        },
+        DebugViewMode.DirectLight => new (Vector4?, string)[]
+        {
+            (null, "Direct light alone: the sun with shadows, and lamps"),
+            (null, "Black: no sun and no lamp reaches the surface"),
         },
         _ => new (Vector4?, string)[]
         {

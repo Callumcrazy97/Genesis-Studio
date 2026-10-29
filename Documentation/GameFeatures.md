@@ -1383,9 +1383,15 @@ video memory. **F7** opens the full panel:
   outlines** boxes each layer's area with its owner. **View mode** draws the frame in a diagnostic
   way, with a legend in the corner: *LOD level* (models in their level of detail's colour, full
   detail green to coarsest red), *Overdraw* (models added up, brighter where more cover a pixel),
-  *Depth*, *Normals* and *Shadow coverage* (the sun's shadow map). *Shadow cascades*,
+  *Depth*, *Normals* and *Shadow coverage* (the sun's shadow map), and one term of the lighting
+  alone: *Albedo* (each surface's own colour, unlit), *Ambient light* (the indirect light: sky and
+  ground, the light probe and reflections) and *Direct light* (the sun with its shadows, and the
+  lamps), the same views `Engine.DebugView("Albedo")`, `("Ambient")` and `("Direct")` draw; black in
+  the ambient view takes no indirect light, black in the direct view gets no sun or lamp. Their
+  `Engine.Debug.View.Mode` names are `"albedo"`, `"ambient"` and `"direct"`. *Shadow cascades*,
   *Reflections* and *Light count* are offered but not drawn yet (they need the renderer's forward
-  shader); the legend says so and the frame stays shaded.
+  shader); the legend says so and the frame stays shaded. (The World tab's older pass row, with its
+  Lighting and Fog buttons, is separate and still draws only Depth and Normals.)
 - **GUI**: which instances' Draw GUI events and C# HUDs drew in the last frame, the draw calls each
   made, the area it covered, and the User Interface resources it drew (their elements and the GUI
   size they were laid out for).

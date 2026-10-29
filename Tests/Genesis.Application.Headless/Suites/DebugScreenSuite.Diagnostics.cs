@@ -99,6 +99,84 @@ internal static partial class DebugScreenSuite
             }
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.DebugScreen.Diagnostics.LightingViewsReachTheRenderer", () =>
+        {
+            DebugScreenSettings.Reset();
+            try
+            {
+                using var overlay = new DebugOverlay();
+                using var scene = new RuntimeScene("LightingViewProbe");
+                var context = new PgslContext();
+                void Set(string text)
+                {
+                    var problems = new List<string>();
+                    int applied = EngineSettings.Apply([new KeyValuePair<string, string>("Engine.Debug.View.Mode", text)], context, problems);
+                    HeadlessHarness.Assert(applied == 1, $"Engine.Debug.View.Mode = {text} was not set: {string.Join("; ", problems)}");
+                }
+
+                // The view the renderer is told to draw, as the host works it out each frame and stamps it on the
+                // frame's Mesh3DState. Engine.DebugView's own request (normals here) is what the host hands over
+                // as the fallback, so it shows through only where the screen's view mode draws nothing.
+                RenderDebugView Sent() => Genesis.Runtime.Scene.EnvironmentMapper.ToMesh3DState(scene.Environment, scene.Camera3D, new(), false,
+                    GenesisRuntimeHost.ResolveDebugView(overlay, RenderDebugView.Normals)).DebugView;
+                List<string> DrawTabTexts()
+                {
+                    var hud = new RecordingHudCanvas();
+                    OpenPanel(overlay, DebugHudPanel.Draw);
+                    overlay.Draw(hud, renderer: null, hud.Width, hud.Height);
+                    return hud.Texts;
+                }
+
+                (string Name, DebugViewMode Mode, RenderDebugView Expected)[] drawn =
+                [
+                    ("albedo", DebugViewMode.Albedo, RenderDebugView.Albedo),
+                    ("ambient", DebugViewMode.AmbientLight, RenderDebugView.AmbientLight),
+                    ("direct", DebugViewMode.DirectLight, RenderDebugView.DirectLight),
+                ];
+                foreach ((string name, DebugViewMode mode, RenderDebugView expected) in drawn)
+                {
+                    Set(name);
+                    HeadlessHarness.Assert(DebugScreenSettings.ActiveView == mode && DebugScreenSettings.IsDrawn(mode) && DebugScreenSettings.ModelView == DebugViewMode.Off,
+                        $"Engine.Debug.View.Mode = \"{name}\" must turn the {mode} view on as one the renderer draws, with no model tint.");
+                    HeadlessHarness.Assert(Sent() == expected, $"The renderer must be sent {expected} for \"{name}\" (was sent {Sent()}).");
+                    List<string> texts = DrawTabTexts();
+                    string label = DebugScreenSettings.LabelOf(mode);
+                    HeadlessHarness.Assert(texts.Contains("VIEW: " + label.ToUpperInvariant(), StringComparer.Ordinal),
+                        $"The corner legend must head the {label} view without the not-drawn note:\n" + string.Join('\n', texts));
+                    foreach ((_, string line) in DebugScreenSettings.Legend(mode))
+                        HeadlessHarness.Assert(texts.Contains(line, StringComparer.Ordinal), $"The {label} legend must say \"{line}\".");
+                }
+
+                // The selector offers all three, and the placeholders next to them.
+                List<string> offered = DrawTabTexts();
+                foreach (string label in new[] { "Albedo", "Ambient light", "Direct light", "Shadow cascades", "Reflections", "Light count" })
+                    HeadlessHarness.Assert(offered.Contains(label, StringComparer.Ordinal), $"The Draw tab's view mode selector must offer \"{label}\".");
+
+                // The views still waiting for a shader branch stay marked, and ask the renderer for nothing.
+                (string Name, DebugViewMode Mode)[] waiting =
+                [
+                    ("cascades", DebugViewMode.ShadowCascades), ("reflections", DebugViewMode.Reflections), ("lights", DebugViewMode.LightCount),
+                ];
+                foreach ((string name, DebugViewMode mode) in waiting)
+                {
+                    Set(name);
+                    HeadlessHarness.Assert(DebugScreenSettings.ActiveView == mode && !DebugScreenSettings.IsDrawn(mode) && DebugScreenSettings.RendererView(mode) == null,
+                        $"The {mode} view must stay a placeholder the renderer draws nothing for.");
+                    HeadlessHarness.Assert(Sent() == RenderDebugView.Normals, $"A placeholder view must leave the renderer's view to Engine.DebugView (was sent {Sent()}).");
+                    List<string> texts = DrawTabTexts();
+                    string heading = "VIEW: " + DebugScreenSettings.LabelOf(mode).ToUpperInvariant() + " (not drawn yet)";
+                    HeadlessHarness.Assert(texts.Contains(heading, StringComparer.Ordinal), $"The {mode} legend must say it is not drawn yet:\n" + string.Join('\n', texts));
+                }
+
+                Set("off");
+                HeadlessHarness.Assert(!DebugScreenSettings.View && Sent() == RenderDebugView.Normals, "With the view off, the renderer must be left to Engine.DebugView.");
+            }
+            finally
+            {
+                DebugScreenSettings.Reset();
+            }
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.DebugScreen.Diagnostics.ColliderOverlayDrawsBodyPixels", () =>
         {
             DebugScreenSettings.Reset();
