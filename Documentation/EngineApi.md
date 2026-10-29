@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1776 names: 494 properties (421 can be set), 1282 commands.
+1781 names: 496 properties (422 can be set), 1285 commands.
 
 ## Engine.Alarm
 
@@ -2139,6 +2139,16 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `Gusts` | property | Gusts rolling across the grass, 0 (none) to 1 (strong), leaning it as they pass (each terrain's own unless set; 0 for new grass): a storm coming in |
 | `Speed` | property | How fast the grass sways, 0 to 4 (each terrain's own unless set; 1 unless set) |
 | `Strength` | property | How far the grass sways, 0 to 4 (each terrain's own unless set; 1 a breeze); the weather's wind still scales it when the room has weather |
+
+## Engine.Terrain.Holes
+
+| Name | Kind | What it is |
+|---|---|---|
+| `At` | command | Whether the ground at world x, z is cut away: nothing to stand on there |
+| `Count` | property | How many terrain cells are cut away across the room's terrains (read; 0 without holes) |
+| `Cut` | command | Cuts the ground of the room's terrains away within radius of world x, z (a pit opening, a mine shaft): it is no longer drawn, solid or walkable and its grass goes; lasts while the room runs; false where nothing changed |
+| `Enabled` | property | Whether the terrains' holes are cut (true unless set); false draws solid ground over them that bodies stand and agents walk on, for a hole that opens later |
+| `Fill` | command | Puts the ground of the room's terrains back within radius of world x, z where it was cut away; false where nothing changed |
 
 ## Engine.Terrain.Scatter
 
