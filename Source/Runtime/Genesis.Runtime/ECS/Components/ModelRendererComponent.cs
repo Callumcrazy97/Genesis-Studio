@@ -65,6 +65,8 @@ namespace Genesis.Runtime.ECS.Components
         internal Genesis.Runtime.Modeling.GModelAsset EvaluatedModelAsset;
         internal string EvaluatedModelReference;
         internal string EvaluatedModelProject;
+        /// <summary>Runtime-only: the instance's look-ats and reaches, on top of its pose (Modeling.ModelInstance.SetBoneLookAt).</summary>
+        internal Genesis.Runtime.Modeling.ModelBoneTargets Targets;
         public string ClipName;
         public string PreviousClipName;
         public float ClipFps;

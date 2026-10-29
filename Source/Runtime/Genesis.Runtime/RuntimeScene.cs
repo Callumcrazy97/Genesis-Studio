@@ -330,6 +330,9 @@ namespace Genesis.Runtime
                 mark = WorkTimes.Add(part, mark);
             }
 
+            // Looks and reaches (Engine.Animation.LookAt, Reach) find this frame's targets once the
+            // scripts have moved everything; a scene where no model uses them does nothing here.
+            Modeling.ModelBoneTargets.UpdateScene(this, dt);
             // Camera rigs (Engine.Camera.Rigs) go last, after the scripts and the orbit camera, so
             // the active rig's pose is the one drawn. A room with no active rig is not touched.
             Cameras.CameraRigDirector.Update(this, dt);

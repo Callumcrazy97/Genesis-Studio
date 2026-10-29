@@ -237,6 +237,146 @@ public static class ModelInstance
         return Passed(animator.LayerLastTimeSeconds, animator.LayerTimeSeconds, Math.Clamp(fraction, 0f, 1f) * length, length, animator.LayerLoop);
     }
 
+    // ── Looking and reaching ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Turns a bone (a head, "Head" unless named) to look at a world point, blending in over
+    /// <paramref name="blendSeconds"/>, as far across and up or down as its limits allow, on top of
+    /// whatever poses the model (a clip, a layer, an Animation Controller). It keeps looking until
+    /// <see cref="ClearBoneLookAt"/>; call it again to move the point.
+    /// </summary>
+    /// <returns>False when the entity is gone or the bone name is empty.</returns>
+    public static bool SetBoneLookAt(EcsWorld? world, Entity entity, string bone, Vector3 point, float weight = 1f,
+        float blendSeconds = ModelBoneTargets.DefaultBlendSeconds, float yawLimitDegrees = ModelBoneTargets.DefaultYawLimit,
+        float pitchLimitDegrees = ModelBoneTargets.DefaultPitchLimit)
+    {
+        if (!float.IsFinite(point.X) || !float.IsFinite(point.Y) || !float.IsFinite(point.Z)) return false;
+        if (Aiming(world, entity, bone, look: true) is not { } aim) return false;
+        aim.TargetInstance = 0;
+        aim.Point = point;
+        aim.Height = 0f;
+        Shape(aim, weight, blendSeconds);
+        Limits(aim, yawLimitDegrees, pitchLimitDegrees);
+        aim.On = true;
+        return true;
+    }
+
+    /// <summary>
+    /// As <see cref="SetBoneLookAt(EcsWorld, Entity, string, Vector3, float, float, float, float)"/>,
+    /// following another instance wherever it goes: one of its bones or sockets when
+    /// <paramref name="targetBone"/> names one ("Head" to meet its eyes), otherwise its position
+    /// raised by <paramref name="height"/>. Once the target is gone the bone keeps to where it was last.
+    /// </summary>
+    public static bool SetBoneLookAt(EcsWorld? world, Entity entity, string bone, Entity target, string targetBone = "",
+        float height = 0f, float weight = 1f, float blendSeconds = ModelBoneTargets.DefaultBlendSeconds,
+        float yawLimitDegrees = ModelBoneTargets.DefaultYawLimit, float pitchLimitDegrees = ModelBoneTargets.DefaultPitchLimit)
+    {
+        if (target.IsNull || Aiming(world, entity, bone, look: true) is not { } aim) return false;
+        Follow(aim, target, targetBone, height);
+        Shape(aim, weight, blendSeconds);
+        Limits(aim, yawLimitDegrees, pitchLimitDegrees);
+        aim.On = true;
+        return true;
+    }
+
+    /// <summary>Lets a looking bone go back to its pose over <paramref name="blendSeconds"/>; an empty bone lets every one go.</summary>
+    public static bool ClearBoneLookAt(EcsWorld? world, Entity entity, string bone = "", float blendSeconds = ModelBoneTargets.DefaultBlendSeconds) =>
+        Release(world, entity, bone, blendSeconds, look: true);
+
+    /// <summary>
+    /// Bends the two bones above a bone (a hand: the forearm and upper arm) so that it reaches a world
+    /// point, blending in over <paramref name="blendSeconds"/>, its lengths kept and the way it bends
+    /// kept; a point out of reach is reached towards. On top of whatever poses the model. It keeps
+    /// reaching until <see cref="ClearBoneReach"/>.
+    /// </summary>
+    public static bool SetBoneReach(EcsWorld? world, Entity entity, string bone, Vector3 point, float weight = 1f,
+        float blendSeconds = ModelBoneTargets.DefaultBlendSeconds)
+    {
+        if (!float.IsFinite(point.X) || !float.IsFinite(point.Y) || !float.IsFinite(point.Z)) return false;
+        if (Aiming(world, entity, bone, look: false) is not { } aim) return false;
+        aim.TargetInstance = 0;
+        aim.Point = point;
+        aim.Height = 0f;
+        Shape(aim, weight, blendSeconds);
+        aim.On = true;
+        return true;
+    }
+
+    /// <summary>As <see cref="SetBoneReach(EcsWorld, Entity, string, Vector3, float, float)"/>, to another instance (a bone or socket of it, or its position raised by <paramref name="height"/>) wherever it goes.</summary>
+    public static bool SetBoneReach(EcsWorld? world, Entity entity, string bone, Entity target, string targetBone = "",
+        float height = 0f, float weight = 1f, float blendSeconds = ModelBoneTargets.DefaultBlendSeconds)
+    {
+        if (target.IsNull || Aiming(world, entity, bone, look: false) is not { } aim) return false;
+        Follow(aim, target, targetBone, height);
+        Shape(aim, weight, blendSeconds);
+        aim.On = true;
+        return true;
+    }
+
+    /// <summary>Lets a reaching limb go back to its pose over <paramref name="blendSeconds"/>; an empty bone lets every one go.</summary>
+    public static bool ClearBoneReach(EcsWorld? world, Entity entity, string bone = "", float blendSeconds = ModelBoneTargets.DefaultBlendSeconds) =>
+        Release(world, entity, bone, blendSeconds, look: false);
+
+    /// <summary>How much a bone's look turns it now, as blended in or out (0 to 1); 0 when it has none.</summary>
+    public static float BoneLookAtAmount(EcsWorld? world, Entity entity, string bone) =>
+        ModelBoneTargets.Of(world, entity, create: false)?.Look(bone)?.Amount ?? 0f;
+
+    /// <summary>How much a bone's reach bends its limb now (0 to 1); 0 when it has none.</summary>
+    public static float BoneReachAmount(EcsWorld? world, Entity entity, string bone) =>
+        ModelBoneTargets.Of(world, entity, create: false)?.Reach(bone)?.Amount ?? 0f;
+
+    /// <summary>Which way the model faces in its own space (+Z unless set), for a model built facing another way; looks are measured from it.</summary>
+    public static bool SetLookForward(EcsWorld? world, Entity entity, Vector3 forward)
+    {
+        if (!float.IsFinite(forward.LengthSquared()) || forward.LengthSquared() < 1e-12f
+            || ModelBoneTargets.Of(world, entity, create: true) is not { } targets) return false;
+        targets.Forward = Vector3.Normalize(forward);
+        return true;
+    }
+
+    /// <summary>The instance's looks and reaches, for reading them or setting them up in detail; null when it has none.</summary>
+    public static ModelBoneTargets? BoneTargets(EcsWorld? world, Entity entity) => ModelBoneTargets.Of(world, entity, create: false);
+
+    private static ModelBoneTargets.Aim? Aiming(EcsWorld? world, Entity entity, string bone, bool look)
+    {
+        if (string.IsNullOrWhiteSpace(bone) || ModelBoneTargets.Of(world, entity, create: true) is not { } targets) return null;
+        return look ? targets.Look(bone, create: true) : targets.Reach(bone, create: true);
+    }
+
+    private static void Follow(ModelBoneTargets.Aim aim, Entity target, string targetBone, float height)
+    {
+        aim.TargetInstance = target.Id;
+        aim.TargetBone = targetBone?.Trim() ?? "";
+        aim.Height = float.IsFinite(height) ? Math.Clamp(height, -1000f, 1000f) : 0f;
+    }
+
+    private static void Shape(ModelBoneTargets.Aim aim, float weight, float blendSeconds)
+    {
+        aim.Weight = float.IsFinite(weight) ? Math.Clamp(weight, 0f, 1f) : 1f;
+        aim.BlendSeconds = float.IsFinite(blendSeconds) ? Math.Clamp(blendSeconds, 0f, 10f) : ModelBoneTargets.DefaultBlendSeconds;
+    }
+
+    private static void Limits(ModelBoneTargets.Aim aim, float yawDegrees, float pitchDegrees)
+    {
+        aim.YawLimit = float.IsFinite(yawDegrees) ? Math.Clamp(yawDegrees, 0f, 180f) : ModelBoneTargets.DefaultYawLimit;
+        aim.PitchLimit = float.IsFinite(pitchDegrees) ? Math.Clamp(pitchDegrees, 0f, 89f) : ModelBoneTargets.DefaultPitchLimit;
+    }
+
+    private static bool Release(EcsWorld? world, Entity entity, string bone, float blendSeconds, bool look)
+    {
+        if (ModelBoneTargets.Of(world, entity, create: false) is not { } targets) return false;
+        float seconds = float.IsFinite(blendSeconds) ? Math.Clamp(blendSeconds, 0f, 10f) : ModelBoneTargets.DefaultBlendSeconds;
+        if (string.IsNullOrWhiteSpace(bone))
+        {
+            targets.StopAll(look, seconds);
+            return true;
+        }
+        if ((look ? targets.Look(bone) : targets.Reach(bone)) is not { } aim) return false;
+        aim.BlendSeconds = seconds;
+        aim.On = false;
+        return true;
+    }
+
     // ── Colour and light ─────────────────────────────────────────────────────
 
     /// <summary>Multiplies the whole model's colour: (1, 0.4, 0.4, 1) reddens it, an alpha below 1 fades it. (1, 1, 1, 1) is as authored.</summary>

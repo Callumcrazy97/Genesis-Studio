@@ -408,25 +408,13 @@ public sealed class AnimationController
     {
         int count = local.Length;
         if (_lookWorld.Length != count || _lookResolved.Length != count) { _lookWorld = new Matrix4x4[count]; _lookResolved = new bool[count]; }
-        Array.Clear(_lookResolved);
-        for (int i = 0; i < count; i++) Resolve(bones, local, i, 0);
+        BonePoseMath.ModelSpace(bones, local, _lookWorld, _lookResolved);
     }
 
-    private Matrix4x4 Resolve(List<GModelBone> bones, Matrix4x4[] local, int bone, int depth)
-    {
-        if (_lookResolved[bone]) return _lookWorld[bone];
-        int parent = bones[bone].ParentIndex;
-        _lookWorld[bone] = parent >= 0 && parent < local.Length && parent != bone && depth < local.Length
-            ? local[bone] * Resolve(bones, local, parent, depth + 1) : local[bone];
-        _lookResolved[bone] = true;
-        return _lookWorld[bone];
-    }
+    private static bool IsBone(int index, int count) => BonePoseMath.IsBone(index, count);
 
-    private static bool IsBone(int index, int count) => index >= 0 && index < count;
-
-    // Two-bone reach: the upper bone turns so the middle joint lands where the two lengths meet the
-    // point (keeping the way the limb already bends), then the lower bone turns onto the point. A
-    // point out of reach is reached towards, the limb straight.
+    // Two-bone reach (BonePoseMath.TwoBoneReach): the limb bends to bring its end to the point,
+    // keeping its lengths and the way it bends.
     private void ApplyReaches(GModelAsset asset, Matrix4x4[] local)
     {
         var bones = asset.Rig.Bones;
@@ -437,50 +425,9 @@ public sealed class AnimationController
             for (int i = 0; i < count; i++)
                 if (string.Equals(bones[i].Name, pair.Key, StringComparison.OrdinalIgnoreCase)) { end = i; break; }
             if (end < 0 || pair.Value.Weight <= 0f) continue;
-            int mid = bones[end].ParentIndex;
-            int upper = IsBone(mid, count) ? bones[mid].ParentIndex : -1;
-            if (!IsBone(upper, count) || upper == mid || upper == end) continue;
             ModelSpace(bones, local);
-            Vector3 a = _lookWorld[upper].Translation, b = _lookWorld[mid].Translation, c = _lookWorld[end].Translation;
-            float upperLength = Vector3.Distance(a, b), lowerLength = Vector3.Distance(b, c);
-            Vector3 toTarget = pair.Value.Target - a;
-            float distance = toTarget.Length();
-            if (upperLength < 1e-5f || lowerLength < 1e-5f || distance < 1e-5f) continue;
-            Vector3 along = toTarget / distance;
-            distance = Math.Clamp(distance, MathF.Abs(upperLength - lowerLength) + 1e-4f, upperLength + lowerLength - 1e-4f);
-            // The way the limb bends: the middle joint's side of the line to the point.
-            Vector3 bend = (b - a) - Vector3.Dot(b - a, along) * along;
-            if (bend.LengthSquared() < 1e-10f) bend = (c - b) - Vector3.Dot(c - b, along) * along;
-            if (bend.LengthSquared() < 1e-10f) bend = Vector3.Cross(along, MathF.Abs(along.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX);
-            bend = Vector3.Normalize(bend);
-            float cosine = Math.Clamp((upperLength * upperLength + distance * distance - lowerLength * lowerLength) / (2f * upperLength * distance), -1f, 1f);
-            Vector3 joint = a + along * (upperLength * cosine) + bend * (upperLength * MathF.Sqrt(1f - cosine * cosine));
-            float weight = pair.Value.Weight;
-            Quaternion first = Quaternion.Slerp(Quaternion.Identity, Between(b - a, joint - a), weight);
-            Matrix4x4 aroundA = Matrix4x4.CreateTranslation(-a) * Matrix4x4.CreateFromQuaternion(first) * Matrix4x4.CreateTranslation(a);
-            Matrix4x4 upperWorld = _lookWorld[upper] * aroundA, midWorld = _lookWorld[mid] * aroundA, endWorld = _lookWorld[end] * aroundA;
-            Vector3 movedJoint = midWorld.Translation, movedEnd = endWorld.Translation;
-            Vector3 reachPoint = a + along * distance;
-            Quaternion second = Quaternion.Slerp(Quaternion.Identity, Between(movedEnd - movedJoint, reachPoint - movedJoint), weight);
-            midWorld *= Matrix4x4.CreateTranslation(-movedJoint) * Matrix4x4.CreateFromQuaternion(second) * Matrix4x4.CreateTranslation(movedJoint);
-            int above = bones[upper].ParentIndex;
-            Matrix4x4 aboveWorld = IsBone(above, count) ? _lookWorld[above] : Matrix4x4.Identity;
-            if (!Matrix4x4.Invert(aboveWorld, out Matrix4x4 aboveInverse) || !Matrix4x4.Invert(upperWorld, out Matrix4x4 upperInverse)) continue;
-            local[upper] = upperWorld * aboveInverse;
-            local[mid] = midWorld * upperInverse;
+            BonePoseMath.TwoBoneReach(bones, local, _lookWorld, end, pair.Value.Target, pair.Value.Weight);
         }
-    }
-
-    // The shortest turn taking one direction onto another.
-    private static Quaternion Between(Vector3 from, Vector3 to)
-    {
-        if (from.LengthSquared() < 1e-12f || to.LengthSquared() < 1e-12f) return Quaternion.Identity;
-        from = Vector3.Normalize(from); to = Vector3.Normalize(to);
-        float dot = Math.Clamp(Vector3.Dot(from, to), -1f, 1f);
-        if (dot > 0.99999f) return Quaternion.Identity;
-        Vector3 axis = Vector3.Cross(from, to);
-        if (axis.LengthSquared() < 1e-12f) axis = Vector3.Cross(from, MathF.Abs(from.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX);
-        return Quaternion.CreateFromAxisAngle(Vector3.Normalize(axis), MathF.Acos(dot));
     }
 
     // Turns each looking bone about its own position towards its point, as far as its limit and

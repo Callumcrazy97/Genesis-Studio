@@ -265,6 +265,14 @@ namespace Genesis.Runtime.Modeling
         /// </summary>
         public static Matrix4x4[] EvaluateAnimatedLocalsScratch(GModelAsset asset, RuntimeModelAnimationState animation)
         {
+            Matrix4x4[] locals = EvaluatePoseLocals(asset, animation);
+            // An instance's look-ats and reaches go on top of whatever posed it.
+            if (animation.Targets is { Posing: true } targets) targets.Apply(asset, locals);
+            return locals;
+        }
+
+        private static Matrix4x4[] EvaluatePoseLocals(GModelAsset asset, RuntimeModelAnimationState animation)
+        {
             if (asset?.Rig?.Bones == null || asset.Rig.Bones.Count == 0)
                 return Array.Empty<Matrix4x4>();
 

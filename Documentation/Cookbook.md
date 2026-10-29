@@ -142,6 +142,28 @@ room: a room change removes them, so make them in a Create or Room Start event. 
 take a rig's name too: `CameraRigCreate(name, kind)`, `CameraSetRigOffset(name, x, y, z)`,
 `CameraRigBlendTo(name, seconds, curve)`, `CameraRigPathAdd(name, x, y, z)`.
 
+A character that turns its head to the player and reaches for a lever, on top of whatever it is
+playing (a clip, a layer or an Animation Controller). Once set, it keeps looking and reaching; no
+need to call it every frame:
+
+```pgsl
+player = InstanceFind("Player", 0);
+lever = InstanceFind("Lever", 0);
+Engine.Animation.LookAt.Follow(player, "Head");    // meet its eyes; Engine.Animation.LookAt.At(x, y, z) for a point
+Engine.Animation.LookAt.YawLimit = 60;             // across, degrees (70 unless set); PitchLimit up and down (40)
+Engine.Animation.LookAt.BlendTime = 0.4;           // seconds to turn in and back (0.25 unless set)
+AnimationReachToInstance("RightHand", lever, "Handle", 1, 0.3);   // or AnimationReachToPoint(bone, x, y, z)
+// Later:
+Engine.Animation.LookAt.Stop();                    // back to the animation over BlendTime
+AnimationReachStop("RightHand");
+```
+
+The head bone is `Engine.Animation.LookAt.Bone` ("Head" unless set) and a rig's prefix can be left
+off ("Head" finds "mixamorig:Head"); a reach bends the two bones above the one named. A model built
+facing another way than +Z: `Engine.Animation.LookAt.SetForward(x, y, z)`. From C#:
+`ModelInstance.SetBoneLookAt(world, entity, "Head", target)` and `SetBoneReach`, `ClearBoneLookAt`,
+`ClearBoneReach`.
+
 A sound once, a little varied, and one that loops:
 
 ```pgsl

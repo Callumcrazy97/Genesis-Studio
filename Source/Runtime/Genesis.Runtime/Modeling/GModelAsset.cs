@@ -500,6 +500,8 @@ namespace Genesis.Runtime.Modeling
         public readonly float LayerTimeSeconds;
         public readonly float LayerWeight;
         public readonly bool LayerLoop;
+        /// <summary>The instance's look-ats and reaches, put on top of the pose; null for none.</summary>
+        public readonly ModelBoneTargets Targets;
 
         /// <summary>True when a second clip has hold of part of the body.</summary>
         public bool HasLayer => LayerWeight > 0f && !string.IsNullOrEmpty(LayerClipName);
@@ -528,14 +530,15 @@ namespace Genesis.Runtime.Modeling
                 layerFromBone: animator.LayerFromBone,
                 layerTimeSeconds: animator.LayerTimeSeconds,
                 layerWeight: animator.LayerWeight,
-                layerLoop: animator.LayerLoop);
+                layerLoop: animator.LayerLoop,
+                targets: animator.Targets);
         }
 
         /// <summary>This state with named morph weights; everything else as it was.</summary>
         public RuntimeModelAnimationState WithMorphWeights(IReadOnlyDictionary<string, float> morphWeights, bool preserveRootTransform) =>
             new(ClipName, TimeSeconds, Fps, Loop, FlatUntextured, PreviousClipName, PreviousTimeSeconds, BlendFactor,
                 preserveRootTransform, Controller, IgnoreTextures, morphWeights,
-                LayerClipName, LayerFromBone, LayerTimeSeconds, LayerWeight, LayerLoop);
+                LayerClipName, LayerFromBone, LayerTimeSeconds, LayerWeight, LayerLoop, Targets);
 
         public RuntimeModelAnimationState(
             string clipName,
@@ -554,8 +557,10 @@ namespace Genesis.Runtime.Modeling
             string layerFromBone = "",
             float layerTimeSeconds = 0f,
             float layerWeight = 0f,
-            bool layerLoop = false)
+            bool layerLoop = false,
+            ModelBoneTargets targets = null)
         {
+            Targets = targets;
             LayerClipName = layerClipName ?? "";
             LayerFromBone = layerFromBone ?? "";
             LayerTimeSeconds = layerTimeSeconds;
