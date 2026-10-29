@@ -12,6 +12,9 @@ using Genesis.Shared.Assets;
 using Genesis.Shared.ECS;
 using Genesis.Shared.ECS.Components;
 using EcsWorld = Genesis.Runtime.ECS.World;
+using PhysicsDebugCollider = Genesis.Physics.PhysicsDebugCollider;
+using PhysicsDebugLine = Genesis.Physics.PhysicsDebugLine;
+using PhysicsWorld = Genesis.Physics.PhysicsWorld;
 
 namespace Genesis.Runtime.Debugger;
 
@@ -142,6 +145,62 @@ internal sealed class DebugColliderOverlay
     // ── 3D ─────────────────────────────────────────────────────────────────
 
     private void Draw3D(IHudCanvas hud, RuntimeScene scene, in DebugProjection projection)
+    {
+        if (scene.Physics is { } physics)
+        {
+            DrawPhysics3D(hud, scene.World, physics, projection);
+            return;
+        }
+        DrawBodies3D(hud, scene, projection);
+    }
+
+    /// <summary>More than this many lines of the physics engine's shapes are sampled, not all drawn.</summary>
+    public const int MaxPhysicsLines = 12000;
+
+    private System.Collections.Generic.IReadOnlyList<PhysicsDebugCollider> _captured;
+    private PhysicsWorld _capturedFrom;
+    private long _capturedAt;
+
+    // The physics engine's own shapes, as it collides with them: every body and every static surface
+    // registered with it, the meshes of models and terrain among them (a room built from big models
+    // has no collider components at all). Safe here: the game's update waits for each physics step
+    // (PhysicsMotorway.Run blocks until it is done) and the frame is drawn after it on the same
+    // thread, so nothing steps while this reads. Read again twenty times a second, not every frame:
+    // the capture allocates its lines.
+    private void DrawPhysics3D(IHudCanvas hud, EcsWorld world, PhysicsWorld physics, in DebugProjection projection)
+    {
+        long now = Environment.TickCount64;
+        if (_captured == null || !ReferenceEquals(_capturedFrom, physics) || now - _capturedAt >= 50)
+        {
+            _captured = physics.CaptureColliderDebug(MaxPhysicsLines);
+            _capturedFrom = physics;
+            _capturedAt = now;
+        }
+        foreach (PhysicsDebugCollider collider in _captured)
+        {
+            DebugColliderKind kind = KindOf(world, collider);
+            if (!Take(kind)) continue;
+            Vector4 colour = Colour(kind);
+            foreach (PhysicsDebugLine line in collider.Lines)
+                Segment(hud, projection, line.Start, line.End, colour);
+        }
+    }
+
+    private static DebugColliderKind KindOf(EcsWorld world, PhysicsDebugCollider collider)
+    {
+        if (collider.IsSensor) return DebugColliderKind.Trigger;
+        Entity entity = collider.Entity;
+        if (!entity.IsNull && world.IsAlive(entity))
+        {
+            if (world.Has<CharacterMotorComponent>(entity) || world.Has<PhysicsPlayerTag>(entity)) return DebugColliderKind.Character;
+            if (world.Has<RigidBodyComponent>(entity) && world.GetRef<RigidBodyComponent>(entity).Motion == PhysicsMotionType.Kinematic)
+                return DebugColliderKind.KinematicBody;
+        }
+        return collider.IsStatic ? DebugColliderKind.StaticBody : DebugColliderKind.DynamicBody;
+    }
+
+    // A scene with no physics world: the bodies its components describe.
+    private void DrawBodies3D(IHudCanvas hud, RuntimeScene scene, in DebugProjection projection)
     {
         EcsWorld world = scene.World;
         Frustum frustum = new(projection.ViewProjection);

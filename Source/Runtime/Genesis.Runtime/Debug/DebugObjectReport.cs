@@ -179,29 +179,38 @@ public sealed class DebugObjectReport
         }
         ref Draw3DComponent draw = ref world.GetRef<Draw3DComponent>(entity);
         Add("Shadows", $"{(draw.CastShadows ? "casts" : "casts none")}, {(draw.ReceiveShadows ? "receives" : "receives none")}");
+        if (assets?.Shader is { Length: > 0 } objectShader) Add("Object shader", objectShader + (string.IsNullOrEmpty(assets.ShaderVariant) ? "" : " (" + assets.ShaderVariant + ")"));
+
+        // What it is comes first, drawn or not: its model, meshes and materials.
+        bool hasModel = world.Has<ModelRendererComponent>(entity) && !string.IsNullOrWhiteSpace(world.GetRef<ModelRendererComponent>(entity).ModelAsset);
+        GModelAsset asset = null;
+        int[] levels = Array.Empty<int>();
+        if (hasModel)
+        {
+            ref ModelRendererComponent described = ref world.GetRef<ModelRendererComponent>(entity);
+            Add("Model", described.ModelAsset + (string.IsNullOrWhiteSpace(described.MaterialOverride) ? "" : $" (material image {described.MaterialOverride})"));
+            asset = ObjectDrawPass.Models.LoadAsset(project, described.ModelAsset);
+            if (asset is { HasRenderableMeshes: true })
+            {
+                levels = asset.Meshes.Where(mesh => mesh != null).Select(mesh => mesh.Lod).Distinct().OrderBy(level => level).ToArray();
+                Add("Meshes", $"{asset.Meshes.Count}, authored levels of detail {string.Join(", ", levels)}");
+                var materials = asset.Materials ?? new List<GModelMaterial>();
+                Add("Materials", materials.Count == 0 ? "none (default grey)" : string.Join("; ", materials.Take(6).Select(material =>
+                    material.Name + (string.IsNullOrWhiteSpace(material.Shader) ? "" : " [shader " + material.Shader + "]")
+                    + (string.IsNullOrWhiteSpace(material.AlbedoTexture) ? "" : " (" + material.AlbedoTexture + ")")))
+                    + (materials.Count > 6 ? $"; and {materials.Count - 6} more" : ""));
+            }
+        }
+        else if (!draw.Procedural) Add("Model", assets?.Image is { Length: > 0 } cube ? $"none: an image cube ({cube})" : "none");
+
         if (!draw.Visible) { NotDrawn("invisible (visible = false)"); return; }
         if (assets?.Is3D == false) { NotDrawn("a 2D Object in a 3D room"); return; }
-        if (assets?.Shader is { Length: > 0 } objectShader) Add("Object shader", objectShader + (string.IsNullOrEmpty(assets.ShaderVariant) ? "" : " (" + assets.ShaderVariant + ")"));
         if (draw.Procedural) { IsDrawn("a script's own meshes (procedural)"); return; }
-        if (!world.Has<ModelRendererComponent>(entity) || string.IsNullOrWhiteSpace(world.GetRef<ModelRendererComponent>(entity).ModelAsset))
-        {
-            Add("Model", assets?.Image is { Length: > 0 } cube ? $"none: an image cube ({cube})" : "none");
-            IsDrawn("");
-            return;
-        }
-
-        ref ModelRendererComponent model = ref world.GetRef<ModelRendererComponent>(entity);
-        Add("Model", model.ModelAsset + (string.IsNullOrWhiteSpace(model.MaterialOverride) ? "" : $" (material image {model.MaterialOverride})"));
-        GModelAsset asset = ObjectDrawPass.Models.LoadAsset(project, model.ModelAsset);
+        if (!hasModel) { IsDrawn(""); return; }
         if (asset == null || !asset.HasRenderableMeshes) { NotDrawn("its model was not found or has no meshes"); return; }
         if (asset.ImportRequired) { NotDrawn("its model needs importing"); return; }
-        int[] levels = asset.Meshes.Where(mesh => mesh != null).Select(mesh => mesh.Lod).Distinct().OrderBy(level => level).ToArray();
-        Add("Meshes", $"{asset.Meshes.Count}, authored levels of detail {string.Join(", ", levels)}");
-        var materials = asset.Materials ?? new List<GModelMaterial>();
-        Add("Materials", materials.Count == 0 ? "none (default grey)" : string.Join("; ", materials.Take(6).Select(material =>
-            material.Name + (string.IsNullOrWhiteSpace(material.Shader) ? "" : " [shader " + material.Shader + "]")
-            + (string.IsNullOrWhiteSpace(material.AlbedoTexture) ? "" : " (" + material.AlbedoTexture + ")")))
-            + (materials.Count > 6 ? $"; and {materials.Count - 6} more" : ""));
+
+        ref ModelRendererComponent model = ref world.GetRef<ModelRendererComponent>(entity);
         if (ModelLayers.IsOverlay(model.ModelLayer))
         {
             Add("Model layer", model.ModelLayer.ToString(Invariant));

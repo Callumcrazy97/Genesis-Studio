@@ -158,6 +158,19 @@ internal static partial class DebugScreenSuite
                 _ = Pixels("debug-colliders-no-triggers.png", out int triggersHidden);
                 HeadlessHarness.Assert(triggersHidden == 0 && overlay.CollidersDrawn(DebugColliderKind.Trigger) == 0,
                     "With triggers left out, no trigger must be drawn.");
+
+                // With a physics world the overlay draws what the physics engine holds: a registered
+                // body and a static surface no component describes (a model's or terrain's mesh).
+                DebugScreenSettings.ColliderTriggers = true;
+                scene.Physics = Genesis.Physics.PhysicsWorld.Create(new Genesis.Shared.Assets.PhysicsWorldAsset());
+                scene.Physics.RegisterEntity(scene.World, box, ref scene.World.GetRef<RigidBodyComponent>(box), ref scene.World.GetRef<Transform3DComponent>(box));
+                Vector3 floor = centre - scene.Camera3D.Right * 2.5f - new Vector3(0, 1.5f, 0);
+                scene.Physics.RegisterStaticTriangleMesh(
+                    [new(-1, 0, -1), new(1, 0, -1), new(-1, 0, 1), new(1, 0, 1)], [0, 1, 2, 1, 3, 2],
+                    Vector3.One, floor, Quaternion.Identity, "Probe floor");
+                int physicsPixels = Pixels("debug-colliders-physics.png", out _);
+                HeadlessHarness.Assert(overlay.CollidersDrawn(DebugColliderKind.StaticBody) >= 2 && physicsPixels > 100,
+                    $"The physics engine's static body and static surface must both be drawn ({overlay.CollidersDrawn(DebugColliderKind.StaticBody)} static, {physicsPixels} pixels).");
             }
             finally
             {
