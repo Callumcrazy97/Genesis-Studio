@@ -410,6 +410,11 @@ room at most; reflection probes follow `Engine.Lighting.Reflections`, light prob
 `Engine.Lighting.Probes.Enabled` is a room Engine setting in the Inspector and a world value on
 the F6 screen once the room has probes.
 
+What capturing costs (DX11, the test stage: two walls and 24 boxes, `--test placed-probes`): 4 probes
+ready by the 5th frame, 0.3 ms of CPU each (the longest 0.7 ms); 16 by the 17th frame, 0.1 ms each,
+the GPU's frame 0.16 ms while capturing against 0.06 ms without. Each capture draws the room six
+times at 32 by 32 pixels, so a room with many more draws pays more, but still only one probe a frame.
+
 ## From C# and from events
 
 Every feature here can be reached from an Object's events (the commands in the tables) and from a
