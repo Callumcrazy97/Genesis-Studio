@@ -147,7 +147,12 @@ float3 SampleWaterNormal(float2 uv, float time, float flowSpeed, float2 flowDir,
     float2 scrollB = ortho * time * spd * 0.55 - flowDir * time * spd * 0.22;
 
     float3 nA = WaterNormalA.Sample(WaterSamp, uv * 3.5 + scrollA).rgb * 2.0 - 1.0;
-    float3 nB = WaterNormalB.Sample(WaterSamp, uv * 7.0 + scrollB).rgb * 2.0 - 1.0;
+    // Both maps are grids of waves along their own axes; laid square on each other they read as
+    // a plaid once the water is clear enough to see it. The second is turned about 37 degrees
+    // (its drift unchanged on the surface) and its normal turned back into the surface's frame.
+    const float2x2 turn = float2x2(0.8, -0.6, 0.6, 0.8);
+    float3 nB = WaterNormalB.Sample(WaterSamp, mul(turn, uv * 7.0 + scrollB)).rgb * 2.0 - 1.0;
+    nB.xy = mul(nB.xy, turn);
     float3 n  = normalize(float3(nA.xy + nB.xy, nA.z * nB.z));
     return n;
 }

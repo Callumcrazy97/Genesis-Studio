@@ -247,7 +247,7 @@ internal static class LookGapsSuite
     {
         TerrainGrassRuleSettings rule = new();
         static float Luma(Vector3 c) => 0.2126f * c.X + 0.7152f * c.Y + 0.0722f * c.Z;
-        HeadlessHarness.Assert(rule.BaseColor == new Vector3(0.08f, 0.15f, 0.05f) && rule.TipColor == new Vector3(0.27f, 0.46f, 0.18f)
+        HeadlessHarness.Assert(rule.BaseColor == new Vector3(0.06f, 0.12f, 0.04f) && rule.TipColor == new Vector3(0.27f, 0.46f, 0.18f)
             && rule.ColorCurve == 1.25f,
             $"The built-in grass's colours changed: root {rule.BaseColor}, tip {rule.TipColor}, curve {rule.ColorCurve}.");
         HeadlessHarness.Assert(Luma(rule.TipColor) < 0.4f && Luma(rule.TipColor) > Luma(rule.BaseColor) * 2.5f

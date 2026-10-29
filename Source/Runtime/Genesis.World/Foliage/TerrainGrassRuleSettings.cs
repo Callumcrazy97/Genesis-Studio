@@ -28,7 +28,7 @@ public sealed class TerrainGrassRuleSettings : IJsonOnDeserializing, IJsonOnDese
     // where the grass has thinned out, and they already matched.
 
     /// <summary>The built-in grass's colour at the root of each blade (a deep, shaded meadow green).</summary>
-    public static readonly Vector3 DefaultBaseColor = new(0.08f, 0.15f, 0.05f);
+    public static readonly Vector3 DefaultBaseColor = new(0.06f, 0.12f, 0.04f);
 
     /// <summary>The built-in grass's colour at the tip of each blade (a sunlit, slightly olive meadow green).</summary>
     public static readonly Vector3 DefaultTipColor = new(0.27f, 0.46f, 0.18f);

@@ -130,6 +130,27 @@ Next to measure (a later day): a person timing the walk in Studio; a blind trial
 Walk batch now ships, so repeating that trial would measure copying), with the three.js version
 written on the same clock so the yardstick is measured too.
 
+## The look gaps (29 October, T7)
+
+Three views of the walk (along the path, across the lake, at the sun) were taken on DX11 before and
+after, and a graphics-designer agent compared them with the reference picture and the three.js walk.
+Every change is general, in the engine's or a new room's defaults, not in the walk's own content:
+
+| Gap | Cause | Change |
+|---|---|---|
+| Grass lime and about 1.5 times too bright, no dark roots | the built-in grass's first colours | Root 0.06, 0.12, 0.04, tip 0.27, 0.46, 0.18, curve 1.25 (new rules only; saved rules keep theirs) |
+| A flat sky with no glow round the sun | the dynamic sky drew only a tiny aureole | A glow round the sun: forward scattering in the haze (a halo tens of degrees wide, a soft bloom and a warm core), the room setting `sunGlow`, 1 on the Sunny day and Golden hour scenes and so in every `room.create` 3D room; 0, the old sky, for rooms saved before |
+| Pale turquoise water | the water's sky reflection was a fixed blue whose horizon lost its blue channel (a green reflection low down); a pale turquoise at half opacity that let the grassy bed through; a lake mist thick enough to whiten the lake seen across it | Water under the dynamic sky reflects that sky; the standard water is a clear teal at 0.72 opacity; the lake mist is half as thick |
+| A dark stair-stepped line round the lake | the shore, where water fades to clear, was flagged as already fogged, so the bank behind it was drawn without the haze | the post fog runs there as elsewhere |
+
+Designer's scores (0 to 10, 10 indistinguishable from the references): grass 3 before, 7 after the
+first pass; water 3, 6; sun glow 2, 7 (the second pass's scores are in the run's report). Still
+different: the far bank of the lake is a smooth dark slab (shade on a steep, sparsely grassed slope;
+the three.js lake has gentle sandy shores), the sky is lighter and greyer than Cal's reference, the
+dirt path is about 1.25 times too bright, and the lake's ripples are a fine cross-hatch where the
+three.js water has broad bands. The birdsong (one loop rather than random chirps) was not part of
+this work.
+
 ## Why a game used to take days
 
 The engine was never the limit. The days went on:
