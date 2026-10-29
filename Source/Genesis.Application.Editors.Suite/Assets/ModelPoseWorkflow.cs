@@ -14,9 +14,19 @@ public static partial class ModelPoseWorkflow
         GModelRig rig => (T)(object)CopyRig(rig),
         GModelAnimationClip clip => (T)(object)CopyClip(clip),
         GModelPose pose => (T)(object)new GModelPose { Id = pose.Id, Name = pose.Name, LocalBoneTransforms = (Matrix4x4[])pose.LocalBoneTransforms.Clone() },
+        GModelMaterial material => (T)(object)CopyMaterial(material),
         _ => JsonConvert.DeserializeObject<T>(JsonConvert.SerializeObject(value))
             ?? throw new InvalidOperationException("The model working copy could not be created."),
     };
+
+    // Hidden is kept in the Model resource (hiddenMaterials), not with the material, so a JSON copy drops it.
+    private static GModelMaterial CopyMaterial(GModelMaterial source)
+    {
+        GModelMaterial copy = JsonConvert.DeserializeObject<GModelMaterial>(JsonConvert.SerializeObject(source))
+            ?? throw new InvalidOperationException("The model working copy could not be created.");
+        copy.Hidden = source.Hidden;
+        return copy;
+    }
 
     public static Matrix4x4[] BindPose(GModelAsset asset) => asset.Rig.Bones.Select(b => b.BindLocal).ToArray();
 

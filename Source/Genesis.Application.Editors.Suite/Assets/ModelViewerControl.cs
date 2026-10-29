@@ -254,7 +254,8 @@ public partial class ModelViewerControl : EditorSurfaceControl, IRunnableResourc
         { nodes[i].Nodes.Add(Asset.Meshes[mesh].Name); assigned.Add(mesh); }
         for (int i = 0; i < Asset.Meshes.Count; i++) if (!assigned.Contains(i)) _hierarchy.Nodes.Add(Asset.Meshes[i].Name);
         _hierarchy.ExpandAll(); _hierarchy.EndUpdate();
-        _materials.Items.Clear(); foreach (var material in Asset.Materials) _materials.Items.Add(material.Name);
+        // Read-only here: the Model editor's Texture page hides and shows materials.
+        _materials.Items.Clear(); foreach (var material in Asset.Materials) _materials.Items.Add(material.Hidden ? material.Name + " (hidden)" : material.Name);
         _syncing = true; _clips.Items.Clear(); _clips.Items.Add("None"); foreach (var clip in Asset.Animations) _clips.Items.Add(clip.Name);
         _clips.SelectedIndex = 0; _syncing = false; SelectClip(previousClip);
         _empty.Visible = EmptyModelHintEnabled && !Asset.HasRenderableMeshes && !IsAnimationLibrary;

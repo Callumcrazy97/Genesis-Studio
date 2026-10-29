@@ -565,6 +565,66 @@ game's saves (`input-bindings.txt`, or a name given), and `InputActionsLoad()` r
 actions it names are rebound, actions it does not name keep the bindings the game gave them, so an
 action added in an update keeps its default.
 
+### Analogue actions, each controller's own bindings, chords and the rebinding screen (29 October 2026)
+
+```
+// Create of the game's controller object.
+InputActionBind("Steer", "Pad:LeftStickX");      // a whole stick axis: -1 to 1
+InputActionBind("Steer", "Right");               // a key still reads 1 through the same call
+InputActionSetDeadZone("Steer", 0.15);           // the stick counts from 15% of its travel
+InputActionSetSensitivity("Steer", 1.5);         // and reaches full value sooner
+InputActionBind("Throttle", "Axis:RightTrigger"); // a trigger: 0 to 1
+InputActionBind("Special", "LB+A");              // a chord
+InputActionsLoad();
+
+// Step.
+x = x + InputActionValue("Steer") * 4;
+if (InputActionPressed("Special")) { special(); }
+
+// The pause menu's Controls button.
+InputRebindingOpen();
+```
+
+- **Values.** An action bound to a whole axis (`"Pad:LeftStickX"`, `"Pad:LeftStickY"`,
+  `"Pad:RightStickX"`, `"Pad:RightStickY"` from -1 to 1, right and up positive on both sticks;
+  `"Axis:LeftTrigger"`, `"Axis:RightTrigger"` from 0 to 1; `"Axis2:..."` for controller 2) reads that
+  value from `InputActionValue`, keeping its sign; keys, buttons and chords read 1. Each action has its
+  own dead zone (0 to 0.95, 0 unless set: the travel inside reads 0 and the rest is spread over 0 to 1)
+  and sensitivity (0.01 to 10, 1 unless set; values stay within -1 to 1), which change sticks and
+  triggers only. An axis counts as held past half way, as a stick direction does.
+- **Each controller's own bindings** (local multiplayer). `InputActionCheckPad(2, "Jump")`,
+  `InputActionPressedPad`, `InputActionReleasedPad` and `InputActionValuePad` read an action on one
+  controller (1 to 4): with its own bindings when it has some (`InputActionBindPad(2, "Jump", "Pad:B")`,
+  `InputActionListenPad(2, "Jump")`), otherwise the shared controller bindings read on that
+  controller, so every player has the game's layout until they change theirs. Keys and the mouse are
+  not a controller's. `InputActionClearPad` unbinds an action on one controller, `InputActionResetPad`
+  gives it the shared ones back. The bindings file keeps a controller's own under `[Pad 2]`; files
+  saved before load as they always did.
+- **Chords.** `"LB+A"`, `"Pad2:LB+A"`, `"Q+E"`, `"Shift+LB"`: two to four parts held together. A chord
+  is held while every part is and pressed once each time the last part completes it, in any order;
+  `A` bound to another action still presses that one too. `"Ctrl+S"` stays a key with a modifier, as
+  before. A bare part is a key when it is one, otherwise a controller button; after a controller part,
+  a bare part is on the same controller.
+- **Putting the game's bindings back.** `InputActionsReset()` restores what the game bound before the
+  player changed anything (rebinding, loading, a controller's own) and drops every controller's own.
+- **The rebinding screen.** `InputRebindingOpen(pause?, theme?)` (`Engine.Input.Rebinding.Open()`)
+  shows every action and its bindings over the game. Choosing an action waits for its new key or button
+  (Escape gives up); **For** switches between everyone's bindings and controller 1 to 4's own; **Reset
+  to defaults**, **Save** (`input-bindings.txt`, as `InputActionsSave`) and **Back** (or Escape, or B)
+  return to the game. The keyboard, mouse and a controller all work it. It pauses the game and stops
+  the game's actions reading while it is open (`pause` false leaves the game running), and puts both
+  back when it closes; `InputRebindingIsOpen()` / `Engine.Input.Rebinding.Showing` say whether it is
+  open, `InputRebindingClose()` closes it, and `Engine.Input.Rebinding.Enabled = false` keeps it shut.
+  It is a User Interface drawn by the UI toolkit under the name `Engine.Input.Rebinding`, so
+  `UiSetTheme`'s rules apply: name a User Interface as `theme` and its styles **Backdrop**, **Window**,
+  **Title**, **Text**, **List** and **Button** replace the screen's own.
+- **Engine API.** `Engine.Input.Actions.Enabled` (true unless set), `.SetDeadZone(action, amount)` /
+  `.DeadZone(action)`, `.SetSensitivity(action, amount)` / `.Sensitivity(action)`, `.Reset()`;
+  `Engine.Input.Rebinding.Open()`, `.Close()`, `.Showing`, `.Enabled`. A game that uses none of these
+  reads its actions exactly as before. One change for every game: with keyboard emulation on, a
+  rebinding prompt takes a controller button pressed in the same frame as the key it emulates as the
+  button (A binds Pad A, not Space).
+
 ## Routes that prefer roads (19 October 2026)
 
 A navigation grid (`NavMeshBake`, `NavMeshBakeGrid`) can make some ground cheaper or dearer to cross:

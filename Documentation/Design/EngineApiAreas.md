@@ -288,7 +288,8 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 | Engine.Input.Keyboard | + Enabled, ✓ Check(key), ✓ Pressed, ✓ Released, ✓ TextTake() |
 | Engine.Input.Mouse | + Enabled, ✓ Captured [MouseCaptured], ✓ Check, ✓ Pressed, ✓ Released, ✓ Wheel, ✓ LookDeltaX/Y, ✓ WorldX/Y [PointerWorldX], + X, + Y, + Sensitivity, + InvertY |
 | Engine.Input.Gamepad | + Enabled, ✓ Count, ✓ Connected, ✓ Axis, ✓ AxisRaw, ✓ Check, ✓ Pressed, ✓ Released, ✓ DeadZone, ✓ Vibrate, ✓ KeyboardEmulation, + VibrationStrength |
-| Engine.Input.Actions | + Enabled, ✓ Bind, ✓ Clear, ✓ Check, ✓ Pressed, ✓ Released, ✓ Value, ✓ Axis, ✓ Listen, ✓ Listening, ✓ BindingCount, ✓ BindingName, ✓ Load, ✓ Save |
+| Engine.Input.Actions | ✓ Enabled, ✓ Bind, ✓ Clear, ✓ Check, ✓ Pressed, ✓ Released, ✓ Value (-1 to 1 for an axis binding), ✓ Axis, ✓ Listen, ✓ Listening, ✓ BindingCount, ✓ BindingName, ✓ Load, ✓ Save, ✓ SetDeadZone(action, amount) / DeadZone(action), ✓ SetSensitivity(action, amount) / Sensitivity(action), ✓ Reset(); per controller (1 to 4) ✓ BindPad, ✓ ClearPad, ✓ ResetPad, ✓ CheckPad, ✓ PressedPad, ✓ ReleasedPad, ✓ ValuePad, ✓ ListenPad, ✓ BindingCountPad, ✓ BindingNamePad [InputAction*Pad] (29 Oct: GameFeatures.md, "Analogue actions...") |
+| Engine.Input.Rebinding | ✓ Enabled, ✓ Open(pause?, theme?), ✓ Close(), ✓ Showing (read) [InputRebindingOpen, InputRebindingClose, InputRebindingIsOpen]: the ready-made rebinding screen |
 | Engine.Input.Record | ✓ Start, ✓ Stop, ✓ Active |
 | Engine.Input.Replay | ✓ Start, ✓ Stop, ✓ Active, ✓ Finished, ✓ Frame |
 | Engine.Input.Touch | + Enabled, + Count, + X(i), + Y(i) |

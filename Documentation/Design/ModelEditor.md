@@ -10,6 +10,15 @@ The Viewer inspects a model and has no authoring tools.
 - Tests: `Tests/Genesis.Application.Headless/Suites/Model*Suite.cs`; `--test model-editor` runs the
   editor's suites, including Paint.
 
+## Hidden materials
+
+Texture page, **HIDDEN MATERIALS**: every material of the model with a tick box. A ticked material's
+surfaces are not drawn, in the editor's preview at once and in games (an imported scene's ground
+once a Terrain stands in for it); the geometry stays in the model. Each tick is one undo step, and
+Save keeps the list in the Model resource's `hiddenMaterials` (the only place it is kept:
+`GModelMaterial.Hidden` is set from it on every load; names of materials the model no longer has
+are left in the list). The Viewer shows a hidden material as "*name* (hidden)" and cannot change it.
+
 ## Paint
 
 Texture painting on the model, in the 3D view, live. Texture page, **PAINT ON THE MODEL**:
