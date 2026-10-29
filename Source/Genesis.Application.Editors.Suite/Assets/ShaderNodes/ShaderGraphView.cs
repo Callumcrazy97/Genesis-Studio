@@ -122,7 +122,9 @@ public sealed class ShaderGraphView : Control
     {
         ShaderGraphNodeDefinition? definition = Definition(node);
         int rows = Math.Max(1, Math.Max(definition?.Inputs.Count ?? 0, definition?.Outputs.Count ?? 0));
-        return new RectangleF(node.X, node.Y, NodeWidth, HeaderHeight + rows * RowHeight + 8f);
+        // A parameter has a line more, for its kind under its ports.
+        float caption = definition?.Role == ShaderGraphNodeRole.Parameter ? 14f : 0f;
+        return new RectangleF(node.X, node.Y, NodeWidth, HeaderHeight + rows * RowHeight + 8f + caption);
     }
 
     /// <summary>Where a port's circle is, in graph units.</summary>
@@ -355,7 +357,7 @@ public sealed class ShaderGraphView : Control
     }
 
     protected override bool IsInputKey(Keys keyData) =>
-        keyData is Keys.Delete or Keys.Back or Keys.Space or Keys.Tab || base.IsInputKey(keyData);
+        keyData is Keys.Delete or Keys.Back or Keys.Space || base.IsInputKey(keyData);
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
@@ -366,7 +368,7 @@ public sealed class ShaderGraphView : Control
                 DeleteSelection();
                 e.Handled = true;
                 break;
-            case Keys.Space or Keys.Tab:
+            case Keys.Space:
                 Point cursor = PointToClient(Cursor.Position);
                 AddNodeRequested?.Invoke(ClientRectangle.Contains(cursor) ? cursor : new Point(ClientSize.Width / 2, ClientSize.Height / 2), null);
                 e.Handled = true;
@@ -570,10 +572,10 @@ public sealed class ShaderGraphView : Control
             if (!wired && port.Type != ShaderGraphValueType.Texture && node.Inputs.TryGetValue(port.Name, out float[]? own)) label += "  " + ValueText(own);
             else if (!wired && port.Source != ShaderGraphDefaultSource.Constant) label += port.Source switch
             {
-                ShaderGraphDefaultSource.Uv => "  (UV)",
-                ShaderGraphDefaultSource.Normal => "  (normal)",
-                ShaderGraphDefaultSource.ViewDirection => "  (view)",
-                _ => "  (main)",
+                ShaderGraphDefaultSource.Uv => "  (mesh UV)",
+                ShaderGraphDefaultSource.Normal => "  (mesh normal)",
+                ShaderGraphDefaultSource.ViewDirection => "  (to camera)",
+                _ => "  (main picture)",
             };
             TextRenderer.DrawText(g, label, font, Rectangle.Round(new RectangleF(centre.X + 9 * _zoom, centre.Y - RowHeight * _zoom / 2f, bounds.Width * 0.62f, RowHeight * _zoom)),
                 wired ? EditorChrome.Text : EditorChrome.Muted, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);

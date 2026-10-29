@@ -256,19 +256,19 @@ internal static class ShaderNodeGraphSuite
                 string multiply = graph.Nodes.Single(node => node.Type == "Multiply").Id;
                 string tint = graph.Nodes.Single(node => node.Type == "ColorParameter").Id;
                 Assert(editor.RemoveGraphNodes(graph.Nodes.Single(node => node.Type == "MainTexture").Id), "The starter's picture node could not be removed.");
-                string texture = Require(editor.AddGraphNode("TextureParameter", 0, -40), "texture parameter");
-                string sample = Require(editor.AddGraphNode("SampleTexture", 200, -40), "sample texture");
+                string texture = Require(editor.AddGraphNode("TextureParameter", -220, -60), "texture parameter");
+                string sample = Require(editor.AddGraphNode("SampleTexture", 20, -110), "sample texture");
                 Assert(editor.SetGraphNodeName(texture, "Pattern"), "The texture parameter could not be named.");
                 Assert(editor.SetGraphNodeTexture(texture, imageName), "The texture parameter did not take the Image.");
                 Assert(editor.ConnectGraphNodes(texture, "Texture", sample, "Texture"), "Texture to Sample texture was refused.");
                 Assert(editor.ConnectGraphNodes(sample, "RGB", multiply, "A"), "Sample to Multiply was refused.");
                 Assert(editor.SetGraphNodeValue(tint, 1f, .55f, .3f, 1f), "The tint colour was not set.");
                 Assert(editor.ParameterValue("Tint").SequenceEqual(new[] { 1f, .55f, .3f, 1f }), "The tint node and the Inspector's Tint disagree.");
-                string fresnel = Require(editor.AddGraphNode("Fresnel", 200, 320), "fresnel");
+                string fresnel = Require(editor.AddGraphNode("Fresnel", 40, 330), "fresnel");
                 Assert(editor.SetGraphNodeInput(fresnel, "Power", [2.5f]), "Fresnel power was not set.");
-                string rim = Require(editor.AddGraphNode("ColorParameter", 200, 460), "rim colour");
+                string rim = Require(editor.AddGraphNode("ColorParameter", 40, 460), "rim colour");
                 Assert(editor.SetGraphNodeName(rim, "RimColour") && editor.SetGraphNodeValue(rim, .2f, .7f, 1f, 1f), "The rim colour was not set.");
-                string glow = Require(editor.AddGraphNode("Multiply", 440, 380), "glow multiply");
+                string glow = Require(editor.AddGraphNode("Multiply", 290, 380), "glow multiply");
                 Assert(editor.ConnectGraphNodes(fresnel, "Out", glow, "A") && editor.ConnectGraphNodes(rim, "RGB", glow, "B"), "The rim wires were refused.");
                 Assert(!editor.ConnectGraphNodes(texture, "Texture", glow, "B"), "A texture was wired into a number input.");
                 Assert(!editor.SetGraphNodeName(rim, "Pattern"), "Two parameters were given one name.");
@@ -296,11 +296,17 @@ internal static class ShaderNodeGraphSuite
                 Assert(editor.WorkspaceMode == "Nodes", "Undo or redo left the node view.");
 
                 // A graph that cannot make a shader is a diagnostic, not an exception, and the code stays.
+                // Tint and RimColour take two of GenesisParameters' four rows: two more vectors fit, a third does not.
                 List<string> extra = [];
-                for (int index = 0; index < 4; index++) extra.Add(Require(editor.AddGraphNode("VectorParameter", 600, index * 80), "vector"));
+                for (int index = 0; index < 2; index++) extra.Add(Require(editor.AddGraphNode("VectorParameter", 760, 420 + index * 90), "vector"));
                 editor.CompileNow();
-                Assert(!editor.LastCompileSucceeded && editor.NodeGraphErrors.Count > 0 && editor.DiagnosticText.Contains("Node graph", StringComparison.Ordinal)
-                    && editor.SourceText == withEmission, "Too many parameters was not reported as a graph error: " + editor.DiagnosticText);
+                string fits = editor.SourceText;
+                Assert(editor.LastCompileSucceeded && fits.Contains("Offset2", StringComparison.Ordinal), "Four parameter rows did not compile: " + editor.DiagnosticText);
+                extra.Add(Require(editor.AddGraphNode("VectorParameter", 760, 600), "vector"));
+                editor.CompileNow();
+                Assert(!editor.LastCompileSucceeded && editor.NodeGraphErrors.Count > 0 && editor.DiagnosticText.Contains("Node graph", StringComparison.Ordinal),
+                    "Too many parameters was not reported as a graph error: " + editor.DiagnosticText);
+                Assert(editor.SourceText == fits, "A graph that cannot make a shader changed the code.");
                 Assert(Find(editor, "ShaderNodesErrors") is { Visible: true }, "The node view did not show the graph's error.");
                 Capture(ctx, host, "shader-nodes-error");
                 Assert(editor.RemoveGraphNodes([.. extra]), "The extra parameters could not be removed.");

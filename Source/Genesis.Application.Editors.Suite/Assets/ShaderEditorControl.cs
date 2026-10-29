@@ -2331,12 +2331,24 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
 
         string modelAsset = PreviewModelAsset();
         FramePreviewModel(modelAsset);
-        if (!string.IsNullOrWhiteSpace(modelAsset)
-            && _modelPreviewRenderer.DrawModel(
-                ProjectRoot, modelAsset, null, _previewModelWorld,
-                new Draw3DComponent { Visible = true, CastShadows = true, ReceiveShadows = true },
-                new ModelRendererComponent { ScaleX = 1f, ScaleY = 1f, ScaleZ = 1f, CastShadows = true, ReceiveShadows = true },
-                default, renderer)) return;
+        if (!string.IsNullOrWhiteSpace(modelAsset))
+        {
+            ModelRenderQueue queue = ModelRenderQueue.Rent();
+            if (_modelPreviewRenderer.Enqueue(
+                    queue, ProjectRoot, modelAsset, null, _previewModelWorld,
+                    new Draw3DComponent { Visible = true, CastShadows = true, ReceiveShadows = true },
+                    new ModelRendererComponent { ScaleX = 1f, ScaleY = 1f, ScaleZ = 1f, CastShadows = true, ReceiveShadows = true },
+                    default, renderer))
+            {
+                // The shader's own textures (t17 and up) go with every part of the model, as they go
+                // with the sphere below; without them a texture the shader samples reads black.
+                AuthoredShaderTextures textures = BuildPreviewAuthoredTextures(renderer);
+                if (textures.Count > 0)
+                    foreach (ref MeshDrawCall call in queue.Calls) call.AuthoredTextures = textures;
+                queue.Draw(renderer);
+                return;
+            }
+        }
 
         if (IsObjectPreview) return;
         renderer.DrawMesh(new MeshDrawCall
