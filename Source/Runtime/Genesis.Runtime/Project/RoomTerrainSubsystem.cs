@@ -69,6 +69,10 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         public MeshInstanceData[] FoliageInstanceBuffer = Array.Empty<MeshInstanceData>();
         /// <summary>Grass grown around the camera from the nature document's rule; null while the rule is off.</summary>
         public TerrainGrassField GrassField;
+        /// <summary>The grass rule's blade texture, loaded for <see cref="GrassTextureRenderer"/> from <see cref="GrassTextureName"/>.</summary>
+        public TextureHandle GrassTexture;
+        public string GrassTextureName;
+        public IRenderController GrassTextureRenderer;
         public WorldManifest Manifest;
         public WorldQuery Query;
         public WorldManifestStreamingProvider Streamer;
@@ -682,6 +686,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             look.GetLighting(out Vector3 light, out _, out _);
             sun = light;
         }
+        // Characters walking through the grass part it: gathered once a frame, before any terrain draws.
+        GatherGrassPushers(scene, scene.Camera3D.Position);
         SubmitPreviewMeshes(scene.Camera3D.Position, scene.Camera3D.ViewProjection, buffer, ref count, renderer, sun);
     }
 
@@ -734,7 +740,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
             if (!GroundDrawn) count = terrainStart;
             long afterGround = System.Diagnostics.Stopwatch.GetTimestamp();
             SubmitFoliage(entry, camera, viewProjection, placement, renderer);
-            if (ScatterDrawn) entry.Scatter?.Submit(renderer, camera, viewProjection, placement, buffer, ref count);
+            if (ScatterDrawn) entry.Scatter?.Submit(renderer, camera, viewProjection, placement, buffer, ref count,
+                _grassPushers, ScatterPushStrength(entry));
             SubmitGrassRule(entry, camera, viewProjection, placement, renderer);
             long afterScatter = System.Diagnostics.Stopwatch.GetTimestamp();
             SubmitWater(entry, camera, placement, renderer, buffer, ref count);
@@ -1058,7 +1065,7 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         }
     }
 
-    private static void SubmitFoliage(
+    private void SubmitFoliage(
         Entry entry,
         Vector3 camera,
         Matrix4x4 viewProjection,
@@ -1066,6 +1073,8 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
         IRenderController renderer)
     {
         if (entry.Foliage?.Instances == null || entry.Renderer == null || entry.FoliagePlanner == null) return;
+        // Scattered plants part round characters as the grass does.
+        float pushStrength = _grassPushers.IsEmpty ? 0f : ScatterPushStrength(entry);
         FoliageFramePlan plan = entry.FoliagePlanner.Build(
             camera,
             viewProjection,
@@ -1097,7 +1106,9 @@ public sealed partial class RoomTerrainSubsystem : ISceneSubsystem, IStreamingPr
                 Matrix4x4 local = Matrix4x4.CreateScale(instance.Scale)
                     * Matrix4x4.CreateRotationY(instance.Rotation)
                     * Matrix4x4.CreateTranslation(instance.Position);
-                entry.FoliageInstanceBuffer[i] = new MeshInstanceData(local * placement, tint);
+                Matrix4x4 world = local * placement;
+                if (pushStrength > 0f) _grassPushers.Bend(ref world, pushStrength);
+                entry.FoliageInstanceBuffer[i] = new MeshInstanceData(world, tint);
             }
             MeshDrawCall template = new()
             {

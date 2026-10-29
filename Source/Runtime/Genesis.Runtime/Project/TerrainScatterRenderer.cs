@@ -10,6 +10,7 @@ using Genesis.Runtime.Modeling;
 using Genesis.Runtime.Rendering;
 using Genesis.Shared.Geometry;
 using Genesis.Shared.Interfaces;
+using Genesis.World.Foliage;
 using Genesis.World.Terrain;
 
 namespace Genesis.Runtime.Project;
@@ -110,6 +111,8 @@ public sealed class TerrainScatterRenderer : IDisposable
         public GModelAsset Asset;
         public float Radius;
         public Vector3 Centre;
+        /// <summary>The layer's copies bend away from grass pushers (TerrainScatterLayer.Bends).</summary>
+        public bool Bends;
         public Task<ProxySource[]> SourceBuild;
         public ProxySource[] Sources;
         public bool SourcesFailed;
@@ -227,10 +230,13 @@ public sealed class TerrainScatterRenderer : IDisposable
     /// <summary>Draw calls to reserve for merged meshes.</summary>
     public int MaximumDrawCalls => _layers.Count == 0 ? 0 : 4096;
 
+    /// <param name="pushers">What parts the grass this frame: copies of bending layers near it lean away; null for none.</param>
+    /// <param name="pushStrength">How far they lean, 0 to 1 (as the grass rule's push strength).</param>
     public void Submit(IRenderController renderer, Vector3 camera, in Matrix4x4 viewProjection, in Matrix4x4 placement,
-        MeshDrawCall[] buffer, ref int count)
+        MeshDrawCall[] buffer, ref int count, GrassPushers pushers = null, float pushStrength = 0f)
     {
         if (_layers.Count == 0 || renderer == null) return;
+        bool bending = pushers is { IsEmpty: false } && pushStrength > 0f;
         if (!ReferenceEquals(_renderer, renderer))
         {
             ReleaseMeshes();
@@ -322,6 +328,12 @@ public sealed class TerrainScatterRenderer : IDisposable
             {
                 Generated content = cell.Content;
                 float radius = state.Radius;
+                bool bendCell = false;
+                if (bending && state.Bends)
+                {
+                    (Vector3 worldMin, Vector3 worldMax) = PlacedBox(content.Min, content.Max, placement);
+                    bendCell = pushers.Select(worldMin, worldMax);
+                }
                 for (int i = 0; i < content.Instances.Length; i++)
                 {
                     ref readonly TerrainScatterInstance instance = ref content.Instances[i];
@@ -337,7 +349,9 @@ public sealed class TerrainScatterRenderer : IDisposable
                     instanceBudget--;
                     float tone = instance.Tone;
                     var tint = new RenderColor(1f + tone * 0.07f, 1f - MathF.Abs(tone) * 0.04f, 1f - tone * 0.09f, 1f);
-                    (casts ? state.Shadowed : state.Lit)[level].Add(new MeshInstanceData(content.Matrices[i] * placement, tint));
+                    Matrix4x4 world = content.Matrices[i] * placement;
+                    if (bendCell) pushers.BendNear(ref world, pushStrength);
+                    (casts ? state.Shadowed : state.Lit)[level].Add(new MeshInstanceData(world, tint));
                     near++;
                     if (casts) shadow++;
                 }
@@ -392,6 +406,21 @@ public sealed class TerrainScatterRenderer : IDisposable
             near, shadow, dropped, mergedDraws, mergedTriangles, _mergedBytes);
     }
 
+    /// <summary>The world box holding a box in the terrain's own space, placed.</summary>
+    private static (Vector3 Min, Vector3 Max) PlacedBox(Vector3 min, Vector3 max, in Matrix4x4 placement)
+    {
+        Vector3 low = new(float.MaxValue), high = new(float.MinValue);
+        for (int corner = 0; corner < 8; corner++)
+        {
+            Vector3 point = Vector3.Transform(new Vector3(
+                (corner & 1) == 0 ? min.X : max.X, (corner & 2) == 0 ? min.Y : max.Y, (corner & 4) == 0 ? min.Z : max.Z), placement);
+            low = Vector3.Min(low, point);
+            high = Vector3.Max(high, point);
+        }
+
+        return (low, high);
+    }
+
     private static Generated Generate(TerrainAsset terrain, TerrainScatterLayer layer, int cellX, int cellZ, float radius)
     {
         TerrainScatterInstance[] instances = TerrainScatterPlacement.Generate(terrain, layer, cellX, cellZ);
@@ -429,6 +458,7 @@ public sealed class TerrainScatterRenderer : IDisposable
         Vector3 min = (asset.Bounds?.Min ?? new Vector3(-0.5f)) - pivot, max = (asset.Bounds?.Max ?? new Vector3(0.5f)) - pivot;
         state.Centre = (min + max) * 0.5f;
         state.Radius = MathF.Max(0.01f, Vector3.Distance(min, max) * 0.5f);
+        state.Bends = state.Layer.Bends(max.Y - MathF.Min(0f, min.Y));
         return true;
     }
 

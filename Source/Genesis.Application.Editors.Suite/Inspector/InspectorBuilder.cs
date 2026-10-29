@@ -59,7 +59,7 @@ public static class InspectorBuilder
                 Increment: rangeAttribute?.Increment ?? knownRange?.Increment,
                 DecimalPlaces: rangeAttribute?.DecimalPlaces ?? knownRange?.DecimalPlaces,
                 ReadOnly: readOnly,
-                AssetKind: asset?.Kind,
+                AssetKind: asset?.Kind ?? KnownAsset(target.GetType(), property.Name),
                 ProjectRoot: projectRoot,
                 DialogOwner: dialogOwner,
                 ControlName: "InspectorDrawer_" + property.Name,
@@ -244,12 +244,19 @@ public static class InspectorBuilder
             return property switch
             {
                 "CellSize" or "CellsPerFrame" or "GenerationBudgetMilliseconds" or "MaximumDrawnTufts" => "Streaming & budgets",
+                "ColorEnabled" or "BaseColor" or "TipColor" or "ColorCurve" or "Texture" => "Blade colour and texture",
+                "WindEnabled" or "WindStrength" or "WindSpeed" or "WindGusts" => "Wind",
+                "PushersEnabled" or "PushStrength" or "SpringBackSeconds" or "ClearPaths" or "PathEdge" => "Parting and paths",
                 _ when property.StartsWith("Layer", StringComparison.Ordinal) => "Density per paint layer",
                 _ => "Grass around the camera",
             };
         }
         return "Settings";
     }
+
+    /// <summary>Resource references known by name on runtime settings that cannot carry the editor's attributes.</summary>
+    private static Genesis.Application.Core.Resources.ResourceKind? KnownAsset(Type owner, string property) =>
+        owner.Name == "TerrainGrassRuleSettings" && property == "Texture" ? Genesis.Application.Core.Resources.ResourceKind.Image : null;
 
     private static DrawerRange? KnownRange(Type owner, string property)
     {
@@ -298,6 +305,11 @@ public static class InspectorBuilder
                 "CellsPerFrame" => new DrawerRange(1m, 256m, 1m, 0),
                 "GenerationBudgetMilliseconds" => new DrawerRange(0.1m, 33m, 0.1m, 1),
                 "MaximumDrawnTufts" => new DrawerRange(0m, 32768m, 256m, 0),
+                "ColorCurve" => new DrawerRange(0.1m, 8m, 0.05m, 2),
+                "WindStrength" or "WindSpeed" => new DrawerRange(0m, 4m, 0.05m, 2),
+                "WindGusts" or "PushStrength" => new DrawerRange(0m, 1m, 0.05m, 2),
+                "SpringBackSeconds" => new DrawerRange(0m, 10m, 0.1m, 1),
+                "PathEdge" => new DrawerRange(0m, 16m, 0.1m, 1),
                 _ when property.StartsWith("Layer", StringComparison.Ordinal) => new DrawerRange(0m, 1m, 0.05m, 2),
                 _ => null,
             };

@@ -610,6 +610,15 @@ public sealed class TerrainPlacedEntity
     }
 }
 
+/// <summary>Whether a scatter layer's copies bend away from characters and grass pushers.</summary>
+public enum TerrainScatterBend
+{
+    /// <summary>Small plants bend: copies that cast no shadow, have no collision and stand under 1.5 m.</summary>
+    Auto,
+    On,
+    Off,
+}
+
 /// <summary>
 /// A rule that covers suitable ground with copies of one Model: a forest, a boulder field, reeds.
 /// </summary>
@@ -658,10 +667,27 @@ public sealed class TerrainScatterLayer
     /// <summary>Height in metres, at scale 1, of that box.</summary>
     public float CollisionHeight { get; set; }
     public int Seed { get; set; } = 1;
+    /// <summary>
+    /// Whether the copies bend away from characters and grass pushers, as the grass does. Auto bends
+    /// small plants: copies that cast no shadow, have no collision and stand under 1.5 m.
+    /// </summary>
+    public TerrainScatterBend Bend { get; set; } = TerrainScatterBend.Auto;
+
+    /// <summary>The tallest an Auto layer's copies may stand and still bend, in metres.</summary>
+    public const float AutoBendHeight = 1.5f;
+
+    /// <summary>True when this layer's copies bend, for a model <paramref name="modelHeight"/> metres tall at scale 1.</summary>
+    public bool Bends(float modelHeight) => Bend switch
+    {
+        TerrainScatterBend.On => true,
+        TerrainScatterBend.Off => false,
+        _ => !CastShadows && CollisionRadius <= 0f && modelHeight * MaximumScale <= AutoBendHeight,
+    };
 
     public void Normalize()
     {
         if (string.IsNullOrWhiteSpace(Id)) Id = Guid.NewGuid().ToString("N");
+        if (!Enum.IsDefined(Bend)) Bend = TerrainScatterBend.Auto;
         Name = string.IsNullOrWhiteSpace(Name) ? "Scatter" : Name;
         Model ??= "";
         DensityPerHectare = float.IsFinite(DensityPerHectare) ? Math.Clamp(DensityPerHectare, 0f, 20000f) : 0f;

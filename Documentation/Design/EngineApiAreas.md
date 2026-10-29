@@ -154,7 +154,11 @@ Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Curre
 |---|---|
 | Engine.Terrain | ✓ Enabled (drawn), ✓ HeightAt(x, z) [GetHeight], ✓ NormalAt(x, z) [NormalX/Y/Z, SlopeAt], ✓ MaterialAt(x, z), ✓ Width (read), ✓ Depth (read) |
 | Engine.Terrain.Detail | ✓ Quality (LOD), ✓ Distance (the streaming distance), – Tessellation (the engine has no tessellation) |
-| Engine.Terrain.Grass | ✓ Enabled, ✓ Density, ✓ Distance, ✓ Height, – Wind (the weather's wind moves the grass: Engine.Weather.Wind) |
+| Engine.Terrain.Grass | ✓ Enabled, ✓ Density, ✓ Distance, ✓ Height, ✓ Texture (an Image on each blade; 29 Oct) |
+| Engine.Terrain.Grass.Color (the grass shader, 29 Oct) | ✓ Enabled, ✓ Base, ✓ Tip ("#rrggbb", root and tip), ✓ Curve |
+| Engine.Terrain.Grass.Wind (29 Oct) | ✓ Enabled, ✓ Strength, ✓ Speed, ✓ Gusts (the weather's wind still scales it and sets its direction) |
+| Engine.Terrain.Grass.Pushers (what parts the grass, 29 Oct) | ✓ Enabled, ✓ Characters (animated models push by themselves), ✓ CharacterRadius, ✓ Strength, ✓ SpringBack, ✓ Count (read), ✓ Set(key, x, y, z, radius), ✓ Remove(key), ✓ Clear() |
+| Engine.Terrain.Grass.Paths (29 Oct) | ✓ Enabled (grass keeps off the terrain's paths) |
 | Engine.Terrain.Scatter (trees, rocks) | ✓ Enabled, ✓ Density, ✓ Distance, ✓ Shadows |
 | Engine.Terrain.Collision | – Enabled (everything would fall through; Engine.Terrain.Enabled hides the ground instead), ✓ Distance (how far collision is built around bodies) |
 | Engine.Terrain.Edit | ✓ Raise(x, z, radius, metres), ✓ Lower(...), ✓ Flatten(x, z, radius, height), ✓ Smooth(...), ✓ Paint(x, z, radius, layer, strength) |

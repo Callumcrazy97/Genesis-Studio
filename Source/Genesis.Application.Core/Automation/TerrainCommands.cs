@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Genesis.Application.Core.Projects;
+using Genesis.Application.Core.Terrain;
 using Genesis.World.Foliage;
 using Genesis.World.Terrain;
 
@@ -23,6 +24,8 @@ public static class TerrainCommands
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        // Colours are Vector3s, whose parts are fields: written as {"x": .., "y": .., "z": ..}.
+        IncludeFields = true,
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
@@ -83,34 +86,71 @@ public static class TerrainCommands
     public sealed class GrassInput
     {
         [Description("The Terrain resource, project-relative."), RequiredInput] public string Terrain { get; set; } = string.Empty;
-        [Description("Grow grass around the camera from the rule.")] public bool? Enabled { get; set; }
-        [Description("Metres from the camera grass is grown and drawn to (default 100).")] public float? Radius { get; set; }
-        [Description("Metres between neighbouring tufts at full density (default 0.5).")] public float? Spacing { get; set; }
+        [Description("Grow grass around the camera from the rule (default: on; false switches it off).")] public bool? Enabled { get; set; }
+        [Description("Metres from the camera grass is grown and drawn to (default 90).")] public float? Radius { get; set; }
+        [Description("Metres between neighbouring tufts at full density (default 0.35).")] public float? Spacing { get; set; }
         [Description("Fraction of the radius at full density before it thins out (default 0.45).")] public float? FullDensityFraction { get; set; }
         [Description("Tufts nearer than this use the detailed blade mesh (default 30 m).")] public float? DetailDistance { get; set; }
         [Description("How far a tuft wanders from its lattice point, as a fraction of the spacing (default 0.9).")] public float? Jitter { get; set; }
-        [Description("Smallest tuft scale (default 0.75).")] public float? MinimumScale { get; set; }
-        [Description("Largest tuft scale (default 1.2).")] public float? MaximumScale { get; set; }
+        [Description("Smallest tuft scale (default 0.6).")] public float? MinimumScale { get; set; }
+        [Description("Largest tuft scale (default 1).")] public float? MaximumScale { get; set; }
         [Description("Steepest ground in degrees grass grows on (default 40).")] public float? SteepestSlopeDegrees { get; set; }
         [Description("Which tuft to grow (MeadowGrass looks like the scattered grass).")] public FoliageSpecies? Species { get; set; }
         [Description("Picks the pattern of tufts.")] public int? PatternSeed { get; set; }
         [Description("Grass on each painted layer, first to eighth, 0 to 1 (default 1 on the first, usually Grass, and 0 on the rest): [1, 0.3] also grows thin grass on the second.")] public float[]? LayerDensities { get; set; }
         [Description("Most tufts drawn in a frame, nearest first (default 16000, at most 32768).")] public int? MaximumDrawnTufts { get; set; }
+        [Description("Colour the blades from baseColor at the root to tipColor at the tip (default true; false keeps the tuft's own colours).")] public bool? ColorEnabled { get; set; }
+        [Description("The blades' colour at the root [r, g, b], 0 to 1 (default [0.10, 0.22, 0.06]).")] public float[]? BaseColor { get; set; }
+        [Description("The blades' colour at the tip [r, g, b], 0 to 1 (default [0.27, 0.62, 0.17]).")] public float[]? TipColor { get; set; }
+        [Description("How the colour runs up a blade: 1 evenly, below 1 the tip colour reaches further down, above 1 it keeps to the tips (default 0.8).")] public float? ColorCurve { get; set; }
+        [Description("An Image resource drawn on each blade, tinted by the colours; its see-through parts cut the blade (default none; empty clears it).")] public string? Texture { get; set; }
+        [Description("Sway the blades in the wind (default true).")] public bool? WindEnabled { get; set; }
+        [Description("How far the blades sway, 0 to 4 (default 1).")] public float? WindStrength { get; set; }
+        [Description("How fast the blades sway, 0 to 4 (default 1).")] public float? WindSpeed { get; set; }
+        [Description("Gusts rolling across the field, 0 to 1 (default 0).")] public float? WindGusts { get; set; }
+        [Description("Grass bends away from animated characters and a game's pushers (default true).")] public bool? PushersEnabled { get; set; }
+        [Description("How far pushed grass bends, 0 to 1 (default 0.8).")] public float? PushStrength { get; set; }
+        [Description("Seconds pushed grass takes to stand up again (default 0.8).")] public float? SpringBackSeconds { get; set; }
+        [Description("Keep grass off the terrain's paths (default true).")] public bool? ClearPaths { get; set; }
+        [Description("Metres over which grass thins in at a path's edge (default 0.6).")] public float? PathEdge { get; set; }
     }
 
     public sealed class TerrainSetGrass : AutomationCommand<GrassInput>
     {
         public override string Name => "terrain.setGrass";
-        public override string Description => "Sets a terrain's grass rule (grass grown around the camera, as the Terrain editor's grass does); only the fields given change.";
+        public override string Description => "Sets a terrain's grass rule (grass grown around the camera, as the Terrain editor's grass does) and switches it on unless enabled is false; only the fields given change. With only the terrain, it grows the built-in meadow grass.";
 
         protected override AutomationResult Execute(AutomationContext context, GrassInput input)
         {
             string terrain = Terrain(context, input.Terrain);
             TerrainNatureDocument document = TerrainNatureSerializer.LoadOrDefault(terrain);
-            Apply(input, document.GrassRule, nameof(GrassInput.Terrain));
-            document.GrassRule.Normalize();
-            return Save(context, terrain, document, $"Grass rule {(document.GrassRule.Enabled ? "on" : "off")}.", JsonSerializer.SerializeToNode(document.GrassRule, Json));
+            TerrainGrassRuleSettings rule = document.GrassRule;
+            bool suitGround = false;
+            if (input.Enabled != false && !rule.Enabled)
+            {
+                // Asking for grass grows it. A switched-off rule nobody chose (saved before the grass
+                // shader, or with the old stock values) starts as the built-in grass instead.
+                if (rule.LooksUnset) document.GrassRule = rule = rule.BuiltInWithLayers();
+                rule.Enabled = true;
+                suitGround = true;
+            }
+            Apply(input, rule, nameof(GrassInput.Terrain), nameof(GrassInput.BaseColor), nameof(GrassInput.TipColor));
+            if (input.BaseColor != null) rule.BaseColor = Vector(input.BaseColor, "The base colour");
+            if (input.TipColor != null) rule.TipColor = Vector(input.TipColor, "The tip colour");
+            if (input.Texture is { Length: > 0 } texture && !ImageExists(context, texture))
+                throw new AutomationException($"There is no Image resource '{texture}' for the grass texture.");
+            rule.Normalize();
+            // The built-in grass comes with its ground: a stock Grass layer takes the darker green
+            // between its tufts, as the Terrain editor's Foliage › Grass template does.
+            bool groundSuited = suitGround && TerrainGrassGround.SuitTerrainFile(terrain);
+            return Save(context, terrain, document,
+                $"Grass rule {(rule.Enabled ? "on" : "off")}{(groundSuited ? "; the Grass layer's colour suits it" : "")}.",
+                JsonSerializer.SerializeToNode(rule, Json));
         }
+
+        private static bool ImageExists(AutomationContext context, string texture) =>
+            File.Exists(context.Resolve(texture))
+            || Genesis.Shared.Assets.ResourceCatalog.Resolve(context.Root, texture, Genesis.Shared.Assets.ResourceType.Image).Length > 0;
     }
 
     public class ScatterLayerFields
@@ -136,6 +176,7 @@ public static class TerrainCommands
         [Description("Half-width of each copy's collision box at scale 1 (a trunk's radius); 0 = no collision.")] public float? CollisionRadius { get; set; }
         [Description("Height of that box at scale 1.")] public float? CollisionHeight { get; set; }
         [Description("Picks the pattern of copies.")] public int? Seed { get; set; }
+        [Description("Whether copies bend away from characters and grass pushers: Auto (default: small plants with no shadow and no collision), On or Off.")] public TerrainScatterBend? Bend { get; set; }
     }
 
     public sealed class AddLayerInput : ScatterLayerFields

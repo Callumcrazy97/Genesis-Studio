@@ -313,6 +313,8 @@ public sealed partial class TerrainEditorControl
                 AssetKind: ResourceKind.Shader));
         }
 
+        // The grass around the camera: its rule's main settings (the full list is on the Decorate page).
+        AddGrassInspectorValues(values);
         // What the terrain gives the room it is placed in (world values, set before its Create events).
         EngineSettingsInspector.AddValues(values, _nature.EngineSettings, EngineSettingScope.World);
         return values;
@@ -326,6 +328,7 @@ public sealed partial class TerrainEditorControl
         string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
         try
         {
+            if (TryApplyGrassInspectorValue(propertyPath, value)) return true;
             if (propertyPath.StartsWith(EngineSettingsInspector.Prefix, StringComparison.Ordinal))
             {
                 Dictionary<string, string>? before = _nature.EngineSettings is null ? null : new(_nature.EngineSettings, StringComparer.OrdinalIgnoreCase);
