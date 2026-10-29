@@ -86,36 +86,11 @@ public static partial class PgslCommands
     /// how long each laid-out container's content is.
     /// </summary>
     private static (Dictionary<string, float> Slots, Dictionary<string, float> Extents) UiLayoutSlots(IReadOnlyList<UiElement> ordered,
-        IReadOnlyDictionary<string, UiElement> elements)
-    {
-        var slots = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
-        var cursors = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
-        foreach (UiElement element in ordered)
-        {
-            if (string.IsNullOrWhiteSpace(element.ParentId) || !elements.TryGetValue(element.ParentId, out UiElement container)
-                || container.Layout == UiLayoutMode.None) continue;
-            float at = cursors.TryGetValue(container.Id, out float cursor) ? cursor + container.Spacing : container.Padding;
-            slots[element.Id] = at;
-            cursors[container.Id] = at + (container.Layout == UiLayoutMode.Horizontal ? element.Width : element.Height);
-        }
-        var extents = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
-        foreach (KeyValuePair<string, float> pair in cursors)
-            extents[pair.Key] = pair.Value + (elements.TryGetValue(pair.Key, out UiElement container) ? container.Padding : 0);
-        return (slots, extents);
-    }
+        IReadOnlyDictionary<string, UiElement> elements) => UiLayoutPlacement.Slots(ordered, elements);
 
-    /// <summary>A laid-out child's box: at its slot along the layout, inset by the padding across it.</summary>
-    private static RectangleF LayoutUiRect(RectangleF parent, UiElement container, UiElement element, float slot)
-    {
-        float padding = container.Padding;
-        if (container.Layout == UiLayoutMode.Horizontal)
-        {
-            float height = element.Anchor == UiAnchor.Stretch ? MathF.Max(1f, parent.Height - (padding * 2)) : MathF.Max(1f, element.Height);
-            return new RectangleF(parent.X + slot, parent.Y + padding, MathF.Max(1f, element.Width), height);
-        }
-        float width = element.Anchor == UiAnchor.Stretch ? MathF.Max(1f, parent.Width - (padding * 2)) : MathF.Max(1f, element.Width);
-        return new RectangleF(parent.X + padding, parent.Y + slot, width, MathF.Max(1f, element.Height));
-    }
+    /// <summary>A laid-out child's box: at its slot along the layout, inset by the padding across it (shared with the UI Editor's canvas).</summary>
+    private static RectangleF LayoutUiRect(RectangleF parent, UiElement container, UiElement element, float slot) =>
+        UiLayoutPlacement.Place(parent, container, element, slot);
 
     /// <summary>The Scroll Lists an element is inside, nearest first.</summary>
     private static string[] UiScrollAncestors(UiElement element, IReadOnlyDictionary<string, UiElement> elements)

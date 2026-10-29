@@ -200,6 +200,65 @@ public static class UiImageLayout
     }
 }
 
+/// <summary>
+/// Where the children of a laid-out Panel or Scroll List go, and how far a box's Padding takes its
+/// text in from the edges: shared by the UI Editor canvas and the game, so the canvas shows what the
+/// game draws.
+/// </summary>
+public static class UiLayoutPlacement
+{
+    /// <summary>
+    /// Where each child of a laid-out Panel or Scroll List goes (its offset along the layout: the
+    /// container's Padding, then each child's length and the container's Spacing), and how long each
+    /// laid-out container's content is (its Padding on both ends included).
+    /// </summary>
+    public static (Dictionary<string, float> Slots, Dictionary<string, float> Extents) Slots(
+        IReadOnlyList<UiElement> ordered, IReadOnlyDictionary<string, UiElement> elements)
+    {
+        var slots = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+        var cursors = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+        foreach (UiElement element in ordered)
+        {
+            if (string.IsNullOrWhiteSpace(element.ParentId) || !elements.TryGetValue(element.ParentId, out UiElement container)
+                || container.Layout == UiLayoutMode.None) continue;
+            float at = cursors.TryGetValue(container.Id, out float cursor) ? cursor + container.Spacing : container.Padding;
+            slots[element.Id] = at;
+            cursors[container.Id] = at + (container.Layout == UiLayoutMode.Horizontal ? element.Width : element.Height);
+        }
+        var extents = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, float> pair in cursors)
+            extents[pair.Key] = pair.Value + (elements.TryGetValue(pair.Key, out UiElement container) ? container.Padding : 0);
+        return (slots, extents);
+    }
+
+    /// <summary>A laid-out child's box: at its slot along the layout, inset by the padding across it.</summary>
+    public static RectangleF Place(RectangleF parent, UiElement container, UiElement element, float slot)
+    {
+        float padding = container.Padding;
+        if (container.Layout == UiLayoutMode.Horizontal)
+        {
+            float height = element.Anchor == UiAnchor.Stretch ? MathF.Max(1f, parent.Height - (padding * 2)) : MathF.Max(1f, element.Height);
+            return new RectangleF(parent.X + slot, parent.Y + padding, MathF.Max(1f, element.Width), height);
+        }
+        float width = element.Anchor == UiAnchor.Stretch ? MathF.Max(1f, parent.Width - (padding * 2)) : MathF.Max(1f, element.Width);
+        return new RectangleF(parent.X + padding, parent.Y + slot, width, MathF.Max(1f, element.Height));
+    }
+
+    /// <summary>
+    /// The box text is drawn in: an element's box taken in by its Padding on every side (times the
+    /// scale from design pixels), and by <paramref name="across"/> more at the left and right (a Text
+    /// Input's own 8 pixels). With no Padding and nothing across it is the box itself.
+    /// </summary>
+    public static RectangleF TextArea(UiElement element, RectangleF box, float scale, float across = 0f)
+    {
+        float padding = MathF.Max(0f, element.Padding) * scale;
+        float sides = padding + across;
+        if (sides <= 0f) return box;
+        return new RectangleF(box.X + sides, box.Y + padding, MathF.Max(1f, box.Width - (sides * 2)),
+            padding > 0f ? MathF.Max(1f, box.Height - (padding * 2)) : box.Height);
+    }
+}
+
 public sealed class UiAssetDocument
 {
     public int SchemaVersion { get; set; } = 1;

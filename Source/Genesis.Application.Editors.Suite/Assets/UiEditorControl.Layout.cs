@@ -15,7 +15,7 @@ public sealed partial class UiEditorControl
     private sealed record UiFieldLayout(Label Caption, Control Input);
     private sealed record UiPairLayout(Label Title, TableLayoutPanel Columns, Control Left, Control Right);
 
-    private static bool HasText(UiElementType type) => type is UiElementType.Text or UiElementType.Button or UiElementType.Toggle;
+    private static bool HasText(UiElementType type) => type is UiElementType.Text or UiElementType.Button or UiElementType.Toggle or UiElementType.TextInput;
 
     private void SetContextualFields(UiElement? element)
     {
@@ -29,13 +29,14 @@ public sealed partial class UiEditorControl
         if (_foregroundRow is not null)
         {
             _foregroundRow.Visible = type is UiElementType.Text or UiElementType.Button or UiElementType.ProgressBar
-                or UiElementType.Slider or UiElementType.Toggle;
+                or UiElementType.Slider or UiElementType.Toggle or UiElementType.TextInput;
             if (_foregroundRow.Tag is UiFieldLayout foreground) foreground.Caption.Text = ForegroundCaption(type);
             _foreground.Text = type == UiElementType.ProgressBar ? "Border…" : type == UiElementType.Slider ? "Knob…" : "Text…";
         }
         if (_accentRow is not null) _accentRow.Visible = type is UiElementType.Button or UiElementType.ProgressBar
-            or UiElementType.Slider or UiElementType.Toggle;
+            or UiElementType.Slider or UiElementType.Toggle or UiElementType.TextInput;
         SetStyleContextualFields(type);
+        SetStructureContextualFields(type);
         bool stretch = element?.Anchor == UiAnchor.Stretch;
         bool syncing = _syncing;
         _syncing = true;
@@ -189,11 +190,16 @@ public sealed partial class UiEditorControl
     {
         "Ui.Text" or "Ui.Font" or "Ui.FontSize" => HasText(type),
         "Ui.Foreground" => type is UiElementType.Text or UiElementType.Button or UiElementType.ProgressBar
-            or UiElementType.Slider or UiElementType.Toggle,
+            or UiElementType.Slider or UiElementType.Toggle or UiElementType.TextInput,
         "Ui.Image" or "Ui.ImageScaleX" or "Ui.ImageScaleY" or "Ui.Opacity" => type == UiElementType.Image,
         "Ui.Value" or "Ui.Maximum" => HasRange(type),
         "Ui.Background" => HasBox(type),
-        "Ui.Accent" => type is UiElementType.Button or UiElementType.ProgressBar or UiElementType.Slider or UiElementType.Toggle,
+        "Ui.Accent" => type is UiElementType.Button or UiElementType.ProgressBar or UiElementType.Slider or UiElementType.Toggle
+            or UiElementType.TextInput,
+        "Ui.Layout" or "Ui.Spacing" => IsContainer(type),
+        "Ui.Padding" => HasPadding(type),
+        "Ui.Style" => true,
+        "Ui.Placeholder" or "Ui.MaxLength" => type == UiElementType.TextInput,
         _ => IsStyleApplicable(type, property),
     };
 }

@@ -8,20 +8,45 @@ namespace Genesis.Application.Editors.Suite.Assets;
 // spacing, state looks, sliders, toggles and image fits the game draws, in GDI+.
 internal sealed partial class UiDesignCanvas
 {
+    /// <summary>The theme style an element names, as the game finds it (by name, ignoring case); null when it names none the UI holds.</summary>
+    private UiNamedStyle? NamedStyleOf(UiElement element)
+    {
+        if (string.IsNullOrWhiteSpace(element.Style) || Document.Styles is not { } styles) return null;
+        if (styles.TryGetValue(element.Style, out UiNamedStyle? exact)) return exact;
+        foreach (KeyValuePair<string, UiNamedStyle> pair in styles)
+            if (string.Equals(pair.Key, element.Style, StringComparison.OrdinalIgnoreCase)) return pair.Value;
+        return null;
+    }
+
     private void PaintElement(Graphics g, UiElement element, RectangleF rect, float scale, string state)
     {
-        UiLook look = UiLook.Resolve(element, state);
-        float radius = Math.Max(0, element.CornerRadius * scale);
-        using Font font = new(string.IsNullOrWhiteSpace(element.Font) ? "Segoe UI" : element.Font,
-            Math.Max(1f, element.FontSize * scale), GraphicsUnit.Pixel);
+        UiNamedStyle? named = NamedStyleOf(element);
+        UiLook look = UiLook.Resolve(element, state, named);
+        float radius = Math.Max(0, (named?.CornerRadius ?? element.CornerRadius) * scale);
+        string fontName = !string.IsNullOrWhiteSpace(named?.Font) ? named.Font : element.Font;
+        using Font font = new(string.IsNullOrWhiteSpace(fontName) ? "Segoe UI" : fontName,
+            Math.Max(1f, (named?.FontSize ?? element.FontSize) * scale), GraphicsUnit.Pixel);
         switch (element.Type)
         {
             case UiElementType.Panel:
+            case UiElementType.ScrollList:
                 FillBox(g, rect, radius, look.Background, look.GradientEnd, element.Fill);
                 DrawBorder(g, element, rect, radius, scale, look.Border, legacyWidth: 0);
                 break;
+            case UiElementType.TextInput:
+            {
+                // As the game draws it: the text, or the grey hint while there is none, 8 design pixels
+                // (and the Padding) in from the sides.
+                FillBox(g, rect, radius, look.Background, look.GradientEnd, element.Fill);
+                DrawBorder(g, element, rect, radius, scale, look.Border, legacyWidth: 1);
+                bool hint = element.Text.Length == 0;
+                Color ink = hint ? Color.FromArgb(look.Foreground.A / 2, look.Foreground) : look.Foreground;
+                DrawLabel(g, element, hint ? element.Placeholder : element.Text, font,
+                    UiLayoutPlacement.TextArea(element, rect, scale, across: 8f * scale), scale, ink, centredByDefault: false);
+                break;
+            }
             case UiElementType.Text:
-                DrawLabel(g, element, element.Text, font, rect, scale, look.Foreground, centredByDefault: false);
+                DrawLabel(g, element, element.Text, font, UiLayoutPlacement.TextArea(element, rect, scale), scale, look.Foreground, centredByDefault: false);
                 break;
             case UiElementType.Image:
                 PaintImage(g, element, rect, look);
@@ -29,7 +54,7 @@ internal sealed partial class UiDesignCanvas
             case UiElementType.Button:
                 FillBox(g, rect, radius, look.Background, look.GradientEnd, element.Fill);
                 DrawBorder(g, element, rect, radius, scale, look.Border, legacyWidth: 1.5f);
-                DrawLabel(g, element, element.Text, font, rect, scale, look.Foreground, centredByDefault: true);
+                DrawLabel(g, element, element.Text, font, UiLayoutPlacement.TextArea(element, rect, scale), scale, look.Foreground, centredByDefault: true);
                 break;
             case UiElementType.ProgressBar:
             {
@@ -71,7 +96,7 @@ internal sealed partial class UiDesignCanvas
                 using (SolidBrush brush = new(look.Foreground)) g.FillEllipse(brush, knobX - knob, rect.Y + rect.Height / 2 - knob, knob * 2, knob * 2);
                 float gap = 10 * scale;
                 RectangleF label = new(track.Right + gap, rect.Y, Math.Max(1, rect.Width - switchWidth - gap), rect.Height);
-                if (label.Width > 1) DrawLabel(g, element, element.Text, font, label, scale, look.Foreground, centredByDefault: false);
+                if (label.Width > 1) DrawLabel(g, element, element.Text, font, UiLayoutPlacement.TextArea(element, label, scale), scale, look.Foreground, centredByDefault: false);
                 break;
             }
         }

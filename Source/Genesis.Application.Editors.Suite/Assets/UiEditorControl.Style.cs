@@ -100,13 +100,13 @@ public sealed partial class UiEditorControl
     private IEnumerable<Button> StyleColourButtons => [_borderColor, _gradientEnd, _stateBackground, _stateForeground, _stateBorder];
 
     private static bool HasBox(UiElementType type) => type is UiElementType.Panel or UiElementType.Button or UiElementType.ProgressBar
-        or UiElementType.Slider or UiElementType.Toggle;
+        or UiElementType.Slider or UiElementType.Toggle or UiElementType.TextInput or UiElementType.ScrollList;
 
     private static bool HasRange(UiElementType type) => type is UiElementType.ProgressBar or UiElementType.Slider or UiElementType.Toggle;
 
     /// <summary>The border width an element draws when none is authored: buttons and progress bars outline one pixel.</summary>
     private static float EffectiveBorderWidth(UiElement element) =>
-        element.BorderWidth ?? (element.Type is UiElementType.Button or UiElementType.ProgressBar ? 1f : 0f);
+        element.BorderWidth ?? (element.Type is UiElementType.Button or UiElementType.ProgressBar or UiElementType.TextInput ? 1f : 0f);
 
     private void SetStyleContextualFields(UiElementType? type)
     {

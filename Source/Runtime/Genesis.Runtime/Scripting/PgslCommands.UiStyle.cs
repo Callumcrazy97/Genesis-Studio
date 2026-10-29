@@ -225,13 +225,13 @@ public static partial class PgslCommands
                 string shown = text.Length > 0 ? text : element.Placeholder;
                 Color ink = text.Length > 0 ? foreground : Color.FromArgb(foreground.A / 2, foreground);
                 if (focused && (Environment.TickCount64 / 500) % 2 == 0) shown = text + "|";
-                float inset = 8f * scale;
-                DrawUiElementText(surface, element, shown, new RectangleF(rect.X + inset, rect.Y, MathF.Max(1, rect.Width - (inset * 2)), rect.Height),
+                // Eight design pixels in from the sides, and the element's Padding more on every side.
+                DrawUiElementText(surface, element, shown, UiLayoutPlacement.TextArea(element, rect, scale, across: 8f * scale),
                     scale, ink, centredByDefault: false, font, fontSize);
                 break;
             }
             case UiElementType.Text:
-                DrawUiElementText(surface, element, text, rect, scale, foreground, centredByDefault: false, font, fontSize);
+                DrawUiElementText(surface, element, text, UiLayoutPlacement.TextArea(element, rect, scale), scale, foreground, centredByDefault: false, font, fontSize);
                 break;
             case UiElementType.Image:
                 DrawUiImage(surface, element, rect, foreground.A / 255f);
@@ -239,7 +239,7 @@ public static partial class PgslCommands
             case UiElementType.Button:
                 FillUiBox(surface, rect, radius, background, gradientEnd, element.Fill);
                 DrawUiBorder(surface, element, rect, radius, scale, border, legacyOutline: true);
-                DrawUiElementText(surface, element, text, rect, scale, foreground, centredByDefault: true, font, fontSize);
+                DrawUiElementText(surface, element, text, UiLayoutPlacement.TextArea(element, rect, scale), scale, foreground, centredByDefault: true, font, fontSize);
                 break;
             case UiElementType.ProgressBar:
             {
@@ -287,7 +287,7 @@ public static partial class PgslCommands
                 float gap = 10f * scale;
                 RectangleF label = new(track.Right + gap, rect.Y, MathF.Max(1, rect.Width - switchWidth - gap), rect.Height);
                 if (!string.IsNullOrEmpty(text) && label.Width > 1)
-                    DrawUiElementText(surface, element, text, label, scale, foreground, centredByDefault: false, font, fontSize);
+                    DrawUiElementText(surface, element, text, UiLayoutPlacement.TextArea(element, label, scale), scale, foreground, centredByDefault: false, font, fontSize);
                 break;
             }
         }
