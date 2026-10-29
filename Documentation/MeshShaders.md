@@ -1,7 +1,8 @@
 # Mesh shaders
 
-A **Mesh** Shader resource changes how a model's pixels look. The engine still runs its own vertex
-shader, so skinning, instancing and wind keep working. There are two kinds:
+A **Mesh** Shader resource changes how a model's pixels look, and a surface shader can also move
+its vertices ([Vertex stage](#vertex-stage)). The engine still runs its own vertex shader, so
+skinning, instancing and wind keep working. There are two kinds:
 
 - A **surface shader** (`#include "GenesisSurface.hlsl"`) works out the surface (its colour,
   normal, roughness, metalness, light given off, see-through amount) and the engine lights it, with
@@ -151,6 +152,83 @@ void Surface(GenesisSurfaceInput i, inout GenesisSurface s)
 }
 ```
 
+## Vertex stage
+
+Added 29 October 2026. A surface shader may also define a **Vertex** function, which moves the
+mesh's vertices before they are drawn: grass and trees swaying in the wind, waves on water, a flag,
+a breathing creature, a jelly's wobble.
+
+```hlsl
+#include "GenesisSurface.hlsl"
+cbuffer GenesisParameters : register(b5) { float Amplitude; float Wavelength; float Speed; };
+
+void Vertex(GenesisVertexInput i, inout GenesisVertex v)
+{
+    float k = 6.28318 / max(Wavelength, 0.05);
+    v.Position.y += sin(v.Position.x * k + i.Time * Speed) * Amplitude;
+}
+
+void Surface(GenesisSurfaceInput i, inout GenesisSurface s) { }
+```
+
+`void Vertex(GenesisVertexInput i, inout GenesisVertex v)` runs once for each vertex inside the
+engine's own vertex shaders, **after skinning and the material's height displacement (and the
+foliage wind the engine gives foliage), before the world transform**. So `v` is in the model's own
+space: a skinned character is already posed, and a model turned or scaled in the room turns and
+scales the movement with it. Instancing, skinning, the material's maps and everything the surface
+does keep working. A surface shader without a Vertex function draws with the engine's vertex
+shaders exactly as before; a full pixel shader has no vertex stage (it can give a vertex entry of
+its own instead, in the pass settings).
+
+`GenesisVertex` (change any of it):
+
+| Field | Meaning |
+|---|---|
+| `float3 Position` | The vertex in the model's own space, after skinning. |
+| `float3 Normal` | Its normal in the model's own space; the engine normalises it after. Tilt it when the surface's slope changes, so the light follows. |
+| `float2 UV` | Its texture coordinates (the surface's `i.UV` and the material's maps follow a change). |
+| `float4 Color` | Its vertex colour as stored, and alpha. |
+
+`GenesisVertexInput` (contract version 1, read only):
+
+| Field | Contents |
+|---|---|
+| `float Time` | Seconds since the game started; the same clock as the surface's `i.Time`. |
+| `float3 ObjectPosition` | Where the drawn object (this copy, when many are drawn together) stands in the world. Add it to a wave's phase so neighbours do not move as one. |
+| `float3 WorldPosition` | This vertex in the world, before Vertex moves it: waves that run across many objects as one sea. |
+| `float3 CameraPosition` | The camera in the world. |
+| `float2 Wind` | The weather's wind over the ground, world x and z, in metres a second; 0 when the room has no weather. |
+| `float2 ObjectWind` | The same wind along the model's own x and z (turned and scaled with it): add it to `v.Position.xz` to bend with the wind. |
+
+The shader's parameters (`GenesisParameters`, b5) can be read in Vertex as in Surface, and scripts
+set them per instance the same way. Textures cannot be read in Vertex (they are bound for the
+surface).
+
+How it works: the line `#include "GenesisSurface.hlsl"` already makes the engine compile its own
+pixel shader around the project's code. When the code also has `void Vertex(`, it defines
+`GENESIS_SURFACE_VERTEX`, places the vertex contract before the engine's vertex shaders, and
+compiles their entries `VS` and `VS_Skinned` from the same text; the engine's vertex shaders call
+the function where the hooks are (`ForwardShaders.cs`, `#if defined(GENESIS_SURFACE_VERTEX)`).
+Every renderer gets it through the same compile path (DXBC for DX11, DXIL, SPIR-V for Vulkan,
+GLSL from SPIR-V for OpenGL).
+
+**Shadows.** The sun's and lamps' shadow casters are still drawn with the engine's own shadow
+vertex shaders, so a shadow falls from the shape before Vertex moved it. A sway or a ripple of a
+few centimetres hardly shows; a big displacement casts its shadow from the undisplaced shape. The
+shadow vertex shaders already call Vertex when compiled from a vertex-stage shader (their hooks are
+in place); the shadow pass choosing them per shader is still to come. The outline marks
+(`InstanceSetOutline`) use the undisplaced shape too.
+
+**In the Shader editor.** The **Wind Sway** and **Wave** presets have a vertex stage. On the Code
+page, **Vertex** goes to the shader's Vertex function, or adds an empty one to a surface shader that
+has none (Undo takes it away). The editor compiles the vertex stage (DXBC and SPIR-V) with the
+pixel shader, so a mistake in Vertex shows in Diagnostics, and the preview moves with it (Play runs
+its time). In the node view, the Output's **Vertex offset** (Mesh targets) becomes the Vertex
+function: what feeds it is worked out per vertex (UV, Normal and Object position are the vertex's
+own, in the model's space; it cannot read textures). The vertex stage is made ahead like the rest of
+a shader: the export cooks it and a room's loading warms it (`ProjectShaderPrograms` lists `VS` and
+`VS_Skinned` for a shader with a Vertex function).
+
 ## Full pixel shaders
 
 A Shader resource without the include is a full pixel shader: its entry point (normally `MainPS`)
@@ -254,3 +332,14 @@ instances of a two-material model in a room: each wears its own paint through th
 shader, one has an Object shader on its other material, one swaps its pattern and its metal's
 albedo, and another instance keeps its own; twelve boxes sharing values make one batch and an
 instance with its own one more. The Model editor's descriptor keeps each material's shader.
+
+`Build.bat --test shader-nodes` (and `shader-workspace`) checks the vertex stage
+(`Editor.Shader.VertexStage.*`): a Vertex function reading every input and a parameter, the Wind Sway
+and Wave presets and the Code page's template compile `VS`, `VS_Skinned`, `VS_Shadow`,
+`VS_ShadowSkinned` and the pixel shader for DXBC and SPIR-V; the engine's vertex shaders with the
+hooks taken out compile to the same bytes as with them; the node view's Vertex offset writes the
+function and refuses a texture; and the Shader editor's preview of the Wave preset on a ball differs
+from the same shader without its Vertex function (DX11, captures `shader-vertex-wave.png` and
+`shader-vertex-none.png`). `shader-workspace` previews both presets on DX11, DX12, Vulkan, OpenGL and
+Software with the other presets. Not yet checked in a running game, with instancing or on a skinned
+model.

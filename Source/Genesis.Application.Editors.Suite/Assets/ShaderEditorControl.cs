@@ -1459,12 +1459,24 @@ public sealed partial class ShaderEditorControl : EditorSurfaceControl, IResourc
                     ResourcePath,
                     includeRoots).Blob.Length;
             }
+            else if (_document.Pipeline == ShaderAssetPipeline.Mesh && MeshSurfaceShaders.HasVertexStage(source))
+            {
+                // A surface shader's Vertex function runs in the engine's vertex shaders, static and
+                // skinned; the pixel compile never reaches it, so its errors show only here.
+                foreach (string vertexEntry in new[] { MeshSurfaceShaders.VertexEntry, MeshSurfaceShaders.SkinnedVertexEntry })
+                {
+                    vertexBytes += ShaderCompiler.CompileForBackend(
+                        source, vertexEntry, GpuShaderStage.Vertex, GpuShaderBinaryFormat.Dxbc, ResourcePath, includeRoots).Blob.Length;
+                    vertexSpirvBytes += ShaderCompiler.CompileForBackend(
+                        source, vertexEntry, GpuShaderStage.Vertex, GpuShaderBinaryFormat.SpirV, ResourcePath, includeRoots).Blob.Length;
+                }
+            }
             LastCompileSucceeded = bytecode.Length > 0;
             _pendingPreviewApply = LastCompileSucceeded;
             _resetPreviewTime = LastCompileSucceeded;
             _previewFrame = 0;
             _output.Items.Add(new ListViewItem(
-                $"✓ Compiled {(_document.VertexEntry.Length == 0 ? "engine VS" : _document.VertexEntry)} + {_document.Entry} · {_document.TargetType} · DXBC {bytecode.Length + vertexBytes} B · SPIR-V {spirv.Length + vertexSpirvBytes} B · {_document.Parameters.Count} control(s).")
+                $"✓ Compiled {(_document.VertexEntry.Length > 0 ? _document.VertexEntry : vertexBytes > 0 ? "engine VS with Vertex()" : "engine VS")} + {_document.Entry} · {_document.TargetType} · DXBC {bytecode.Length + vertexBytes} B · SPIR-V {spirv.Length + vertexSpirvBytes} B · {_document.Parameters.Count} control(s).")
             {
                 ForeColor = EditorChrome.Success,
             });

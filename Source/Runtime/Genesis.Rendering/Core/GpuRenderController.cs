@@ -1812,7 +1812,8 @@ namespace Genesis.Rendering.Core
             {
                 // A surface shader reads the engine's own constants: say so, so they stay bound.
                 if (!_initialized || psBlob.Length == 0) return;
-                _fwd?.SetShaderProgramOverride(null, psBlob, engineLit: true);
+                (byte[] vertex, byte[] skinnedVertex) = CompileSurfaceVertexStage(hlslSourceCode, sourcePath, includeRoots);
+                _fwd?.SetShaderProgramOverride(vertex, psBlob, engineLit: true, skinnedVertexShader: skinnedVertex);
                 _spr?.ClearPixelShaderOverride();
                 _shaderPreview?.SetPixelShader(null);
                 _previewProfile = profile;
@@ -1937,9 +1938,28 @@ namespace Genesis.Rendering.Core
                 sourcePath,
                 includeRoots).Blob;
             EnsureShaderFrameBuffer();
+            if (profile == ShaderPreviewProfile.MeshPipeline && MeshSurfaceShaders.HasVertexStage(hlslSourceCode))
+            {
+                (byte[] vertex, byte[] skinnedVertex) = CompileSurfaceVertexStage(hlslSourceCode, sourcePath, includeRoots);
+                return _fwd.RegisterRuntimeShaderProgram(vertex, blob, skinnedVertex, engineLit: true);
+            }
             return profile == ShaderPreviewProfile.MeshPipeline
                 ? _fwd.RegisterRuntimeShader(blob, ReadsEngineConstants(hlslSourceCode))
                 : _spr.RegisterRuntimeShader(blob);
+        }
+
+        /// <summary>
+        /// A surface shader's vertex stage (<see cref="MeshSurfaceShaders.HasVertexStage"/>): the engine's
+        /// vertex shaders, static and skinned, compiled around its Vertex function. Both null without one,
+        /// so the draw keeps the engine's built-in vertex shaders.
+        /// </summary>
+        private (byte[] Vertex, byte[] SkinnedVertex) CompileSurfaceVertexStage(
+            string hlslSourceCode, string sourcePath, IEnumerable<string> includeRoots)
+        {
+            if (!MeshSurfaceShaders.HasVertexStage(hlslSourceCode)) return (null, null);
+            byte[] Compile(string entry) => ShaderCompiler.CompileForBackend(
+                hlslSourceCode, entry, GpuShaderStage.Vertex, _gpu.ShaderBinaryFormat, sourcePath, includeRoots).Blob;
+            return (Compile(MeshSurfaceShaders.VertexEntry), Compile(MeshSurfaceShaders.SkinnedVertexEntry));
         }
 
         public RuntimeShaderHandle RegisterRuntimeShaderProgram(
@@ -1992,8 +2012,11 @@ namespace Genesis.Rendering.Core
             var roots = ShaderCompiler.BuildDefaultIncludeSearchPaths(sourcePath, projectPath);
             byte[] Compile(string entry, GpuShaderStage stage) => string.IsNullOrWhiteSpace(entry) ? null
                 : ShaderCompiler.CompileForBackend(source, entry, stage, _gpu.ShaderBinaryFormat, sourcePath, roots).Blob;
-            byte[] vertex = Compile(pass.VertexEntry, GpuShaderStage.Vertex);
-            byte[] skinned = Compile(pass.SkinnedVertexEntry, GpuShaderStage.Vertex);
+            // A surface shader's Vertex function, when the pass names no vertex entry of its own.
+            bool vertexStage = string.IsNullOrWhiteSpace(pass.VertexEntry) && MeshSurfaceShaders.HasVertexStage(source);
+            byte[] vertex = Compile(vertexStage ? MeshSurfaceShaders.VertexEntry : pass.VertexEntry, GpuShaderStage.Vertex);
+            byte[] skinned = Compile(vertexStage && string.IsNullOrWhiteSpace(pass.SkinnedVertexEntry)
+                ? MeshSurfaceShaders.SkinnedVertexEntry : pass.SkinnedVertexEntry, GpuShaderStage.Vertex);
             byte[] pixel = Compile(string.IsNullOrWhiteSpace(pass.Entry) ? "MainPS" : pass.Entry, GpuShaderStage.Pixel);
             EnsureShaderFrameBuffer();
             return _fwd.RegisterRuntimeShaderProgram(vertex, pixel, skinned, pass.MeshPassMode,
@@ -2091,6 +2114,8 @@ namespace Genesis.Rendering.Core
                 };
                 _gpu.UpdateConstantBuffer(_previewParametersCb, parameters);
                 _gpu.SetConstantBuffer(GpuShaderStage.Pixel, 5, _previewParametersCb);
+                // A surface shader's Vertex function reads its parameters too.
+                if (meshOverride) _gpu.SetConstantBuffer(GpuShaderStage.Vertex, 5, _previewParametersCb);
             }
         }
 

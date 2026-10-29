@@ -98,9 +98,12 @@ namespace Genesis.Runtime.Rendering
                         string vertex = pass.VertexEntry?.Trim() ?? string.Empty;
                         if (document.Pipeline == ShaderAssetPipeline.Mesh)
                         {
-                            // The programs the renderer's RegisterRuntimeMeshPass makes for a mesh pass.
-                            Program(variant, source, vertex, GpuShaderStage.Vertex);
-                            Program(variant, source, pass.SkinnedVertexEntry?.Trim() ?? string.Empty, GpuShaderStage.Vertex);
+                            // The programs the renderer's RegisterRuntimeMeshPass makes for a mesh pass,
+                            // a surface shader's Vertex function (the engine's VS and VS_Skinned) included.
+                            string skinned = pass.SkinnedVertexEntry?.Trim() ?? string.Empty;
+                            bool vertexStage = vertex.Length == 0 && Genesis.Rendering.Primitives.MeshSurfaceShaders.HasVertexStage(source);
+                            Program(variant, source, vertexStage ? Genesis.Rendering.Primitives.MeshSurfaceShaders.VertexEntry : vertex, GpuShaderStage.Vertex);
+                            Program(variant, source, vertexStage && skinned.Length == 0 ? Genesis.Rendering.Primitives.MeshSurfaceShaders.SkinnedVertexEntry : skinned, GpuShaderStage.Vertex);
                         }
                         else
                         {

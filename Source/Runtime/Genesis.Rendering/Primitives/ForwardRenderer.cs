@@ -1099,7 +1099,8 @@ namespace Genesis.Rendering.Primitives
             => SetShaderProgramOverride(null, pixelShader);
 
         /// <param name="engineLit">The pixel shader is a surface shader (<see cref="MeshSurfaceShaders"/>).</param>
-        public void SetShaderProgramOverride(byte[] vertexShader, byte[] pixelShader, bool engineLit = false)
+        /// <param name="skinnedVertexShader">For skinned draws, a surface shader's vertex stage; null keeps the engine's.</param>
+        public void SetShaderProgramOverride(byte[] vertexShader, byte[] pixelShader, bool engineLit = false, byte[] skinnedVertexShader = null)
         {
             if (pixelShader == null || pixelShader.Length == 0)
             {
@@ -1125,7 +1126,7 @@ namespace Genesis.Rendering.Primitives
                 skinnedReplacement = _gpu.CreateShaderProgram(new GpuShaderProgramDesc
                 {
                     BinaryFormat = _gpu.ShaderBinaryFormat,
-                    VertexShader = _skinnedVertexShader,
+                    VertexShader = skinnedVertexShader is { Length: > 0 } ? skinnedVertexShader : _skinnedVertexShader,
                     PixelShader = pixelShader,
                     DebugName = "Forward skinned preview override",
                 });

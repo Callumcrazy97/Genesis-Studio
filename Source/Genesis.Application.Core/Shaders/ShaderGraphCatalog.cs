@@ -77,6 +77,9 @@ public static class ShaderGraphCatalog
 {
     public const string OutputType = "Output";
 
+    /// <summary>The Output's port that moves vertices (Mesh targets): it becomes the shader's Vertex function.</summary>
+    public const string VertexOffsetPort = "VertexOffset";
+
     private static ShaderGraphPort In(string name, ShaderGraphValueType type, params float[] value) => new(name, type, value);
     private static ShaderGraphPort Out(string name, ShaderGraphValueType type) => new(name, type, []);
 
@@ -132,14 +135,14 @@ public static class ShaderGraphCatalog
             Type = "VertexColor", Title = "Vertex colour", Category = "Inputs", Role = ShaderGraphNodeRole.Input,
             Description = "The draw's colour: vertex colour, material colour and tint.",
             Outputs = [Out("RGBA", F4), Out("RGB", F3), Out("A", F1)],
-            Emit = context => [context.Target.VertexColor(context), context.Var(0) + ".rgb", context.Var(0) + ".a"],
+            Emit = context => [context.Target.VertexColourCode, context.Var(0) + ".rgb", context.Var(0) + ".a"],
         });
         nodes.Add(new ShaderGraphNodeDefinition
         {
             Type = "MainTexture", Title = "Main texture", Category = "Inputs", Role = ShaderGraphNodeRole.Input,
             Description = "The target's own picture where the pixel is: the model's material texture, the Image, or the frame under a full-screen effect.",
             Outputs = [Out("RGBA", F4), Out("RGB", F3), Out("A", F1)],
-            Emit = context => [context.Target.MainTexture(context), context.Var(0) + ".rgb", context.Var(0) + ".a"],
+            Emit = context => [context.MainTexture(), context.Var(0) + ".rgb", context.Var(0) + ".a"],
         });
 
         // ── Constants and parameters ─────────────────────────────────────────────
@@ -271,11 +274,12 @@ public static class ShaderGraphCatalog
         nodes.Add(new ShaderGraphNodeDefinition
         {
             Type = OutputType, Title = "Output", Category = "Output", Role = ShaderGraphNodeRole.Output,
-            Description = "What the shader gives the engine. An input left unwired keeps the target's own value (a model's material, an Image's pixels) unless it is given a value here. Normal is tangent space, -1..1; Normal, Roughness and Metalness apply to Mesh targets only.",
+            Description = "What the shader gives the engine. An input left unwired keeps the target's own value (a model's material, an Image's pixels) unless it is given a value here. Normal is tangent space, -1..1; Normal, Roughness and Metalness apply to Mesh targets only. Vertex offset (Mesh targets) moves each vertex in object space before it is drawn; what feeds it is worked out per vertex (UV, Normal and Object position are the vertex's own) and cannot read textures.",
             Inputs =
             [
                 In("Colour", F3, 1f, 1f, 1f), In("Normal", F3, 0f, 0f, 1f), In("Emission", F3, 0f, 0f, 0f),
                 In("Roughness", F1, 0.5f), In("Metalness", F1, 0f), In("Alpha", F1, 1f),
+                new(VertexOffsetPort, F3, [0f, 0f, 0f], Label: "Vertex offset"),
             ],
         });
         return nodes;

@@ -64,19 +64,30 @@ public sealed class ShaderGraphEmitContext
         return name;
     }
 
-    /// <summary>A colour picked in a colour box, in the space the target's colours are in.</summary>
-    public string PickedColour(string float4Expression) => Target.Mesh
+    /// <summary>A colour picked in a colour box, in the space the target's colours are in (a vertex offset takes it as it is).</summary>
+    public string PickedColour(string float4Expression) => Target.Mesh && !Target.Vertex
         ? Helper("GsgColour4") + "(" + float4Expression + ")"
         : float4Expression;
 
-    public string ObjectPosition() => Target.Mesh
-        ? Helper("GsgObjectPosition") + "(i.WorldPosition)"
+    public string ObjectPosition() => Target.Vertex ? "v.Position"
+        : Target.Mesh ? Helper("GsgObjectPosition") + "(i.WorldPosition)"
         : Target.ObjectPosition;
+
+    public string MainTexture()
+    {
+        if (Target.Vertex) _session.TextureInVertexStage();
+        return Target.MainTextureCode;
+    }
 
     public string TextureReference(string name) => name + "|" + Target.Sampler;
 
     public string Sample(string textureReference, string uv)
     {
+        if (Target.Vertex)
+        {
+            _session.TextureInVertexStage();
+            return "float4(0.0, 0.0, 0.0, 0.0)";
+        }
         int split = textureReference.IndexOf('|', StringComparison.Ordinal);
         string texture = split < 0 ? textureReference : textureReference[..split];
         string sampler = split < 0 ? Target.Sampler : textureReference[(split + 1)..];
@@ -239,6 +250,8 @@ public static class ShaderGraphGenerator
     internal sealed class TargetNames
     {
         public required bool Mesh { get; init; }
+        /// <summary>Names inside a surface shader's Vertex function, where a Vertex offset is worked out.</summary>
+        public bool Vertex { get; init; }
         public required string Uv { get; init; }
         public required string WorldPosition { get; init; }
         public required string ObjectPosition { get; init; }
@@ -252,8 +265,17 @@ public static class ShaderGraphGenerator
         public required string Sampler { get; init; }
         public required int FirstTextureSlot { get; init; }
 
-        public string VertexColor(ShaderGraphEmitContext context) => VertexColourCode;
-        public string MainTexture(ShaderGraphEmitContext context) => MainTextureCode;
+        /// <summary>
+        /// Inside <c>void Vertex(GenesisVertexInput i, inout GenesisVertex v)</c>: the vertex's own UV,
+        /// normal and position (object space) and colour as stored; no screen and no textures.
+        /// </summary>
+        public static TargetNames ForVertex() => new()
+        {
+            Mesh = true, Vertex = true, Uv = "v.UV", WorldPosition = "i.WorldPosition", ObjectPosition = "v.Position",
+            Normal = "v.Normal", ViewDirection = "normalize(i.CameraPosition - i.WorldPosition)", Time = "i.Time",
+            ScreenUv = "float2(0.0, 0.0)", VertexColourCode = "v.Color", MainTextureCode = "float4(1.0, 1.0, 1.0, 1.0)",
+            MainTextureReference = "AlbedoTex|AlbedoSamp", Sampler = "GenesisLinearWrap", FirstTextureSlot = 17,
+        };
 
         public static TargetNames For(ShaderAssetPipeline pipeline) => pipeline switch
         {
@@ -287,23 +309,46 @@ public static class ShaderGraphGenerator
         private readonly ShaderGraphDocument _graph;
         private readonly ShaderAssetPipeline _pipeline;
         private readonly ShaderGraphGenerationResult _result;
-        private readonly Dictionary<string, ShaderGraphNode> _nodes = new(StringComparer.Ordinal);
-        private readonly Dictionary<(string Node, string Port), ShaderGraphConnection> _wires = new();
+        private readonly Dictionary<string, ShaderGraphNode> _nodes;
+        private readonly Dictionary<(string Node, string Port), ShaderGraphConnection> _wires;
         private readonly Dictionary<string, Dictionary<string, (string Code, ShaderGraphValueType Type)>> _emitted = new(StringComparer.Ordinal);
         private readonly HashSet<string> _visiting = new(StringComparer.Ordinal);
         private readonly StringBuilder _body = new();
         private int _order;
+        private bool _vertexTextureReported;
 
         public Session(ShaderGraphDocument graph, ShaderAssetPipeline pipeline, ShaderGraphGenerationResult result)
         {
             _graph = graph;
             _pipeline = pipeline;
             _result = result;
+            _nodes = new Dictionary<string, ShaderGraphNode>(StringComparer.Ordinal);
+            _wires = new Dictionary<(string Node, string Port), ShaderGraphConnection>();
+            Helpers = new SortedSet<string>(StringComparer.Ordinal);
             Target = TargetNames.For(pipeline);
         }
 
+        /// <summary>The Vertex function's session: the same graph, wires, result and helpers, with the vertex stage's names.</summary>
+        private Session(Session surface)
+        {
+            _graph = surface._graph;
+            _pipeline = surface._pipeline;
+            _result = surface._result;
+            _nodes = surface._nodes;
+            _wires = surface._wires;
+            Helpers = surface.Helpers;
+            Target = TargetNames.ForVertex();
+        }
+
         public TargetNames Target { get; }
-        public SortedSet<string> Helpers { get; } = new(StringComparer.Ordinal);
+        public SortedSet<string> Helpers { get; }
+
+        public void TextureInVertexStage()
+        {
+            if (_vertexTextureReported) return;
+            _vertexTextureReported = true;
+            _result.Errors.Add("The Output's Vertex offset cannot read a texture: textures are read per pixel. Work the offset out from numbers, UV, position, normal and time.");
+        }
 
         private static string Describe(ShaderGraphNode node) =>
             (ShaderGraphCatalog.Find(node.Type)?.Title ?? node.Type) + (string.IsNullOrWhiteSpace(node.Name) ? string.Empty : " '" + node.Name + "'");
@@ -336,9 +381,10 @@ public static class ShaderGraphGenerator
             List<ShaderGraphNode> parameters = CollectParameters();
             List<ShaderGraphNode> textures = CollectTextures();
             List<string> assignments = EmitOutput(outputs[0]);
+            string? vertexFunction = EmitVertexStage(outputs[0]);
             if (_result.Errors.Count > 0) return;
 
-            string source = Compose(parameters, textures, assignments);
+            string source = Compose(parameters, textures, assignments, vertexFunction);
             try
             {
                 ShaderParameterReflection.Reflect(source);
@@ -424,6 +470,8 @@ public static class ShaderGraphGenerator
             var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (ShaderGraphPort port in definition.Inputs)
             {
+                // The Vertex offset is worked out per vertex, in the Vertex function (EmitVertexStage).
+                if (port.Name == ShaderGraphCatalog.VertexOffsetPort) continue;
                 bool wired = _wires.ContainsKey((output.Id, port.Name));
                 if (!wired && !output.Inputs.ContainsKey(port.Name)) continue;
                 (string code, ShaderGraphValueType type) = ResolveInput(output, port, port.Type);
@@ -453,6 +501,32 @@ public static class ShaderGraphGenerator
             lines.Add($"float gsgAlpha = {(values.TryGetValue("Alpha", out string? cover) ? cover : "gsgBase.a")};");
             lines.Add("return float4(gsgColour + gsgEmission, gsgAlpha);");
             return lines;
+        }
+
+        /// <summary>
+        /// The Output's Vertex offset as the shader's <c>void Vertex(...)</c> (Mesh targets), worked out in a
+        /// session of its own with the vertex's names; null when nothing feeds it.
+        /// </summary>
+        private string? EmitVertexStage(ShaderGraphNode output)
+        {
+            string port = ShaderGraphCatalog.VertexOffsetPort;
+            if (!_wires.ContainsKey((output.Id, port)) && !output.Inputs.ContainsKey(port)) return null;
+            if (!Target.Mesh)
+            {
+                _result.Warnings.Add($"The Output's Vertex offset is for Mesh targets (models and terrain); a {_pipeline} shader leaves it out.");
+                return null;
+            }
+            return new Session(this).EmitVertexFunction(output);
+        }
+
+        private string EmitVertexFunction(ShaderGraphNode output)
+        {
+            ShaderGraphPort port = ShaderGraphCatalog.Find(output.Type)!.FindInput(ShaderGraphCatalog.VertexOffsetPort)!;
+            _visiting.Add(output.Id);
+            (string code, ShaderGraphValueType type) = ResolveInput(output, port, port.Type);
+            string offset = Convert(code, type, port.Type);
+            _visiting.Remove(output.Id);
+            return "void Vertex(GenesisVertexInput i, inout GenesisVertex v)\n{\n" + _body + "    v.Position += " + offset + ";\n}\n\n";
         }
 
         /// <summary>The code feeding one input, and its type before conversion to the port's.</summary>
@@ -568,7 +642,7 @@ public static class ShaderGraphGenerator
             return outputs;
         }
 
-        private string Compose(List<ShaderGraphNode> parameters, List<ShaderGraphNode> textures, List<string> assignments)
+        private string Compose(List<ShaderGraphNode> parameters, List<ShaderGraphNode> textures, List<string> assignments, string? vertexFunction)
         {
             StringBuilder code = new(GeneratedHeader);
             if (Target.Mesh)
@@ -625,6 +699,7 @@ public static class ShaderGraphGenerator
 
             if (Target.Mesh)
             {
+                if (vertexFunction is not null) code.Append(vertexFunction);
                 code.Append("void Surface(GenesisSurfaceInput i, inout GenesisSurface s)\n{\n");
             }
             else

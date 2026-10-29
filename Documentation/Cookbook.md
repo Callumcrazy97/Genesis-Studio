@@ -220,6 +220,37 @@ Output input left unwired keeps the model's own value: unwired Roughness keeps i
 Shader editor opens the resource on its graph; [the node view](README.md#node-view-29-october-2026)
 describes the nodes.
 
+## Things that move: plants, banners, water
+
+A surface shader can move its model's vertices before they are drawn ([vertex stage](MeshShaders.md#vertex-stage)),
+so a bush sways, a banner ripples and a pond's surface rolls, with no animation and no script.
+
+- **In Studio:** the Shader editor's **Wind Sway** (plants, trees, banners: the higher above the
+  model's base, the more it bends, following the weather's wind) and **Wave** (water planes, flags)
+  presets. Pick one in Quick setup, preview it on your model, tune `Strength`, `Speed` and `Height`
+  (or `Amplitude`, `Wavelength` and `Speed`), save, and put it on the Object (Use in game).
+- **In code:** add `void Vertex(GenesisVertexInput i, inout GenesisVertex v)` to a surface shader
+  (the Code page's **Vertex** button adds an empty one) and change `v.Position` (the model's own
+  space) and `v.Normal`. Add `i.ObjectPosition` to the phase so copies do not move as one.
+- **From automation:** `shader.graph` with something wired into the Output's `VertexOffset`; a
+  gentle bob, 10 cm up and down:
+
+```json
+{ "shader": "Bob", "target": "Model", "graph": {
+  "nodes": [
+    { "id": "out", "type": "Output" }, { "id": "time", "type": "Time" }, { "id": "sine", "type": "Sin" },
+    { "id": "up", "type": "Vector", "value": [0, 0.1, 0, 0] }, { "id": "bob", "type": "Multiply" } ],
+  "connections": [
+    { "fromNode": "time", "fromPort": "Out", "toNode": "sine", "toPort": "In" },
+    { "fromNode": "up", "fromPort": "XYZ", "toNode": "bob", "toPort": "A" },
+    { "fromNode": "sine", "fromPort": "Out", "toNode": "bob", "toPort": "B" },
+    { "fromNode": "bob", "fromPort": "Out", "toNode": "out", "toPort": "VertexOffset" } ] } }
+```
+
+Keep the movement small for things that cast big shadows: the shadow still falls from the shape
+before it moved. The Terrain editor's grass has its own wind (`terrain.setGrass`); this is for
+models.
+
 ## Pitfalls
 
 - A room's width and height are its size; with no window size of its own the game window takes
