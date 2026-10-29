@@ -155,7 +155,13 @@ internal sealed class DebugColliderOverlay
     }
 
     /// <summary>More than this many lines of the physics engine's shapes are sampled, not all drawn.</summary>
-    public const int MaxPhysicsLines = 12000;
+    public const int MaxPhysicsLines = 48000;
+
+    /// <summary>Physics lines farther than this from the camera are left out (a terrain's far hills).</summary>
+    public const float PhysicsReachMetres = 60f;
+
+    /// <summary>At most this many physics lines are drawn in a frame, the first found within reach.</summary>
+    public const int MaxDrawnPhysicsLines = 16000;
 
     private System.Collections.Generic.IReadOnlyList<PhysicsDebugCollider> _captured;
     private PhysicsWorld _capturedFrom;
@@ -165,25 +171,45 @@ internal sealed class DebugColliderOverlay
     // registered with it, the meshes of models and terrain among them (a room built from big models
     // has no collider components at all). Safe here: the game's update waits for each physics step
     // (PhysicsMotorway.Run blocks until it is done) and the frame is drawn after it on the same
-    // thread, so nothing steps while this reads. Read again twenty times a second, not every frame:
-    // the capture allocates its lines.
+    // thread, so nothing steps while this reads. Read again five times a second, not every frame: the
+    // capture allocates its lines. A dense mesh (a terrain) is sampled by the capture, and only lines
+    // near the camera are drawn, so the ground underfoot shows rather than a scatter of far hills.
     private void DrawPhysics3D(IHudCanvas hud, EcsWorld world, PhysicsWorld physics, in DebugProjection projection)
     {
         long now = Environment.TickCount64;
-        if (_captured == null || !ReferenceEquals(_capturedFrom, physics) || now - _capturedAt >= 50)
+        if (_captured == null || !ReferenceEquals(_capturedFrom, physics) || now - _capturedAt >= 200)
         {
             _captured = physics.CaptureColliderDebug(MaxPhysicsLines);
             _capturedFrom = physics;
             _capturedAt = now;
         }
+        float reach = PhysicsReachMetres * PhysicsReachMetres;
+        int drawnLines = 0;
         foreach (PhysicsDebugCollider collider in _captured)
         {
             DebugColliderKind kind = KindOf(world, collider);
-            if (!Take(kind)) continue;
+            if (!Wanted(kind)) continue;
             Vector4 colour = Colour(kind);
+            bool counted = false;
             foreach (PhysicsDebugLine line in collider.Lines)
-                Segment(hud, projection, line.Start, line.End, colour);
+            {
+                if (drawnLines >= MaxDrawnPhysicsLines) break;
+                if (DistanceSquaredToSegment(projection.Eye, line.Start, line.End) > reach) continue;
+                if (!projection.TrySegment(line.Start, line.End, out Vector2 a, out Vector2 b)) continue;
+                if (!counted && !Take(kind)) break;
+                counted = true;
+                hud.Line(a.X, a.Y, b.X, b.Y, colour, Thickness);
+                drawnLines++;
+            }
         }
+    }
+
+    private static float DistanceSquaredToSegment(Vector3 point, Vector3 start, Vector3 end)
+    {
+        Vector3 along = end - start;
+        float length = along.LengthSquared();
+        float t = length < 1e-12f ? 0f : Math.Clamp(Vector3.Dot(point - start, along) / length, 0f, 1f);
+        return Vector3.DistanceSquared(point, start + along * t);
     }
 
     private static DebugColliderKind KindOf(EcsWorld world, PhysicsDebugCollider collider)

@@ -1213,7 +1213,10 @@ video memory. **F7** opens the full panel:
   **Colliders** draws the colliders the game's collisions use, as wireframes in 3D and outlines in
   2D, one colour each: static bodies blue, moving green, kinematic yellow, characters magenta,
   triggers orange, a 2D room's solid tiles red, sprite hitboxes (the mask box collisions test) cyan;
-  the kinds can be left out one by one, and the legend counts what was drawn. **GUI layer
+  the kinds can be left out one by one, and the legend counts what was drawn. In 3D they are the
+  physics engine's own shapes within 60 m of the camera, model and terrain meshes included (a dense
+  mesh is sampled); a game that collides in its own script, as Cathedral Test's walls do, shows none.
+  **GUI layer
   outlines** boxes each layer's area with its owner. **View mode** draws the frame in a diagnostic
   way, with a legend in the corner: *LOD level* (models in their level of detail's colour, full
   detail green to coarsest red), *Overdraw* (models added up, brighter where more cover a pixel),
