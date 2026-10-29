@@ -179,12 +179,15 @@ public static class TerrainShapeCommands
         [Description("Paint layers (up to 8), each with the materials painted with it; ground of a material in none of them takes the first layer. Default: one layer per ground material.")]
         public List<FromModelLayer>? Layers { get; set; }
         [Description("Also hide those surfaces on the Model (its hiddenMaterials), so the terrain stands in for them (default false).")] public bool? HideSurfaces { get; set; }
+        [Description("Paint: how finely each sample's cell is measured, 1 to 8 points along each side (default 4). A sample is painted with the layers over its whole cell in proportion to the share each covers, so a strip narrower than a cell (a path's earth rim) keeps its paint along its whole length. 1 paints each sample with the one layer under its centre, which drops such strips out where the grid falls between them.")]
+        public int? PaintSupersample { get; set; }
     }
 
     /// <summary>
     /// A Terrain made from the ground of a Model: the highest of its chosen surfaces at every sample
-    /// (an imported scene's ground, a hand-made landscape), each sample painted with the layer of the
-    /// material it came from. Gaps the surfaces leave take the nearest ground's height.
+    /// (an imported scene's ground, a hand-made landscape), each sample painted with the layers of the
+    /// materials over its cell (<see cref="TerrainModelPaint"/>). Gaps the surfaces leave take the
+    /// nearest ground's height.
     /// </summary>
     public sealed class TerrainFromModel : AutomationCommand<FromModelInput>
     {
@@ -198,6 +201,9 @@ public static class TerrainShapeCommands
                 throw new AutomationException($"'{input.Model}' is not a Model resource (a .model.json file).");
             float cell = input.CellSize ?? 1f;
             if (!(cell > 0f)) throw new AutomationException("The cell size must be above 0.");
+            int subsamples = input.PaintSupersample ?? 4;
+            if (subsamples is < 1 or > TerrainModelPaint.MaximumSubsamples)
+                throw new AutomationException($"The paint supersampling is 1 to {TerrainModelPaint.MaximumSubsamples} points along each side of a cell.");
             System.Numerics.Vector3 offset = input.Position is { Length: 3 } place ? new(place[0], place[1], place[2])
                 : input.Position == null ? System.Numerics.Vector3.Zero : throw new AutomationException("The position is [x, y, z].");
             // Its cooked model, or else its source read afresh; nothing is written (a cooked copy of a big
@@ -286,13 +292,18 @@ public static class TerrainShapeCommands
 
             float low = heights.Min(), high = heights.Max();
             var terrain = new TerrainAsset(resX, resZ, cell, originX, originZ, MathF.Floor(low) - 1f, MathF.Ceiling(high) + 1f);
+            var centreLayers = new int[heights.Length];
             for (int z = 0; z < resZ; z++)
                 for (int x = 0; x < resX; x++)
                 {
                     int at = z * resX + x;
                     terrain.SetHeight(x, z, heights[at]);
-                    terrain.SetLayerAt(at, layerOf.GetValueOrDefault(source[at], 0));
+                    centreLayers[at] = layerOf.GetValueOrDefault(source[at], 0);
                 }
+            // The paint: each sample's share of every layer over its cell, not the one layer at its centre point.
+            List<GroundTriangle> paintTriangles = [];
+            if (subsamples > 1) paintTriangles.AddRange(triangles.Select(t => new GroundTriangle(t.A, t.B, t.C, layerOf.GetValueOrDefault(t.Material, 0))));
+            TerrainModelPaint.Paint(terrain, paintTriangles, centreLayers, subsamples);
 
             string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Terrain"), ResourceKind.Terrain, input.Name);
             JsonObject settings = Settings(full);
