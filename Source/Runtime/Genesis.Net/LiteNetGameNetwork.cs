@@ -156,11 +156,20 @@ namespace Genesis.Net
         public const string DefaultApplicationKey = "genesis-runtime-3";
 
         public LiteNetGameNetwork(string applicationKey = DefaultApplicationKey, int maximumPeers = 64)
+            : this(applicationKey, maximumPeers, null)
+        {
+        }
+
+        /// <summary>
+        /// A network whose packets pass through <paramref name="packetLayer"/> on their way in and out
+        /// (LiteNetLib's extra layer: a checksum, encryption, or a test's stand-in for a router).
+        /// </summary>
+        public LiteNetGameNetwork(string applicationKey, int maximumPeers, LiteNetLib.Layers.PacketLayerBase packetLayer)
         {
             if (string.IsNullOrWhiteSpace(applicationKey) || applicationKey.Length > 128) throw new ArgumentException("Invalid application key.", nameof(applicationKey));
             if (maximumPeers < 1 || maximumPeers > 4096) throw new ArgumentOutOfRangeException(nameof(maximumPeers));
             AppKey = applicationKey; _maximumPeers = maximumPeers;
-            _manager = new NetManager(this)
+            _manager = new NetManager(this, packetLayer)
             {
                 AutoRecycle = true,
                 UnsyncedEvents = false,  // callbacks run only during PollEvents on the owning game thread
@@ -461,7 +470,7 @@ namespace Genesis.Net
             if (peerId == -1 && !IsHost)
                 foreach (var candidate in _peersById.Values) { peerId = candidate.Id; break; }
             if (!_peersById.TryGetValue(peerId, out var entry)) return;
-            if (entry.RelayId != 0) { SendThroughRelay(entry.RelayId, tag, payload, delivery); return; }
+            if (entry.RelayId != 0) { SendToPlayer(entry, tag, payload, delivery); return; }
             if (entry.Peer == null) return;
             var packet = BuildPacket(tag, payload);
             entry.Peer.Send(packet, MapDelivery(delivery));
@@ -470,7 +479,7 @@ namespace Genesis.Net
         public void Broadcast(int tag, byte[] payload, NetDelivery delivery = NetDelivery.ReliableOrdered)
         {
             if (!IsHost || _manager == null) return;
-            if (_relay != null) { SendThroughRelay(0, tag, payload, delivery); return; }
+            if (_relay != null) { BroadcastOnline(tag, payload, delivery); return; }
             var packet = BuildPacket(tag, payload);
             _manager.SendToAll(packet, MapDelivery(delivery));
         }
@@ -499,6 +508,7 @@ namespace Genesis.Net
         {
             _manager?.PollEvents();
             if (_discoverPort != 0 || _discovered.Count > 0) UpdateDiscovery();
+            if (_links.Count > 0) UpdateDirect();
 
             // Drain connection events on the main thread.
             while (_connectionEvents.Count > 0)
@@ -520,7 +530,7 @@ namespace Genesis.Net
 
         void INetEventListener.OnPeerConnected(LiteNetPeer peer)
         {
-            if (RelayConnected(peer)) return;
+            if (RelayConnected(peer) || DirectConnected(peer)) return;
             int id = _nextPeerId++;
             var entry = new PeerEntry { Id = id, Peer = peer, Address = peer?.ToString() ?? "unknown" };
             _peersById[id] = entry;
@@ -537,7 +547,7 @@ namespace Genesis.Net
 
         void INetEventListener.OnPeerDisconnected(LiteNetPeer peer, DisconnectInfo info)
         {
-            if (RelayDisconnected(peer, info)) return;
+            if (RelayDisconnected(peer, info) || DirectDisconnected(peer)) return;
             if (peer != null && _peersByLiteId.TryGetValue(peer.Id, out var entry))
             {
                 _peersById.Remove(entry.Id);
@@ -561,7 +571,7 @@ namespace Genesis.Net
 
         void INetEventListener.OnNetworkReceive(LiteNetPeer peer, NetPacketReader reader, byte channel, DeliveryMethod delivery)
         {
-            if (RelayReceive(peer, reader)) return;
+            if (RelayReceive(peer, reader) || DirectReceive(peer, reader)) return;
             try
             {
                 if (reader.AvailableBytes < 8 || reader.AvailableBytes > MaximumPayloadBytes + 8 || _inbox.Count >= MaximumQueuedMessages) return;
@@ -591,6 +601,7 @@ namespace Genesis.Net
                 string kind = reader.GetString(32);
                 if (string.Equals(kind, DiscoveryRequest, StringComparison.Ordinal)) AnswerDiscovery(endPoint, reader);
                 else if (string.Equals(kind, DiscoveryAnswer, StringComparison.Ordinal)) HearAnswer(endPoint, reader);
+                else if (string.Equals(kind, PunchKind, StringComparison.Ordinal) && _links.Count > 0) HearPunch(endPoint, reader);
             }
             catch { /* not a request or answer of ours, or cut short — ignore */ }
         }
@@ -602,6 +613,8 @@ namespace Genesis.Net
             string key;
             try { key = request.Data.GetString(128); }
             catch { key = null; }
+            // A player met through the relay, connecting on the direct path the two have opened.
+            if (key != null && DirectRequest(request, key)) return;
             if (!string.Equals(key, AppKey, StringComparison.Ordinal)) request.Reject(RefusalFor("wrong version"));
             else if (_peersById.Count >= _maximumPeers) request.Reject(RefusalFor("full"));
             else request.Accept();

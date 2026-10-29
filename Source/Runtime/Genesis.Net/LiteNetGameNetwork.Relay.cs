@@ -12,7 +12,8 @@ namespace Genesis.Net
     // session and is given a short code; players join with the code. This machine keeps one
     // connection, to the relay; the other players are peers like any other (their messages, sends
     // and broadcasts are the same), carried through the relay, so a game works behind any router
-    // that lets it reach the relay.
+    // that lets it reach the relay. Players the relay introduces may then reach each other directly
+    // (LiteNetGameNetwork.Direct.cs); whatever does not go direct still goes this way.
     public sealed partial class LiteNetGameNetwork
     {
         private LiteNetPeer _relay;
@@ -78,6 +79,7 @@ namespace Genesis.Net
             _relayJoinCode = null;
             _relayToLocal.Clear();
             SessionCode = string.Empty;
+            ForgetDirect(close: false);
         }
 
         // The relay answered: ask for a session, or to join one.
@@ -86,16 +88,18 @@ namespace Genesis.Net
             if (_relay == null || peer != _relay) return false;
             if (_relayHosting) RelayControl(RelayProtocol.HostRequest, writer => writer.Put(_relayMaximumPlayers));
             else RelayControl(RelayProtocol.JoinRequest, writer => writer.Put(_relayJoinCode ?? string.Empty));
+            OfferDirect();
             return true;
         }
 
         private bool RelayDisconnected(LiteNetPeer peer, DisconnectInfo info)
         {
             if (_relay == null || peer != _relay) return false;
-            // Losing the relay is losing everyone.
+            // Losing the relay is losing everyone, the players reached directly too: the session lives at the relay.
             foreach (PeerEntry entry in _peersById.Values) _connectionEvents.Enqueue((new GPeer(entry.Id, entry.Address), false));
             _peersById.Clear();
             _relayToLocal.Clear();
+            ForgetDirect(close: true);
             bool wasPlaying = IsConnected;
             IsConnected = false;
             // A refusal (no such game, full) already said why.
@@ -142,13 +146,26 @@ namespace Genesis.Net
                         break;
                     case RelayProtocol.PeerLeft:
                         if (_relayToLocal.Remove(reader.GetInt(), out int gone) && _peersById.Remove(gone, out PeerEntry left))
+                        {
+                            ForgetLink(gone);
                             _connectionEvents.Enqueue((new GPeer(left.Id, left.Address), false));
+                        }
+                        break;
+                    case RelayProtocol.Introduce:
+                        Introduced(reader.GetInt(), reader.GetString(64), reader.GetInt(), reader.GetLong());
                         break;
                     case RelayProtocol.Forwarded:
                     {
                         int source = reader.GetInt();
                         int messageTag = reader.GetInt();
                         int size = reader.GetInt();
+                        if (messageTag == StreamTag)
+                        {
+                            // A numbered message: handed on in number order, whichever path it came by.
+                            if (size >= StreamHeaderBytes && size == reader.AvailableBytes && size <= MaximumPayloadBytes + StreamHeaderBytes)
+                                ReceiveNumbered(LinkFor(_relayToLocal.TryGetValue(source, out int sender) ? sender : AddRelayPeer(source, "player"), source), reader);
+                            break;
+                        }
                         if (size < 0 || size != reader.AvailableBytes || size > MaximumPayloadBytes || _inbox.Count >= MaximumQueuedMessages
                             || _queuedPayloadBytes + size > MaximumQueuedPayloadBytes) break;
                         byte[] payload = new byte[size];
@@ -179,7 +196,8 @@ namespace Genesis.Net
         {
             if (_relay == null) return;
             int length = payload?.Length ?? 0;
-            if (length > MaximumPayloadBytes) throw new ArgumentOutOfRangeException(nameof(payload), "Network payload is too large.");
+            // A numbered message carries its number, tag and length besides the game's payload.
+            if (length > MaximumPayloadBytes + (tag == StreamTag ? StreamHeaderBytes : 0)) throw new ArgumentOutOfRangeException(nameof(payload), "Network payload is too large.");
             _relayWriter.Reset();
             _relayWriter.Put(RelayProtocol.Forward);
             _relayWriter.Put(length + 12);
