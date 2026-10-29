@@ -156,7 +156,9 @@ internal static class DecalLayerSuite
             TextureHandle white = renderer.CreateTexture(8, 8, Solid(255, 255, 255));
             TextureHandle leanLeft = renderer.CreateTexture(8, 8, Solid(Encode(-0.6f), Encode(0f), Encode(0.8f)), Genesis.Shared.Materials.TextureColorSpace.Linear);
             TextureHandle leanRight = renderer.CreateTexture(8, 8, Solid(Encode(0.6f), Encode(0f), Encode(0.8f)), Genesis.Shared.Materials.TextureColorSpace.Linear);
-            TextureHandle smooth = renderer.CreateTexture(8, 8, Solid(38, 38, 38), Genesis.Shared.Materials.TextureColorSpace.Linear);
+            // Roughness 0.3: smooth enough for a strong mirror highlight, not so smooth that the
+            // highlight is capped as the forward shader caps it (its GGX term floors at 1e-4).
+            TextureHandle smooth = renderer.CreateTexture(8, 8, Solid(77, 77, 77), Genesis.Shared.Materials.TextureColorSpace.Linear);
             TextureHandle matte = renderer.CreateTexture(8, 8, Solid(255, 255, 255), Genesis.Shared.Materials.TextureColorSpace.Linear);
             string name = backend.ToString().ToLowerInvariant();
             try

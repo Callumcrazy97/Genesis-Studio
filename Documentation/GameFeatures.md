@@ -994,6 +994,22 @@ alike, bumps and all, so the same command marks a wall and the ground.
 C#: `WorldDecals` (namespace `Genesis.Runtime.Rendering`) has the same operations, and
 `IRenderController.DrawDecals` draws a frame's decals directly.
 
+**Layers, normal and roughness maps (29 October 2026).**
+
+| Command | What it does |
+|---|---|
+| `DecalSetLayer(decal, layer)` | Puts a decal on layer 0 to 5 (0 at first). It shows only on surfaces that take that layer. |
+| `Engine.Model.DecalLayers = mask` | Which layers show on this instance's model: bit n for layer n (layer 0 is 1, layer 1 is 2). 0, the default, takes every layer; an Object's ModelRendererComponent can say `"DecalLayers"` too. |
+| `Engine.Decal.Layer`, `Engine.Decal.Enabled`, `Engine.Decal.Limit` | The layer new decals go on; whether decals are drawn (kept while off); the limit, as `DecalSetLimit`. All three go back to their defaults at each room's start. |
+| `DecalSetNormalMap(decal, image)` | A normal map (tangent space, +Y up the picture): its bumps re-shade the surface under the decal in the room's sun and ambient light. |
+| `DecalSetRoughnessMap(decal, image)` | A roughness map (red: 0 mirror-smooth to 1 matte): the sun's highlight on the decal is added at that roughness (wet blood, fresh paint, oil). |
+
+Bullet holes on layer 0 and characters set to `Engine.Model.DecalLayers = 2` keep the holes off the
+characters. A decal is drawn over the lit picture, so a normal map scales the light that is there by
+how its bumps face the sun and the sky (lamps are scaled with it, not lit anew), and a roughness map
+adds a sheen but cannot take away the surface's own highlight. The Software renderer shows every
+decal on every surface and draws the pictures alone.
+
 ```pgsl
 // Step, when a shot hits: a bullet hole turned at random, gone after 30 seconds.
 var hole = DecalAdd("BulletHole", hitX, hitY, hitZ, hitNx, hitNy, hitNz, 0.12, 30);
@@ -2360,7 +2376,14 @@ To find which part of the frame makes something look wrong, `GENESIS_RENDER_OFF`
 for a whole run, whatever the game asks, as a comma list: `ao`, `post` (the game's own post effects),
 `decals`, `lampshadows`, `cull` (every surface two-sided), `uvslide` (sliding pictures stand still),
 `transparent` (see-through surfaces), `probes` (the light probe) and `lighting` (every surface its own
-colour). Compare a `game.run` picture with and without each.
+colour). Compare a `game.run` picture with and without each. `GENESIS_RENDER_HIDE` (a comma list) leaves
+out every model whose name contains one of the words, to see what is behind it.
+
+**Instanced models shade as single ones (29 Oct 2026).** A model drawn through a room's static
+instanced layer, or any `DrawMeshInstances` batch, now keeps its whole material: metallic and
+roughness factors, ORM and emission maps, emission colour and the picture's repeat and slide. It
+used to keep only the picture and normal map, so the same glTF model came out bright in a room and
+dark drawn on its own.
 
 New on their own:
 
