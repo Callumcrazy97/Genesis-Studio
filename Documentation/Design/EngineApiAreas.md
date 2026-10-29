@@ -40,7 +40,9 @@ script sets it, then holds); Engine.Audio.Listener.FollowCamera; Engine.Room.Cha
 ProgressBar, Text); Engine.Debug.Keys.Enabled; Engine.Particle.Bursts.Limit; Engine.Mesh.Upload.Budget;
 Engine.Water.Reflections.Enabled; Engine.Tile.Autotile.Enabled; Engine.Model.Shadows (Cast, Receive),
 Model.Glow (Strength, EmissionScale); Engine.Input.Gamepad.KeyboardEmulation; Engine.View.Camera.Zoom;
-Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Resolution (Scale, Sharpness, Current, Dynamic.Enabled, Dynamic.TargetFps, Dynamic.MinimumScale), Engine.Room.Streaming (Remember, Forget(), Remembered, Save(), Load(text)), Engine.Rendering (Backend, DrawCalls, Triangles, GpuMs, Instances.Drawn, Instances.Culled; read), Engine.Instance.Update.Distance, Engine.Tile.Layer (Visible, SetVisible, Alpha, SetAlpha, OffsetX, OffsetY, SetOffset by name), Engine.Physics.Joint limits (PhysicsJointHinge, PhysicsJointLimitSwing, PhysicsJointLimitTwist). Colours are "#rrggbb" text.
+Engine.Navigation.Agent (Speed, StoppingDistance); 29 October: Engine.Audio.Music and Engine.Audio.Effects
+(Filter, Eq, Reverb, Compressor: each with Enabled; Level), Engine.Audio.Snapshot (Enabled, Name, Progress,
+Blend(), Save()); 25 October: Engine.Display.Resolution (Scale, Sharpness, Current, Dynamic.Enabled, Dynamic.TargetFps, Dynamic.MinimumScale), Engine.Room.Streaming (Remember, Forget(), Remembered, Save(), Load(text)), Engine.Rendering (Backend, DrawCalls, Triangles, GpuMs, Instances.Drawn, Instances.Culled; read), Engine.Instance.Update.Distance, Engine.Tile.Layer (Visible, SetVisible, Alpha, SetAlpha, OffsetX, OffsetY, SetOffset by name), Engine.Physics.Joint limits (PhysicsJointHinge, PhysicsJointLimitSwing, PhysicsJointLimitTwist). Colours are "#rrggbb" text.
 
 ---
 
@@ -218,9 +220,11 @@ Engine.Navigation.Agent (Speed, StoppingDistance); 25 October: Engine.Display.Re
 | Part | Values |
 |---|---|
 | Engine.Audio | + Enabled (all sound), ✓ MasterVolume, + Muted, ✓ StopAll() |
-| Engine.Audio.Music | + Enabled, ✓ Track [Music], ✓ Volume [MusicVolume], ✓ Muffle [MusicMuffle], ✓ Play("Track"), ✓ Stop(), + FadeSeconds, + Loop, + Position (seconds), + Pitch |
-| Engine.Audio.Effects (sound effects bus) | + Enabled, ✓ Volume [SfxVolume], + Pitch |
-| Engine.Audio.Bus (by name) | ✓ Volume(name) [Get/SetBusVolume], ✓ Duck(name, ...) [BusDuck], ✓ DuckLevel, + Muted(name) |
+| Engine.Audio.Music | + Enabled, ✓ Track [Music], ✓ Volume [MusicVolume], ✓ Muffle [MusicMuffle], ✓ Level (read), ✓ Play("Track"), ✓ Stop(), + FadeSeconds, + Loop, + Position (seconds), + Pitch |
+| Engine.Audio.Music.Filter, .Eq, .Reverb, .Compressor (29 Oct) | ✓ Filter (Enabled, Type, Frequency, Q), ✓ Eq (Enabled, Low, Mid, High: dB), ✓ Reverb (Enabled, Place, Mix), ✓ Compressor (Enabled, Threshold, Ratio); all off unless set |
+| Engine.Audio.Effects (sound effects bus) | + Enabled, ✓ Volume [SfxVolume], ✓ Level (read), + Pitch; ✓ Filter, Eq, Reverb, Compressor as the music's |
+| Engine.Audio.Bus (by name) | ✓ Volume(name) [Get/SetBusVolume], ✓ Duck(name, ...) [BusDuck], ✓ DuckLevel, ✓ Filter/Eq/Reverb/Compressor(name, ...) [BusFilter, BusEq, BusReverb, BusCompressor], ✓ EffectsEnabled, ✓ EffectsClear, ✓ Level [BusLevel], + Muted(name) |
+| Engine.Audio.Snapshot (29 Oct) | ✓ Enabled (a blend moving; false holds it), ✓ Name (read), ✓ Progress (read), ✓ Blend(name, seconds) [AudioSnapshotBlend], ✓ Save(name) [AudioSnapshotSave]; the project's own in AudioMixer.json |
 | Engine.Audio.Acoustics | + Enabled, ✓ Place [Acoustics] ("outdoors", "room", "hall", "cave"), ✓ Amount [AcousticsAmount] |
 | Engine.Audio.Listener | ✓ FollowCamera, ✓ Set(x, y, z, ...) [SetListener], + X, + Y, + Z |
 | Engine.Audio.Sound (one playing sound) | ✓ Play(...) [PlaySound], ✓ PlayAt(...), ✓ Stop, ✓ StopFaded, ✓ Fade, ✓ Volume [SoundSetVolume], ✓ Pitch, ✓ Position, ✓ Bus, ✓ IsPlaying, ✓ Preload, ✓ Loading (read), + Pan, + Loop, + MaxDistance, + Rolloff |

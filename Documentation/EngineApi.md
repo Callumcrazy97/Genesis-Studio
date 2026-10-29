@@ -6,7 +6,7 @@ variable and, when it can be set, set like one (`Engine.Physics.Mass = 4;`, `Eng
 an instance's property is the current instance's, each target's in turn inside `with`. The flat
 names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 
-1757 names: 478 properties (406 can be set), 1279 commands.
+1803 names: 511 properties (435 can be set), 1292 commands.
 
 ## Engine.Alarm
 
@@ -130,8 +130,15 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 |---|---|---|
 | `Acoustics` | property | How the place sounds for sound effects: "outdoors" (no echo), "room", "hall" or "cave". Each room starts outdoors unless its settings choose another |
 | `AcousticsAmount` | property | How much of the acoustics is heard, 0 (none) to 1 (0.5 unless set) |
+| `BusCompressor` | command | A compressor on a bus: when its peak goes over thresholdDb (-12 is loud, -30 quiet) the bus is turned down so that ratio dB over comes out as 1 (4 is firm, 10 a limiter), down over attack seconds (0.01) and back over release (0.25); a ratio of 1 turns it off |
 | `BusDuck` | command | Ducking: while any sound on byBus plays, bus drops by amount (0.6 leaves 40%), down over attack seconds (default 0.15) and back over release (default 0.6): BusDuck("music", "voice", 0.6). Amount 0 turns it off |
 | `BusDuckLevel` | command | How far a ducked bus is down now: 1 when not ducked, 0.4 when ducked by 0.6 |
+| `BusEffectsClear` | command | Take every effect off a bus: it plays as a plain bus again |
+| `BusEffectsEnabled` | command | Turn all of a bus's effects off (each keeps its settings) or back on |
+| `BusEq` | command | A three-band EQ on a bus: dB of boost (up to 18) or cut (down to -18) around 150 Hz, 1 kHz and 6 kHz; all 0 turns it off |
+| `BusFilter` | command | A filter on every sound of a bus: type "lowpass" (keeps what is below frequency: muffled, underwater), "highpass" (above it: thin, a radio), "bandpass" (around it) or "off"; q 0.707 unless given (higher rings) |
+| `BusLevel` | command | How loud a bus is now after its effects, its peak from 0 (silent) to 1 (full); the first call starts measuring it |
+| `BusReverb` | command | A reverb on a bus: place "room", "small room", "hall", "large hall", "cave", "arena", "hangar", "hallway", "bathroom", "forest", "city", "mountains", "underwater" or "plate"; mix 0 to 1 how much is heard (0 or place "off" turns it off) |
 | `Enabled` | property | All of the game's sound (true unless set); off keeps every volume as it was for when it comes back |
 | `GetBusVolume` | command | The volume of a group of sounds: "music", "sfx" or "master" |
 | `GetMasterVolume` | command | Current overall output volume |
@@ -151,6 +158,10 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | `SetListener` | command | Put the listener for positioned sounds somewhere of your choosing. In a 3D room it otherwise follows the camera |
 | `SetMasterVolume` | command | Set the overall output volume (0..1) |
 | `SfxVolume` | property | The volume of the sound-effects bus (0-1) |
+| `SnapshotBlend` | command | Move the buses a snapshot names (the project's mixer, or one saved by AudioSnapshotSave) to its volumes and effects over seconds: AudioSnapshotBlend("Combat", 1.5). False when there is no such snapshot |
+| `SnapshotCurrent` | command | The snapshot last blended to, or empty |
+| `SnapshotProgress` | command | How far the blend to the current snapshot has gone, 0 to 1 (1 when it is done or there is none) |
+| `SnapshotSave` | command | Keep every bus's volume and effects as they are now as the snapshot name, to blend back to later |
 | `SoundFade` | command | Move a playing channel's volume to a new level over a time |
 | `SoundPreload` | command | Start decoding a sound on a worker thread now, so that its first PlaySound or PlaySoundAt starts at once. Never waits. sound as PlaySound takes it: an Audio resource's name, its .audio.json or its sound file. A room's loading cover waits for the sounds preloaded while it is up (in Create events). False when there is no such sound |
 | `SoundSetBus` | command | Put a playing channel in a group, "music" or "sfx". A sound longer than ten seconds is taken for music unless told otherwise |
@@ -176,7 +187,42 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Enabled` | property | The sound-effects bus (true unless set); off keeps its volume for when it comes back |
+| `Level` | property | How loud the sound-effects bus is now after its effects, 0 to 1 |
 | `Volume` | property | The sound-effects bus's volume, 0 to 1 (1 unless set) |
+
+## Engine.Audio.Effects.Compressor
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | A compressor on the sound effects (false unless set) |
+| `Ratio` | property | How hard it turns down: 4 dB over comes out as 1 (4 unless set) |
+| `Threshold` | property | dB of peak above which the sound effects are turned down, -60 to 0 (-12 unless set) |
+
+## Engine.Audio.Effects.Eq
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | The sound effects' three-band EQ (false unless set) |
+| `High` | property | dB around 6 kHz, -18 to 18 (0 unless set) |
+| `Low` | property | dB around 150 Hz, -18 to 18 (0 unless set) |
+| `Mid` | property | dB around 1 kHz, -18 to 18 (0 unless set) |
+
+## Engine.Audio.Effects.Filter
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | A filter on the sound effects (false unless set) |
+| `Frequency` | property | The filter's frequency, Hz (1000 unless set) |
+| `Q` | property | How sharp the filter is (0.707 unless set): higher rings |
+| `Type` | property | "LowPass" (muffled), "HighPass" (thin) or "BandPass" ("LowPass" unless set) |
+
+## Engine.Audio.Effects.Reverb
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | A reverb on the sound effects, besides the room's acoustics (false unless set) |
+| `Mix` | property | How much reverb is heard, 0 to 1 (0.3 unless set) |
+| `Place` | property | Where the reverb sounds like: "room", "hall", "cave", "arena"... ("room" unless set) |
 
 ## Engine.Audio.Listener
 
@@ -189,9 +235,54 @@ names (`PhysicsApplyForce`) still work. See PgslLanguage.md, "The engine API".
 | Name | Kind | What it is |
 |---|---|---|
 | `Enabled` | property | The music bus (true unless set); off keeps its volume for when it comes back |
+| `Level` | property | How loud the music bus is now after its effects, 0 to 1 |
 | `Muffle` | property | How muffled the music is, 0 (clear) to 1 (heard through a wall); (0 unless set) |
 | `Track` | property | The music playing ("" for none): setting it cross-fades to that track over a second, "" fades it out |
 | `Volume` | property | The music bus's volume, 0 to 1 (1 unless set) |
+
+## Engine.Audio.Music.Compressor
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | A compressor on the music (false unless set) |
+| `Ratio` | property | How hard it turns down: 4 dB over comes out as 1 (4 unless set) |
+| `Threshold` | property | dB of peak above which the music is turned down, -60 to 0 (-12 unless set) |
+
+## Engine.Audio.Music.Eq
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | The music's three-band EQ (false unless set) |
+| `High` | property | dB around 6 kHz, -18 to 18 (0 unless set) |
+| `Low` | property | dB around 150 Hz, -18 to 18 (0 unless set) |
+| `Mid` | property | dB around 1 kHz, -18 to 18 (0 unless set) |
+
+## Engine.Audio.Music.Filter
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | A filter on the music (false unless set) |
+| `Frequency` | property | The filter's frequency, Hz (1000 unless set) |
+| `Q` | property | How sharp the filter is (0.707 unless set): higher rings |
+| `Type` | property | "LowPass" (muffled), "HighPass" (thin) or "BandPass" ("LowPass" unless set) |
+
+## Engine.Audio.Music.Reverb
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Enabled` | property | A reverb on the music (false unless set) |
+| `Mix` | property | How much reverb is heard, 0 to 1 (0.3 unless set) |
+| `Place` | property | Where the reverb sounds like: "room", "hall", "cave", "arena"... ("room" unless set) |
+
+## Engine.Audio.Snapshot
+
+| Name | Kind | What it is |
+|---|---|---|
+| `Blend` | command | Move the buses the snapshot names to its volumes and effects over the seconds given; false when there is no such snapshot |
+| `Enabled` | property | True while a blend is moving (false when none is); setting false holds the buses where the blend has got to |
+| `Name` | property | The snapshot last blended to ("" unless one was) |
+| `Progress` | property | How far the blend has gone, 0 to 1 (1 when it is done or there is none) |
+| `Save` | command | Keep every bus's volume and effects as they are now as a snapshot of that name |
 
 ## Engine.Camera.Collision
 
