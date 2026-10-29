@@ -1090,6 +1090,7 @@ internal static class HeadlessTestRunner
         Suites.PathingThreeDWorkflowSuite.Run(ctx, export: true);
         Suites.ModelImageWorkflowSuite.Run(ctx);
         Suites.ModelTexturePaintingSuite.Run(ctx);
+        Suites.ModelLiveTexturePaintSuite.Run(ctx);
         Suites.ModelProfileWorkflowSuite.Run(ctx);
         Suites.ModelTubeWorkflowSuite.Run(ctx);
         Suites.ModelPushPullWorkflowSuite.Run(ctx);
@@ -1500,6 +1501,11 @@ internal static class HeadlessTestRunner
                 PrepareFocusedProject(ctx, requireStudioServices: false);
                 Suites.ModelEditorResetSuite.Run(ctx);
                 Suites.ModelPoseWorkflowSuite.Run(ctx);
+                Suites.ModelLiveTexturePaintSuite.Run(ctx);
+                break;
+            case "model-live-paint":
+                PrepareFocusedProject(ctx, requireStudioServices: false);
+                Suites.ModelLiveTexturePaintSuite.Run(ctx);
                 break;
             case "model-refinement":
                 PrepareFocusedProject(ctx, requireStudioServices: true);
