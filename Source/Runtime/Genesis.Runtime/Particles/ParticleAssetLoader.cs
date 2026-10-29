@@ -106,6 +106,10 @@ public static class ParticleAssetLoader
         config.SpeedOverLifetime ??= new ParticleBezierCurve();
         config.AlphaOverLifetime ??= new ParticleBezierCurve();
         config.VelocityOverLifetime ??= new ParticleBezierCurve();
+        config.SizeOverLifetime.NormaliseKeys();
+        config.SpeedOverLifetime.NormaliseKeys();
+        config.AlphaOverLifetime.NormaliseKeys();
+        config.VelocityOverLifetime.NormaliseKeys();
         config.GradientStops ??= [];
         config.GradientStops.RemoveAll(stop => stop == null);
         foreach (ParticleGradientStop stop in config.GradientStops)

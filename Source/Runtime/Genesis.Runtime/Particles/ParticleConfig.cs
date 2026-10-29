@@ -154,6 +154,61 @@ public sealed class ParticleGradientStop
     };
 }
 
+/// <summary>One point of a lifetime curve drawn as points (<see cref="ParticleBezierCurve.Keys"/>).</summary>
+public sealed class ParticleCurveKey
+{
+    /// <summary>Normalised particle age, 0 at birth and 1 at death.</summary>
+    public double Time { get; set; }
+    public double Value { get; set; }
+    /// <summary>The curve leaves this point smoothly (eased, never overshooting) rather than in a straight line.</summary>
+    public bool Smooth { get; set; }
+
+    public ParticleCurveKey Clone() => new() { Time = Time, Value = Value, Smooth = Smooth };
+
+    /// <summary>The curve through <paramref name="keys"/> (in time order) at <paramref name="time"/>; allocates nothing.</summary>
+    public static float Evaluate(List<ParticleCurveKey> keys, float time)
+    {
+        float t = Math.Clamp(time, 0f, 1f);
+        ParticleCurveKey first = keys[0];
+        if (keys.Count == 1 || t <= first.Time) return (float)first.Value;
+        ParticleCurveKey last = keys[^1];
+        if (t >= last.Time) return (float)last.Value;
+        for (int i = 1; i < keys.Count; i++)
+        {
+            ParticleCurveKey right = keys[i];
+            if (t > right.Time) continue;
+            ParticleCurveKey left = keys[i - 1];
+            double span = right.Time - left.Time;
+            if (span <= 1e-9) return (float)right.Value;
+            double u = (t - left.Time) / span;
+            if (!left.Smooth) return (float)(left.Value + (right.Value - left.Value) * u);
+            double m0 = Slope(keys, i - 1) * span;
+            double m1 = Slope(keys, i) * span;
+            double u2 = u * u, u3 = u2 * u;
+            return (float)((2 * u3 - 3 * u2 + 1) * left.Value + (u3 - 2 * u2 + u) * m0
+                + (-2 * u3 + 3 * u2) * right.Value + (u3 - u2) * m1);
+        }
+        return (float)last.Value;
+    }
+
+    // Flat at the ends and at a peak or trough; elsewhere the harmonic mean of the slopes either
+    // side, which keeps a smooth curve between its points (Fritsch-Carlson), so it never overshoots.
+    private static double Slope(List<ParticleCurveKey> keys, int index)
+    {
+        if (index <= 0 || index >= keys.Count - 1) return 0;
+        double before = Gradient(keys[index - 1], keys[index]);
+        double after = Gradient(keys[index], keys[index + 1]);
+        if (before * after <= 0) return 0;
+        return 2 * before * after / (before + after);
+    }
+
+    private static double Gradient(ParticleCurveKey left, ParticleCurveKey right)
+    {
+        double span = right.Time - left.Time;
+        return span <= 1e-9 ? 0 : (right.Value - left.Value) / span;
+    }
+}
+
 /// <summary>Cubic Bezier remap used by the visual lifetime curve editor.</summary>
 public sealed class ParticleBezierCurve
 {
@@ -162,8 +217,17 @@ public sealed class ParticleBezierCurve
     public double X2 { get; set; } = 0.75;
     public double Y2 { get; set; } = 0.75;
 
+    /// <summary>
+    /// Points the curve passes through, in time order, drawn in the Particle editor's module
+    /// stack. When there are any they replace the Bezier above; null (the default, and every
+    /// older resource) keeps the Bezier.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<ParticleCurveKey> Keys { get; set; }
+
     public float Evaluate(float time)
     {
+        if (Keys is { Count: > 0 } keys) return ParticleCurveKey.Evaluate(keys, time);
         float target = Math.Clamp(time, 0f, 1f);
         float lo = 0f;
         float hi = 1f;
@@ -177,7 +241,32 @@ public sealed class ParticleBezierCurve
         return Bezier(u, 0f, (float)Y1, (float)Y2, 1f);
     }
 
-    public ParticleBezierCurve Clone() => new() { X1 = X1, Y1 = Y1, X2 = X2, Y2 = Y2 };
+    public ParticleBezierCurve Clone() => new()
+    {
+        X1 = X1, Y1 = Y1, X2 = X2, Y2 = Y2,
+        Keys = Keys?.Where(key => key is not null).Select(key => key.Clone()).ToList(),
+    };
+
+    /// <summary>Drops missing points, keeps times within 0-1 and values finite, and orders the points by time.</summary>
+    public void NormaliseKeys()
+    {
+        if (Keys is null) return;
+        Keys.RemoveAll(key => key is null);
+        foreach (ParticleCurveKey key in Keys)
+        {
+            key.Time = double.IsFinite(key.Time) ? Math.Clamp(key.Time, 0d, 1d) : 0d;
+            key.Value = double.IsFinite(key.Value) ? Math.Clamp(key.Value, -16d, 16d) : 0d;
+        }
+        // A stable insertion sort: points at the same time keep their order (a step).
+        for (int i = 1; i < Keys.Count; i++)
+        {
+            ParticleCurveKey key = Keys[i];
+            int at = i;
+            while (at > 0 && Keys[at - 1].Time > key.Time) { Keys[at] = Keys[at - 1]; at--; }
+            Keys[at] = key;
+        }
+        if (Keys.Count == 0) Keys = null;
+    }
 
     private static float Bezier(float t, float a, float b, float c, float d)
     {
@@ -212,6 +301,28 @@ public sealed class ParticleLightConfig
         OffsetZ = OffsetZ,
         FlickerAmount = FlickerAmount,
         FlickerFrequency = FlickerFrequency,
+    };
+}
+
+/// <summary>
+/// One module of the Particle editor's module stack (Spawn, Initialise, Update and Render). The
+/// stack is a view over the emitter's settings: every module writes its values into them, so the
+/// runtime never reads this. It remembers which modules are in the stack, which are switched off,
+/// and the values a switched-off module had, to give them back when it is switched on again.
+/// </summary>
+public sealed class ParticleModuleState
+{
+    public string Id { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+    /// <summary>A switched-off module's own settings (setting name, value) while the emitter plays without them.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, System.Text.Json.JsonElement> Stash { get; set; }
+
+    public ParticleModuleState Clone() => new()
+    {
+        Id = Id,
+        Enabled = Enabled,
+        Stash = Stash?.ToDictionary(pair => pair.Key, pair => pair.Value.Clone(), StringComparer.Ordinal),
     };
 }
 
@@ -453,6 +564,13 @@ public sealed class ParticleConfig
     /// unified code editor; runtime execution of attached particle scripts is pending (see ToDo.md).</summary>
     public string Script { get; set; } = "";
 
+    /// <summary>
+    /// The Particle editor's module stack for this emitter (<see cref="ParticleModuleState"/>):
+    /// null until the stack is edited. Never read at run time.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<ParticleModuleState> Modules { get; set; }
+
     public ParticleConfig Clone() => Clone(includeEmitters: true);
 
     public ParticleConfig CloneEmitter() => Clone(includeEmitters: false);
@@ -554,5 +672,6 @@ public sealed class ParticleConfig
         PreviewTargetAsset = PreviewTargetAsset,
         Notes              = Notes,
         Script             = Script,
+        Modules            = Modules?.Where(module => module is not null).Select(module => module.Clone()).ToList(),
     };
 }
