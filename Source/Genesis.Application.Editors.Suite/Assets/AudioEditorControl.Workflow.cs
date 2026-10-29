@@ -30,6 +30,7 @@ public sealed partial class AudioEditorControl
         options.DropDownItems.Add(EditorDocumentMenuChrome.Item("Advanced ambience", "Show adaptive environment roles", () =>
         { _advancedAudio = !_advancedAudio; ShowAudioQuickSetup(); }));
         options.DropDownItems.Add(EditorDocumentMenuChrome.Item("Reuse an Audio clip…", "Choose the WAV used by an existing Audio resource", ChooseAudioResource));
+        options.DropDownItems.Add(EditorDocumentMenuChrome.Item("Mixer and snapshots…", "Effects on each bus (filter, EQ, reverb, compressor) and snapshots of them, for the whole project", ShowAudioMixer));
         options.DropDownItems.Add(EditorDocumentMenuChrome.Item("Make music for this sound…", "Write a tune of notes and instruments (Music mode); its Render to Audio puts the music in this sound", () =>
         {
             try { CreateMusicForThisSound(); }
@@ -76,7 +77,7 @@ public sealed partial class AudioEditorControl
         base.OnLoad(e);
         BeginInvoke((Action)(() =>
         {
-            if (IsDisposed || _showAudioGameGuide || _showAudioSynth) return;
+            if (IsDisposed || _showAudioGameGuide || _showAudioSynth || _showAudioMixer) return;
             _sourceCombo.Select();
             _propertyRows.AutoScrollPosition = Point.Empty;
         }));
@@ -84,9 +85,10 @@ public sealed partial class AudioEditorControl
 
     private void ShowAudioQuickSetup()
     {
-        _showAudioGameGuide = false; _showAudioSynth = false;
+        _showAudioGameGuide = false; _showAudioSynth = false; _showAudioMixer = false;
         if (_audioGameGuide is not null) _audioGameGuide.Visible = false;
         if (_audioSynth is not null) _audioSynth.Visible = false;
+        if (_audioMixer is not null) _audioMixer.Visible = false;
         if (_audioWorkflow?.CurrentStepId == "UseInGame") _audioWorkflow.SetCurrent("Sound");
         ApplyAudioLayout(); RefreshAudioWorkflow();
         _propertyRows.AutoScrollPosition = Point.Empty;
@@ -109,6 +111,7 @@ public sealed partial class AudioEditorControl
         }
         foreach (Control child in _audioGameGuide.Controls.Cast<Control>().ToArray()) child.Dispose();
         _showAudioSynth = false; if (_audioSynth is not null) _audioSynth.Visible = false;
+        _showAudioMixer = false; if (_audioMixer is not null) _audioMixer.Visible = false;
         _showAudioGameGuide = true; _audioGameGuide.Visible = true; _audioGameGuide.BringToFront();
         _audioWorkflow?.SetCurrent("UseInGame");
         _audioGameGuide.AutoScrollPosition = Point.Empty;
@@ -188,6 +191,7 @@ public sealed partial class AudioEditorControl
     {
         LayoutAudioFlow(_audioGameGuide);
         LayoutAudioFlow(_audioSynth);
+        LayoutAudioFlow(_audioMixer);
     }
 
     private static void LayoutAudioFlow(FlowLayoutPanel? flow)

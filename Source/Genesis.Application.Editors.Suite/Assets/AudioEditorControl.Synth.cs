@@ -35,7 +35,7 @@ public sealed partial class AudioEditorControl
     public string UseSynthSound(string preset, double length = 0, double pitch = 1, double? volume = null, bool? loop = null)
     {
         SynthSound sound = SynthSounds.Render(new SynthRecipe { Preset = preset, Length = length, Pitch = pitch });
-        string relative = SynthSounds.WithWavFile(sound.Samples, SynthSounds.FileStem(preset), wav => ImportWave(wav));
+        string relative = SynthSounds.WithWavFile(sound, SynthSounds.FileStem(preset), wav => ImportWave(wav));
         bool repeat = loop ?? SynthSounds.Info(preset).Loops;
         Commit(() => _document.Loop = repeat);
         if (volume is double level) SetVolume((float)Math.Clamp(level, 0, 1));
@@ -59,7 +59,7 @@ public sealed partial class AudioEditorControl
         _audio = audio;
         // The scratch WAV is read into memory by LoadSound, so it can go as soon as that returns.
         AudioAssetSettings settings = new() { Volume = (float)Math.Clamp(volume, 0, 1), Loop = loop };
-        int soundId = SynthSounds.WithWavFile(sound.Samples, SynthSounds.FileStem(preset), wav => audio.LoadSound(wav, settings));
+        int soundId = SynthSounds.WithWavFile(sound, SynthSounds.FileStem(preset), wav => audio.LoadSound(wav, settings));
         if (soundId == 0)
         {
             _statusLabel.Text = "Could not play " + preset + ".";
@@ -76,6 +76,8 @@ public sealed partial class AudioEditorControl
         FlowLayoutPanel panel = _audioSynth ??= BuildAudioSynth();
         _showAudioGameGuide = false;
         if (_audioGameGuide is not null) _audioGameGuide.Visible = false;
+        _showAudioMixer = false;
+        if (_audioMixer is not null) _audioMixer.Visible = false;
         _showAudioSynth = true; panel.Visible = true; panel.BringToFront();
         _audioWorkflow?.SetCurrent("Sound");
         panel.AutoScrollPosition = Point.Empty;
