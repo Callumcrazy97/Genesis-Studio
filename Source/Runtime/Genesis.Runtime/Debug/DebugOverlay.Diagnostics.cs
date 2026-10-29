@@ -46,8 +46,10 @@ public sealed partial class DebugOverlay
     /// <summary>
     /// For unattended runs (game.run): Engine.Debug settings to start with, separated by ';'
     /// (<c>Engine.Debug.Overlay.Colliders.Enabled=true;Engine.Debug.View.Mode=lod</c>), plus
-    /// <c>panel=Draw</c> to open the full panel on a tab and <c>report=4</c> to write, after that many
-    /// seconds, one line a placed instance to the game's log saying whether it is drawn and why not.
+    /// <c>panel=Draw</c> to open the full panel on a tab, <c>report=4</c> to write, after that many
+    /// seconds of the game drawn, one line a placed instance to the game's log saying whether it is
+    /// drawn and why not, and <c>inspect=culled</c> (or <c>drawn</c>, or an id) to put the object
+    /// report on the first instance not drawn (or drawn) then, and log it.
     /// </summary>
     public const string AutomationEnvironmentVariable = "GENESIS_DEBUG_SCREEN";
 
@@ -83,6 +85,15 @@ public sealed partial class DebugOverlay
             if (name.Equals("report", StringComparison.OrdinalIgnoreCase))
             {
                 _reportAfter = float.TryParse(value, NumberStyles.Float, DiagnosticsCulture, out float seconds) ? Math.Max(0f, seconds) : 3f;
+                _writeReport = true;
+                continue;
+            }
+            if (name.Equals("inspect", StringComparison.OrdinalIgnoreCase))
+            {
+                // "culled" or "drawn": the first instance that is not drawn (or is), once the room has had a moment.
+                _inspectPick = value;
+                DebugScreenSettings.Inspect = true;
+                if (_reportAfter < 0f) _reportAfter = 3f;
                 continue;
             }
             settings.Add(new KeyValuePair<string, string>(name, value));
@@ -102,11 +113,34 @@ public sealed partial class DebugOverlay
             DiagnosticLine.Invoke(_automationApplied);
             _automationApplied = null;
         }
-        if (_reportAfter < 0f) return;
+        // Counted from the first frame of the game drawn with the screen on, not from the loading.
+        if (_reportAfter < 0f || !_drewWorld) return;
         _diagnosticsClock += Math.Max(0f, dt);
         if (_diagnosticsClock < _reportAfter) return;
         _reportAfter = -1f;
-        WriteObjectReports();
+        if (_writeReport) WriteObjectReports();
+        if (_inspectPick != null)
+        {
+            int picked = int.TryParse(_inspectPick, NumberStyles.Integer, DiagnosticsCulture, out int id) ? id
+                : FirstInstance(drawn: _inspectPick.Equals("drawn", StringComparison.OrdinalIgnoreCase));
+            DebugScreenSettings.InspectInstance = picked;
+            _reportStamp = 0;
+            DiagnosticLine?.Invoke($"debug screen: inspecting #{picked}: " + InspectReportText().Replace('\n', ';'));
+            _inspectPick = null;
+        }
+    }
+
+    private bool _writeReport, _drewWorld;
+    private string _inspectPick;
+
+    // The first placed instance that is drawn (or not), by id; 0 for none.
+    private int FirstInstance(bool drawn)
+    {
+        if (_activeScene == null) return 0;
+        DebugProjection projection = DebugProjection.For(_activeScene, _lastWidth, _lastHeight);
+        foreach (int id in InspectableInstances())
+            if (DebugObjectReport.For(_activeScene, _scriptHost, id, projection) is { } report && report.Drawn == drawn) return id;
+        return 0;
     }
 
     /// <summary>Writes one line for each placed instance to the game's log: drawn (and at what level of detail), or why not.</summary>
@@ -148,6 +182,7 @@ public sealed partial class DebugOverlay
     {
         _lastWidth = width;
         _lastHeight = height;
+        _drewWorld = true;
         // The GUI drawn this frame (before the screen) is now the last frame's.
         GuiLayerTrace.EndFrame();
         if (DebugScreenSettings.CollidersShown) _colliderOverlay.Draw(hud, _activeScene, width, height);

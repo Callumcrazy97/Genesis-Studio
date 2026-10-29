@@ -1236,8 +1236,10 @@ and is reachable from a script or a room's Inspector as `Engine.Debug.*` (`Engin
 `Engine.Debug.View.Mode = "lod"`, `Engine.Debug.Inspect.Instance`, `Engine.Debug.Inspect.Report`; see
 Design/EngineApiAreas.md). For an unattended run, `GENESIS_DEBUG_SCREEN` holds settings separated by `;`
 (`Engine.Debug.Overlay.Colliders.Enabled=true;Engine.Debug.View.Mode=lod`), `panel=Object` to open a tab,
-and `report=4` to write after four seconds one line per placed instance to the game's log
-(`debug object #12 Pew: not drawn, outside the camera's view (frustum culled)`).
+`report=4` to write after four seconds of play one line per placed instance to the game's log
+(`debug object #12 Pew: not drawn, outside the camera's view (frustum culled)`), and `inspect=culled`
+(or `drawn`, or an instance id) to put the Object report on the first instance not drawn (or drawn)
+and log it.
 
 **F8** (or the Record button) records a profile. A debug run (Studio's Debug button) records from
 the start unless *Start recording when debugging starts* is turned off in Preferences → Runtime.
