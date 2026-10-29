@@ -151,7 +151,8 @@ internal static partial class DebugScreenSuite
                 int after = Pixels("debug-colliders-on.png", out int triggersAfter);
                 HeadlessHarness.Assert(overlay.CollidersDrawn(DebugColliderKind.StaticBody) == 1 && overlay.CollidersDrawn(DebugColliderKind.Trigger) == 1,
                     $"The overlay must draw the static body and the trigger once each (drew {overlay.CollidersDrawnTotal}).");
-                HeadlessHarness.Assert(after > 200, $"The static box's wireframe must be in the capture in its colour ({after} pixels).");
+                // Its twelve one-pixel, smoothed edges: about 165 pixels keep the colour closely at 1280x720.
+                HeadlessHarness.Assert(after > 100, $"The static box's wireframe must be in the capture in its colour ({after} pixels).");
                 HeadlessHarness.Assert(triggersAfter > 50, $"The trigger's wireframe must be in the capture in orange ({triggersAfter} pixels).");
                 DebugScreenSettings.ColliderTriggers = false;
                 _ = Pixels("debug-colliders-no-triggers.png", out int triggersHidden);
