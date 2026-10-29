@@ -179,6 +179,9 @@ public static partial class PgslCommands
     {
         document = null;
         if (string.IsNullOrWhiteSpace(asset)) return false;
+        // A User Interface the engine made itself (the rebinding screen) has no file.
+        lock (UiCacheGate)
+            if (BuiltInUi.Count > 0 && BuiltInUi.TryGetValue(asset, out document)) return true;
         string project = ProjectPath ?? string.Empty;
         string path = ResourceNames.Resolve(project, asset, ResourceType.UserInterface);
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;

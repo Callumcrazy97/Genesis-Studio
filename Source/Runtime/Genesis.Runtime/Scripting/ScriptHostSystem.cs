@@ -577,6 +577,21 @@ namespace Genesis.Runtime.Scripting
                     if (linearDefault || surface.BlendLinear) surface.SetBlendLinear(false);
                 }
             }
+
+            // The engine's ready-made rebinding screen (InputRebindingOpen), over the game's own GUI.
+            if (PgslCommands.InputRebindingIsOpen())
+            {
+                surface ??= new PgslRenderDrawSurface(
+                    renderer,
+                    hud,
+                    hud?.Width > 0 ? hud.Width : renderer?.PixelWidth > 0 ? renderer.PixelWidth : 1280,
+                    hud?.Height > 0 ? hud.Height : renderer?.PixelHeight > 0 ? renderer.PixelHeight : 720,
+                    projectPath: _context.ResolveAssetPath("."),
+                    isGui: true);
+                try { PgslCommands.DrawRebindingScreen(surface); }
+                catch (Exception ex) { _context.Log("Rebinding screen: " + ex.Message); }
+                finally { surface.SetClip(System.Drawing.RectangleF.Empty); }
+            }
         }
 
         private bool? _blendGuiInLinearLight;
