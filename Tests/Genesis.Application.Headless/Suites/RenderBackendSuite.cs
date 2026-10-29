@@ -3344,7 +3344,7 @@ internal static class RenderBackendSuite
             {
                 WriteBaseline(baselineFile, first);
                 Console.WriteLine($"      BASELINE RECORDED (none existed): {baselineFile}");
-                return;
+                throw GoldenRecorded(baselineFile, "");
             }
 
             GoldenBaseline recorded = ReadBaseline(baselineFile);
@@ -3429,10 +3429,12 @@ internal static class RenderBackendSuite
             string baselineDir = ResolveBaselineDirectory(ctx);
             string dx12BaselineFile = Path.Combine(baselineDir, "golden-dx12.json");
 
+            bool recordedNow = false;
             if (!File.Exists(dx12BaselineFile))
             {
                 WriteBaseline(dx12BaselineFile, first);
                 Console.WriteLine($"      BASELINE RECORDED (none existed): {dx12BaselineFile}");
+                recordedNow = true;
             }
             else if (ctx.UpdateBaselines)
             {
@@ -3482,6 +3484,7 @@ internal static class RenderBackendSuite
             Console.WriteLine(
                 $"      DX12 vs DX11 golden (same run): tile Δ {crossDelta:F2}/255, "
                 + $"histogram {crossHistogram:P2}.");
+            if (recordedNow) throw GoldenRecorded(dx12BaselineFile, "The DX12 vs same-run DX11 check passed.");
         });
 
         // R7.0 next cross-backend golden: Vulkan vs same-run DX11 + Vulkan self-baseline.
@@ -3524,10 +3527,12 @@ internal static class RenderBackendSuite
             string baselineDir = ResolveBaselineDirectory(ctx);
             string vulkanBaselineFile = Path.Combine(baselineDir, "golden-vulkan.json");
 
+            bool recordedNow = false;
             if (!File.Exists(vulkanBaselineFile))
             {
                 WriteBaseline(vulkanBaselineFile, first);
                 Console.WriteLine($"      BASELINE RECORDED (none existed): {vulkanBaselineFile}");
+                recordedNow = true;
             }
             else if (ctx.UpdateBaselines)
             {
@@ -3577,6 +3582,7 @@ internal static class RenderBackendSuite
             Console.WriteLine(
                 $"      Vulkan vs DX11 golden (same run): tile Δ {crossDelta:F2}/255, "
                 + $"histogram {crossHistogram:P2}.");
+            if (recordedNow) throw GoldenRecorded(vulkanBaselineFile, "The Vulkan vs same-run DX11 check passed.");
         });
 
         // R7.0 remaining backends — same-run DX11 cross check + per-backend self-baseline.
@@ -3709,10 +3715,12 @@ internal static class RenderBackendSuite
             string baselineDir = ResolveBaselineDirectory(ctx);
             string baselineFile = Path.Combine(baselineDir, $"golden-{slug}.json");
 
+            bool recordedNow = false;
             if (!File.Exists(baselineFile))
             {
                 WriteBaseline(baselineFile, first);
                 Console.WriteLine($"      BASELINE RECORDED (none existed): {baselineFile}");
+                recordedNow = true;
             }
             else if (ctx.UpdateBaselines)
             {
@@ -3754,7 +3762,10 @@ internal static class RenderBackendSuite
                 + (requireCrossBackendParity ? "." : " (informational — cross-parity not required)."));
 
             if (!requireCrossBackendParity)
+            {
+                if (recordedNow) throw GoldenRecorded(baselineFile, $"The {displayName} vs same-run DX11 numbers above are informational.");
                 return;
+            }
 
             HeadlessHarness.Assert(
                 crossDelta <= tileTolerance,
@@ -3766,6 +3777,7 @@ internal static class RenderBackendSuite
                 crossHistogram <= histogramTolerance,
                 $"{displayName} vs DX11 luminance distribution moved {crossHistogram:P1} "
                 + $"(limit {histogramTolerance:P0}).");
+            if (recordedNow) throw GoldenRecorded(baselineFile, $"The {displayName} vs same-run DX11 check passed.");
         });
     }
 
@@ -3904,6 +3916,13 @@ internal static class RenderBackendSuite
             };
         }
     }
+
+    // A golden that did not exist is recorded and the check is written down as NOT RUN, not as
+    // passed: the baselines are not in git (TestResults/Baselines is ignored), so a machine without
+    // them must not pass a comparison it never made. The 29 Oct 2026 Task Checker found it passing.
+    private static CheckNotRunException GoldenRecorded(string file, string alsoChecked) =>
+        new($"{Path.GetFileName(file)} did not exist and was recorded from this run ({file}); nothing was compared against it, the next run is."
+            + (alsoChecked.Length > 0 ? " " + alsoChecked : ""));
 
     private static void WriteBaseline(string file, RuntimeImageMetrics metrics)
     {
