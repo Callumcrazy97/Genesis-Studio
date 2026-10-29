@@ -92,7 +92,7 @@ namespace Genesis.Rendering.Primitives
         /// <summary>Binds the probe in use for the main pass (t18 atlas, t19 ambient row), or nothing.</summary>
         private void BindLightProbe()
         {
-            _probeBound = _probeReady && !_probeCaptureActive && LightProbesWanted();
+            _probeBound = _probeReady && !_probeCaptureActive && LightProbesWanted() && !RenderDiagnosticsOff.LightProbes;
             if (_probeBound)
             {
                 _gpu.SetTexture(GpuShaderStage.Pixel, 18, _probeAtlasTextures[_probeFront]);

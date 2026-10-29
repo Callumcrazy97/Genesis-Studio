@@ -78,7 +78,9 @@ namespace Genesis.Rendering.Primitives
         private GpuBufferHandle _cbPostFrame, _cbPostParams, _cbPostCamera;
         private float _postEffectFrame;
 
-        internal bool HasPostEffects => _postEffects.Count > 0;
+        // Switched off for a diagnosis run, the composed image goes straight to the target as it
+        // would without effects (returning early from RunPostEffects left the target unwritten).
+        internal bool HasPostEffects => _postEffects.Count > 0 && !RenderDiagnosticsOff.PostEffects;
 
         /// <summary>
         /// The vertex shader every post effect shares, for one format. Safe on any thread: a

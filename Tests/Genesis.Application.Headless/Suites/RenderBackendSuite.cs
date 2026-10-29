@@ -822,6 +822,10 @@ internal static class RenderBackendSuite
             }
         });
 
+        // C2: see-through layers (Nuvema Town's sea) neither darken a room's 3D viewport nor vanish on Vulkan.
+        HeadlessHarness.RunCase(ctx.Report, "Render.SeeThrough.ViewportKeepsCoverageOnAllBackends",
+            () => SeeThroughCoverageSuite.ViewportKeepsCoverage(ctx));
+
         // AF1.2: GTAO math + enable wiring (default off; Software skip).
         HeadlessHarness.RunCase(ctx.Report, "Render.Gtao.MathAndEnableWiring", () =>
         {

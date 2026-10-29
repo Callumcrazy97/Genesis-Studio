@@ -2440,6 +2440,20 @@ instead of flickering with the wall. Bounced light never takes a surface below 3
 ambient (`Engine.Lighting.Bounce.Floor`), so a probe that saw a dark room shades it rather than
 blacking it out. F6 shows the shadow distance and how many lamps were left unshaded in view.
 
+**See-through surfaces in a room's 3D viewports (29 Oct 2026).** A room drawn through viewports
+(split screen, a DS-style top screen) lays each view's finished picture on the window. See-through
+surfaces (alpha-blended materials, water, additive glows) used to make that picture partly
+transparent where they lay, so the black behind the view showed through: Nuvema Town's sea, an
+opaque sea under a half-opaque copy of it, came out at half brightness on Direct3D 11 and 12 and OpenGL. They
+now only add to the picture's cover, on every backend. See-through parts of a skinned model are drawn
+skinned, where their pose puts them; Vulkan used to leave them out altogether.
+
+To find which part of the frame makes something look wrong, `GENESIS_RENDER_OFF` switches parts off
+for a whole run, whatever the game asks, as a comma list: `ao`, `post` (the game's own post effects),
+`decals`, `lampshadows`, `cull` (every surface two-sided), `uvslide` (sliding pictures stand still),
+`transparent` (see-through surfaces), `probes` (the light probe) and `lighting` (every surface its own
+colour). Compare a `game.run` picture with and without each.
+
 New on their own:
 
 | Property | Meaning |
