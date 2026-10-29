@@ -560,7 +560,7 @@ float4 PS(VSOut IN) : SV_Target
                     float g = 0.82;
                     float phase = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * cosSun, 1e-4), 1.5);
                     float near = saturate(cosSun);
-                    float glow = (phase * 0.0112 * (1.0 + 0.8 * horizon) + pow(near, 150.0) * 0.2 + pow(near, 400.0) * 0.35) * daylight;
+                    float glow = (phase * 0.0085 * (1.0 + 0.8 * horizon) + pow(near, 150.0) * 0.2 + pow(near, 400.0) * 0.35) * daylight;
                     sky += SunColorIntensity.rgb * float3(1.0, 0.9, 0.74) * transmittanceLut * glow * AtmosphereLutParams.w;
                 }
             }

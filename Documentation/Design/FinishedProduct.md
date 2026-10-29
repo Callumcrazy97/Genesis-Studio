@@ -143,13 +143,16 @@ Every change is general, in the engine's or a new room's defaults, not in the wa
 | Pale turquoise water | the water's sky reflection was a fixed blue whose horizon lost its blue channel (a green reflection low down); a pale turquoise at half opacity that let the grassy bed through; a lake mist thick enough to whiten the lake seen across it | Water under the dynamic sky reflects that sky; the standard water is a clear teal at 0.72 opacity; the lake mist is half as thick |
 | A dark stair-stepped line round the lake | the shore, where water fades to clear, was flagged as already fogged, so the bank behind it was drawn without the haze | the post fog runs there as elsewhere |
 
-Designer's scores (0 to 10, 10 indistinguishable from the references): grass 3 before, 7 after the
-first pass; water 3, 6; sun glow 2, 7 (the second pass's scores are in the run's report). Still
-different: the far bank of the lake is a smooth dark slab (shade on a steep, sparsely grassed slope;
-the three.js lake has gentle sandy shores), the sky is lighter and greyer than Cal's reference, the
-dirt path is about 1.25 times too bright, and the lake's ripples are a fine cross-hatch where the
-three.js water has broad bands. The birdsong (one loop rather than random chirps) was not part of
-this work.
+The small water ripples also fade out between 15 and 70 m, where their grid showed as a fine plaid.
+Designer's scores (0 to 10, 10 indistinguishable from the references), before and after: grass 3
+and 7 (dark roots now match; still about 15% bright, and the blades are thinner and more even than
+the reference's), water 3 and 6 (blue now, soft bands, no dark line or white rim; still a pale
+frosted grey-blue rather than a deep blue), sun glow 2 and 7 (a smooth aureole; a little milky and
+wide, so the halo was then narrowed a quarter). Still different, by weight: the sky is paler and
+hazier than Cal's reference; the far bank of the lake is a smooth dark slab (a shaded, sparsely
+grassed slope; the three.js lake has gentle sandy shores); no wildflower colour in the grass; the
+dirt path about 1.25 times too bright. The birdsong (one loop rather than random chirps) was not
+part of this work.
 
 ## Why a game used to take days
 
