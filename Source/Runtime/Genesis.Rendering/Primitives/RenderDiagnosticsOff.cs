@@ -5,7 +5,7 @@ namespace Genesis.Rendering.Primitives;
 
 /// <summary>
 /// Parts of the frame switched off for a whole run with GENESIS_RENDER_OFF (a comma list: ao, post,
-/// decals, lampshadows), whatever the game asks, to find which one makes something look wrong:
+/// decals, lampshadows, cull, uvslide, transparent, probes, lighting), whatever the game asks, to find which one makes something look wrong:
 /// a game.run picture with and without each, compared. Unset leaves everything as the game set it.
 /// </summary>
 public static class RenderDiagnosticsOff
@@ -25,6 +25,21 @@ public static class RenderDiagnosticsOff
 
     /// <summary>Point and spot light shadows.</summary>
     public static bool LampShadows => Parts.Contains("lampshadows");
+
+    /// <summary>Back-face culling: every surface is drawn from both sides.</summary>
+    public static bool Culling => Parts.Contains("cull");
+
+    /// <summary>Sliding material pictures (a model material's UV scroll): every picture stands still.</summary>
+    public static bool UvSlide => Parts.Contains("uvslide");
+
+    /// <summary>See-through (alpha-blended) world surfaces.</summary>
+    public static bool Transparent => Parts.Contains("transparent");
+
+    /// <summary>The room's light probe (bounced light and reflections): the flat ambient alone.</summary>
+    public static bool LightProbes => Parts.Contains("probes");
+
+    /// <summary>Lighting: every surface shows its own colour, as an unlit material does.</summary>
+    public static bool Lighting => Parts.Contains("lighting");
 
     internal static HashSet<string> Read(string value)
     {

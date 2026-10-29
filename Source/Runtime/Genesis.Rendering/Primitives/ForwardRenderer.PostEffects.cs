@@ -78,7 +78,9 @@ namespace Genesis.Rendering.Primitives
         private GpuBufferHandle _cbPostFrame, _cbPostParams, _cbPostCamera;
         private float _postEffectFrame;
 
-        internal bool HasPostEffects => _postEffects.Count > 0;
+        // Switched off for a diagnosis run, the composed image goes straight to the target as it
+        // would without effects (returning early from RunPostEffects left the target unwritten).
+        internal bool HasPostEffects => _postEffects.Count > 0 && !RenderDiagnosticsOff.PostEffects;
 
         /// <summary>
         /// The vertex shader every post effect shares, for one format. Safe on any thread: a
@@ -183,7 +185,7 @@ namespace Genesis.Rendering.Primitives
         /// <summary>Runs every post effect over the composited image, the last one into <paramref name="target"/>.</summary>
         private void RunPostEffects(GpuRenderTargetHandle target, GpuTextureHandle depthTexture, int width, int height, GpuTextureHandle whiteTexture)
         {
-            if (_postEffects.Count == 0 || !_postEffectTargets[0].IsValid || RenderDiagnosticsOff.PostEffects) return;
+            if (_postEffects.Count == 0 || !_postEffectTargets[0].IsValid) return;
             if (!_cbPostFrame.IsValid)
             {
                 _cbPostFrame = MakeCB<PostEffectFrameCB>("Post effect frame");

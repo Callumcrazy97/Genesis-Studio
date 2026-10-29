@@ -1705,6 +1705,14 @@ namespace Genesis.Rendering.Primitives
             // for anything but fully-opaque (alpha=1) transparent draws. Slot 1 here is a plain
             // overwrite so whichever NoDepthWrite draw touches a pixel last sets the flag exactly
             // as its shader computed it.
+            //
+            // Slot 0's alpha is the picture's coverage, and a see-through draw goes over what is
+            // there (a + dst * (1 - a)): it never makes a covered pixel less covered. It used to
+            // replace the coverage with its own alpha, which nothing noticed in a window (the swap
+            // chain ignores alpha) but a room's 3D viewports are drawn into a picture each and laid
+            // on the window by that coverage: Nuvema's half-opaque sea layer let the black behind
+            // the view through, halving the sea's brightness, and every see-through tree shadow,
+            // water surface or additive glow did the same where it lay.
             _bsAlpha = new GpuBlendState
             {
                 Enabled = true,
@@ -1712,7 +1720,7 @@ namespace Genesis.Rendering.Primitives
                 DstColor = GpuBlendFactor.InvSrcAlpha,
                 ColorOp = GpuBlendOp.Add,
                 SrcAlpha = GpuBlendFactor.One,
-                DstAlpha = GpuBlendFactor.Zero,
+                DstAlpha = GpuBlendFactor.InvSrcAlpha,
                 AlphaOp = GpuBlendOp.Add,
                 WriteR = true, WriteG = true, WriteB = true, WriteA = true,
                 IndependentBlend = true,
@@ -1734,7 +1742,7 @@ namespace Genesis.Rendering.Primitives
                 DstColor = GpuBlendFactor.One,
                 ColorOp = GpuBlendOp.Add,
                 SrcAlpha = GpuBlendFactor.One,
-                DstAlpha = GpuBlendFactor.Zero,
+                DstAlpha = GpuBlendFactor.InvSrcAlpha,
                 AlphaOp = GpuBlendOp.Add,
                 WriteR = true, WriteG = true, WriteB = true, WriteA = true,
                 IndependentBlend = true,
@@ -3075,6 +3083,7 @@ namespace Genesis.Rendering.Primitives
                     return;
                 }
 
+                if (transparent && RenderDiagnosticsOff.Transparent) return;
                 _worldMeshes.Add(new WorldMesh
                 {
                     MeshId = mesh.Id,
@@ -3098,6 +3107,8 @@ namespace Genesis.Rendering.Primitives
                     AuthoredTextures = authoredTextures,
                     MaterialFactors = materialFactors,
                     EmissionColor = emissionColor,
+                    // The picture's repeat and slide, as for an unskinned see-through draw.
+                    DetailParams = flow.IsValid ? default : new Vector4(0f, detailParams.Y, detailParams.Z, detailParams.W),
                 });
                 LastInstancesDrawn++;
                 return;
@@ -3248,6 +3259,7 @@ namespace Genesis.Rendering.Primitives
             // IsFloor no longer parks here (see above). Particles stay on TransBatch.
             if (noDepthWr || transparent || additive || multiply)
             {
+                if (transparent && RenderDiagnosticsOff.Transparent) return;
                 _worldMeshes.Add(new WorldMesh
                 {
                     MeshId       = mesh.Id,
@@ -4299,7 +4311,7 @@ namespace Genesis.Rendering.Primitives
                 return _rsWireframe;
 
             bool counterClockwise = ScreenFrontCounterClockwise(rasterOverride);
-            if ((rasterOverride & MeshDrawFlags.NoCull) != 0)
+            if ((rasterOverride & MeshDrawFlags.NoCull) != 0 || RenderDiagnosticsOff.Culling)
                 return counterClockwise ? _rsCullNoneCw : _rsCullNone;
 
             bool explicitBack = (rasterOverride & MeshDrawFlags.CullBack) != 0;
@@ -4987,6 +4999,7 @@ namespace Genesis.Rendering.Primitives
             int  lastMeshId = -1;
             int lastTextureId = -1;
             int lastShaderId = -1;
+            bool lastSkinned = false;
 
             for (int i = worldSpan.Length - 1; i >= 0; i--)
             {
@@ -5036,12 +5049,21 @@ namespace Genesis.Rendering.Primitives
 
                 // A see-through draw keeps its own shader (a glass, an ash wall, an ability shell):
                 // the pass's blending stays, the pixel shader and its inputs are the draw's.
+                // A see-through part of a skinned model is drawn skinned, with the skinned vertex
+                // layout: through the plain layout it stayed in its bind pose, and Vulkan, which
+                // takes the vertex stride from the layout rather than the buffer, read its vertices
+                // at the wrong stride and drew it as scattered triangles or not at all.
+                SkinPaletteEntry skinPalette = default;
+                bool skinned = wm.SkinPaletteId > 0 && TryGetSkinPalette(wm.SkinPaletteId, out skinPalette);
                 int shaderId = wm.Shader.IsValid ? wm.Shader.Id : 0;
-                if (!boundOnce || shaderId != lastShaderId)
+                if (!boundOnce || shaderId != lastShaderId || skinned != lastSkinned)
                 {
-                    _gpu.SetShaderProgram(CurrentForwardProgram(skinned: false, wm.Shader));
+                    if (!boundOnce || skinned != lastSkinned) _gpu.SetVertexLayout(skinned ? _layoutSkinned : _layout);
+                    _gpu.SetShaderProgram(CurrentForwardProgram(skinned, wm.Shader));
                     lastShaderId = shaderId;
+                    lastSkinned = skinned;
                 }
+                if (skinned) _gpu.SetStructuredBuffer(GpuShaderStage.Vertex, 12, skinPalette.Buffer);
                 // Also puts the engine's b4 back after a custom-shader draw.
                 BindShaderParameters(wm.Shader, wm.ShaderParams0, wm.ShaderParams1, wm.ShaderParams2, wm.ShaderParams3);
                 if (wm.Shader.IsValid) wm.AuthoredTextures.Bind(_gpu);
@@ -5054,6 +5076,7 @@ namespace Genesis.Rendering.Primitives
                     emissive: wm.Emissive, unlit: wm.Unlit ? 1f : 0f,
                     isFloor: 0f, useInstancing: 0, instOffset: 0,
                     noFog: wm.NoFog, noDepthWrite: wm.NoDepthWrite,
+                    gpuSkinning: skinned, skinMatrixOffset: 0,
                     noReceiveShadow: wm.NoReceiveShadow, materialFactors: wm.MaterialFactors, emissionColor: wm.EmissionColor,
                     detailParams: wm.DetailParams, inFront: InFront(wm.RasterOverride));
 
@@ -5063,7 +5086,8 @@ namespace Genesis.Rendering.Primitives
                 LastTriangles += mesh.IndexCount / 3;
             }
 
-            if (lastShaderId > 0) _gpu.SetShaderProgram(CurrentForwardProgram(skinned: false));
+            if (lastSkinned) _gpu.SetVertexLayout(_layout);
+            if (lastShaderId > 0 || lastSkinned) _gpu.SetShaderProgram(CurrentForwardProgram(skinned: false));
             _gpu.SetRasterState(CurrentRasterizer());
 
             // Transparent / additive particle instanced pass — one DrawIndexedInstanced per unique
@@ -6329,14 +6353,14 @@ namespace Genesis.Rendering.Primitives
             {
                 WorldMatrix       = world,
                 MaterialColor     = color,
-                MaterialParams    = new Vector4(emissive, unlit, isFloor, useInstancing),
+                MaterialParams    = new Vector4(emissive, RenderDiagnosticsOff.Lighting ? 1f : unlit, isFloor, useInstancing),
                 InstanceOffset    = instOffset,
                 NoFogFlag         = noFog ? 1f : 0f,
                 NoDepthWriteFlag  = noDepthWrite ? 1f : 0f,
                 TerrainGroundFlag = terrainGround ? 1f : 0f,
                 FoliageFlag       = foliage ? 1f : 0f,
                 SurfaceParams     = surfaceParams,
-                DetailParams      = detailParams,
+                DetailParams      = RenderDiagnosticsOff.UvSlide ? new Vector4(detailParams.X, 0f, 0f, detailParams.W) : detailParams,
                 SubsurfaceColorSteps = subsurfaceColorSteps,
                 MaterialFeatures  = materialFeatures,
                 SkinMatrixOffset   = skinMatrixOffset,
