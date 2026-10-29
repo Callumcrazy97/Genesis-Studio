@@ -15,9 +15,10 @@ namespace Genesis.Application.Headless.Suites;
 /// players join with it, messages go both ways and the host's broadcast reaches both, a wrong code
 /// is refused with a reason, and a player leaving is noticed. Then direct paths (NAT punch-through):
 /// behind stand-in routers on this machine (<see cref="LoopbackNat"/>), a host and a player open a
-/// direct path through full-cone and port-restricted routers and stay on the relay behind symmetric
-/// ones; ordered messages and shared objects carry on across the switch and back when the direct
-/// path is cut; turned off, everything stays on the relay; the Engine.Network.Direct names work.
+/// direct path through full-cone and port-restricted routers (and a symmetric one facing a full-cone
+/// one) and stay on the relay behind two symmetric ones; ordered messages and shared objects carry on
+/// across the switch and back when the direct path is cut, and a cut path is tried again and reopens;
+/// turned off, everything stays on the relay; the Engine.Network.Direct names work.
 /// </summary>
 internal static class NetworkOnlineSuite
 {
@@ -91,7 +92,7 @@ internal static class NetworkOnlineSuite
     {
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Network.Direct.FullConeRoutersMoveTrafficToADirectPathAndBackWithNothingLost", () =>
         {
-            using var session = new DirectSession(LoopbackNat.Kind.FullCone);
+            using var session = new DirectSession(LoopbackNat.Kind.FullCone, LoopbackNat.Kind.FullCone);
             Entity deer = Place(session.HostWorld, new Vector3(10, 0, 0));
             session.HostReplication.Replicate(deer, "Deer");
             int broadcasts = 0;
@@ -137,7 +138,7 @@ internal static class NetworkOnlineSuite
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Network.Direct.PortRestrictedRoutersOpenADirectPath", () =>
         {
-            using var session = new DirectSession(LoopbackNat.Kind.PortRestricted);
+            using var session = new DirectSession(LoopbackNat.Kind.PortRestricted, LoopbackNat.Kind.PortRestricted);
             session.Meet();
             session.Until(() => session.Host.DirectActive == "direct" && session.Player.DirectActive == "direct",
                 () => "No direct path opened through port-restricted routers: " + session.Describe(), 8);
@@ -154,7 +155,7 @@ internal static class NetworkOnlineSuite
 
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Network.Direct.SymmetricRoutersStayOnTheRelay", () =>
         {
-            using var session = new DirectSession(LoopbackNat.Kind.Symmetric, timeout: 1.5);
+            using var session = new DirectSession(LoopbackNat.Kind.Symmetric, LoopbackNat.Kind.Symmetric, timeout: 1.5);
             session.Meet();
             session.For(2.5);
             HeadlessHarness.Assert(session.Relay.IntroductionsSent == 1 && session.Host.DirectActive == "relay" && session.Player.DirectActive == "relay"
@@ -167,10 +168,40 @@ internal static class NetworkOnlineSuite
             session.AssertInOrder("on the relay behind symmetric routers");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Network.Direct.OneSymmetricRouterFacingAFullConeOneStillMeets", () =>
+        {
+            // The host's router gives the player a port of its own; the player answers wherever the host's packets come from.
+            using var session = new DirectSession(LoopbackNat.Kind.Symmetric, LoopbackNat.Kind.FullCone);
+            session.Meet();
+            session.Until(() => session.Host.DirectActive == "direct" && session.Player.DirectActive == "direct",
+                () => "A symmetric host and a full-cone player did not meet directly: " + session.Describe(), 8);
+            HeadlessHarness.Assert(session.HostNat!.Refused > 0, "The symmetric router turned none of the player's first packets away, so the case proves nothing about answering at the new port.");
+            session.AssertInOrder("across the switch from a symmetric router");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Network.Direct.ALostPathIsTriedAgainAndReopensInOrder", () =>
+        {
+            using var session = new DirectSession(LoopbackNat.Kind.FullCone, LoopbackNat.Kind.FullCone, attempts: 2);
+            session.Meet();
+            session.Until(() => session.Host.DirectActive == "direct" && session.Player.DirectActive == "direct",
+                () => "No first direct path: " + session.Describe(), 8);
+            session.HostNat!.OnlyTo = session.RelayEndPoint;
+            session.PlayerNat!.OnlyTo = session.RelayEndPoint;
+            session.Until(() => session.Host.DirectActive == "relay" && session.Player.DirectActive == "relay",
+                () => "The cut direct path was not given up: " + session.Describe(), 8);
+            // The routers recover; the host asks the relay for another try after its pause (ten seconds).
+            session.HostNat.OnlyTo = null;
+            session.PlayerNat.OnlyTo = null;
+            session.Until(() => session.Host.DirectActive == "direct" && session.Player.DirectActive == "direct",
+                () => "The second try did not reopen the direct path: " + session.Describe(), 20);
+            HeadlessHarness.Assert(session.Relay.IntroductionsSent == 2, $"The relay introduced the two {session.Relay.IntroductionsSent} times, not twice.");
+            session.AssertInOrder("through a direct path, the relay and a direct path again");
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Network.Direct.TurnedOffEverythingStaysOnTheRelay", () =>
         {
             // No routers: on this machine a direct path would open at once, so only the setting keeps it shut.
-            using var session = new DirectSession(null);
+            using var session = new DirectSession(null, null);
             session.Player.DirectEnabled = false;
             session.Meet();
             session.For(1.5);
@@ -246,19 +277,16 @@ internal static class NetworkOnlineSuite
         public int HostSent, PlayerSent, PlayerId;
         public readonly List<int> HostHeard = new(), PlayerHeard = new();
 
-        public DirectSession(LoopbackNat.Kind? routers, double timeout = 2)
+        public DirectSession(LoopbackNat.Kind? hostRouter, LoopbackNat.Kind? playerRouter, double timeout = 2, int attempts = 1)
         {
             int port = 47000 + Random.Shared.Next(2000);
             HeadlessHarness.Assert(Relay.Start(port, localOnly: true), "The relay could not open its port.");
             RelayEndPoint = new IPEndPoint(IPAddress.Loopback, port);
-            if (routers is { } kind)
-            {
-                HostNat = new LoopbackNat(kind);
-                PlayerNat = new LoopbackNat(kind);
-            }
-            // One try each, so a case does not wait out the pause before another.
-            Host = new LiteNetGameNetwork(LiteNetGameNetwork.DefaultApplicationKey, 64, HostNat?.Layer!) { LocalOnly = true, DirectTimeoutSeconds = timeout, DirectAttempts = 1 };
-            Player = new LiteNetGameNetwork(LiteNetGameNetwork.DefaultApplicationKey, 64, PlayerNat?.Layer!) { LocalOnly = true, DirectTimeoutSeconds = timeout, DirectAttempts = 1 };
+            if (hostRouter is { } hostKind) HostNat = new LoopbackNat(hostKind);
+            if (playerRouter is { } playerKind) PlayerNat = new LoopbackNat(playerKind);
+            // One try each unless a case says otherwise, so it does not wait out the pause before another.
+            Host = new LiteNetGameNetwork(LiteNetGameNetwork.DefaultApplicationKey, 64, HostNat?.Layer!) { LocalOnly = true, DirectTimeoutSeconds = timeout, DirectAttempts = attempts };
+            Player = new LiteNetGameNetwork(LiteNetGameNetwork.DefaultApplicationKey, 64, PlayerNat?.Layer!) { LocalOnly = true, DirectTimeoutSeconds = timeout, DirectAttempts = attempts };
             Host.OnMessageReceived += message => { if (message.Tag == 21) HostHeard.Add(BitConverter.ToInt32(message.Payload)); };
             Player.OnMessageReceived += message => { if (message.Tag == 22) PlayerHeard.Add(BitConverter.ToInt32(message.Payload)); };
             HostReplication.Attach(Host);

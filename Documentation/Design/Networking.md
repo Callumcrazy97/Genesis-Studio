@@ -72,9 +72,8 @@ Router kinds: full cone (one public port, anyone may send in once the game has s
 (only addresses sent to) and port restricted (only the address and port sent to) all open, because
 each side sends to the other's mapped address first. A symmetric router gives each destination a new
 port, so the address the relay saw is useless to the other player and its packets are turned away:
-the try runs out and the players stay on the relay. (One symmetric side facing an open or full-cone
-side should still meet, since the open side answers wherever the packets came from; that pairing has
-no case of its own yet.)
+the try runs out and the players stay on the relay. One symmetric side facing an open or full-cone
+side still meets, because the open side answers wherever the packets came from.
 
 ### Nothing lost or reordered when the path changes
 
@@ -131,5 +130,9 @@ appended, and the router sends it on from its own public socket(s), letting pack
 full-cone, restricted, port-restricted or symmetric router would. The cases: the relay by code; full
 cone opens a direct path, ordered messages and a shared object carry on across the switch, the relay
 forwards nothing while it is open, and cutting it falls back within about 2.5 s with nothing lost;
-port restricted opens; symmetric tries once and stays on the relay; turned off, the relay introduces
-no one and carries everything; the Engine.Network.Direct names and Inspector settings.
+port restricted opens (and still turns a stranger away); symmetric on both sides tries once and stays
+on the relay; a symmetric host facing a full-cone player meets; a cut path is tried again after the
+pause and reopens, numbers carrying on in order; turned off, the relay introduces no one and carries
+everything; the Engine.Network.Direct names and Inspector settings. `--test engine-api-parts` sweeps
+Engine.Network.Direct with every other part (its settings read their default there, with no network,
+so they are listed as known silent beside Engine.Network.Replication.Rate).
