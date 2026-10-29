@@ -76,6 +76,12 @@ public static partial class PgslCommands
         };
     }
 
+    [PgslCommand("DrawGetTextTracking", "DrawGetTextTracking() -> number", "Letter spacing for later text, pixels between letters, -64 to 256 (0 unless set)", "Drawing 2D")]
+    public static double DrawGetTextTracking() => GetContext()?.TextTracking ?? 0d;
+
+    [PgslCommand("DrawGetTextAlign", "DrawGetTextAlign() -> string", "Where later text sits on its x: \"left\", \"center\" or \"right\" (\"left\" unless set)", "Drawing 2D")]
+    public static string DrawGetTextAlign() => GetContext()?.TextAlign switch { 1 => "center", 2 => "right", _ => "left" };
+
     #endregion
 
     #region Shapes
@@ -352,6 +358,10 @@ public static partial class PgslCommands
 
     /// <summary>The game asked for no pointer (WindowSetCursorVisible(false)), kept for when a captured mouse is released.</summary>
     private static bool _pointerHidden;
+
+    [PgslCommand("WindowGetCursorVisible", "WindowGetCursorVisible() -> bool",
+        "Whether the system pointer shows over the game window (true unless WindowSetCursorVisible(false) hid it)", "Display")]
+    public static bool WindowGetCursorVisible() => !_pointerHidden;
 
     [PgslCommand("GamepadAxisRaw", "GamepadAxisRaw(axis) -> number",
         "A stick or trigger as the controller reports it, with no dead zone; the same names and directions as GamepadAxis", "Input")]

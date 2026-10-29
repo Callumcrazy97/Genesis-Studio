@@ -53,6 +53,10 @@ public static partial class PgslCommands
             environment.AutoExposureCenterWeight = AutoExposureDefaults.ClampCenterWeight((float)centerWeight);
     }
 
+    [PgslCommand("RenderGetAutoExposureMetering", "RenderGetAutoExposureMetering() -> number",
+        "How eye adaptation measures the picture, 0 (all of it evenly) to 1 (its centre most) (0.5 by default)", "Lighting")]
+    public static double RenderGetAutoExposureMetering() => ActiveEnvironment?.AutoExposureCenterWeight ?? AutoExposureDefaults.CenterWeight;
+
     [PgslCommand("RenderResetAutoExposure", "RenderResetAutoExposure()",
         "Eye adaptation jumps to the scene at once instead of adjusting over time (after a camera cut or a teleport)", "Lighting")]
     public static void RenderResetAutoExposure()
@@ -63,7 +67,7 @@ public static partial class PgslCommands
     [PgslCommand("RenderGetAutoExposure", "RenderGetAutoExposure() -> bool", "Whether eye adaptation is on in this room", "Lighting")]
     public static bool RenderGetAutoExposure() => ActiveEnvironment?.AutoExposureEnabled ?? false;
 
-    [PgslCommand("AutoExposure", "Engine.Rendering.AutoExposure",
+    [PgslCommand("AutoExposure", "Engine.Rendering.AutoExposure(key, adaptSeconds)",
         "Turn on eye adaptation with a key (0.18 = mid grey) and an adaptation time in seconds (as RenderSetAutoExposure)",
         "Engine · Rendering", Namespace = "Engine.Rendering")]
     public static void RenderingAutoExposure(float key, float adaptSeconds)

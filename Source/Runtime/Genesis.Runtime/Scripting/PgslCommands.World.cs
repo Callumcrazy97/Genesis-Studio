@@ -583,6 +583,9 @@ public static partial class PgslCommands
         if (ctx is not null) ctx.SpriteAnimationLoop = loop;
     }
 
+    [PgslCommand("AnimationGetLoop", "AnimationGetLoop() -> bool", "Whether the clip repeats (true unless set)", "Animation")]
+    public static bool AnimationGetLoop() => GetContext()?.SpriteAnimationLoop ?? true;
+
     #endregion
 
     #region Rooms

@@ -180,6 +180,8 @@ internal sealed class EngineApiGame : IDisposable
         Genesis.Runtime.Project.RoomTerrainSubsystem.GameTerrainDetail = 1f;
         Genesis.Runtime.ECS.Components.ParticleQuality.Reset();
         Genesis.Runtime.Input.InputSettings.Reset();
+        // Debug settings made before a screen exists wait for one: none of this room's may reach the next suite's.
+        Genesis.Runtime.Debugger.DebugScreenSettings.Reset();
         PgslCommands.ActiveGameContext = _previousGame;
         PgslCommands.ProjectPath = _previousPath;
         PgslCommands.BindContext(_previousContext);
@@ -187,10 +189,13 @@ internal sealed class EngineApiGame : IDisposable
         _scene.Dispose();
     }
 
-    /// <summary>A sound system that plays nothing and remembers what the mixer would be told.</summary>
+    /// <summary>A sound system that plays nothing and remembers what the mixer would be told: bus volumes and bus effects.</summary>
     private sealed class FakeAudio : IAudioSystem
     {
         private readonly Dictionary<string, float> _buses = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, AudioBusEffects> _effects = new(StringComparer.OrdinalIgnoreCase);
+        public void SetBusEffects(string bus, AudioBusEffects effects) => _effects[bus] = effects.Normalized();
+        public AudioBusEffects GetBusEffects(string bus) => _effects.TryGetValue(bus, out AudioBusEffects? effects) ? effects.Copy() : new AudioBusEffects();
         public float MasterVolume { get; set; } = 1f;
         public int LoadSound(string projectRelativePath) => 1;
         public AudioChannel Play(int soundId, float volume = 1f, float pitch = 1f, bool loop = false) => new(1);

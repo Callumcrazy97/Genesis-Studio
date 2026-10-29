@@ -13,6 +13,16 @@ public static partial class PgslCommands
     [PgslCommand("ShaderSet", "ShaderSet(shader)", "Draw this instance with a Shader resource (empty for none)", "Shaders")]
     public static void ShaderSet(string shader) => InstanceSetShader(GetContext()?.InstanceId ?? 0, shader);
 
+    [PgslCommand("ShaderGetName", "ShaderGetName() -> string", "The Shader resource this instance is drawn with (\"\" for none)", "Shaders")]
+    public static string ShaderGetName()
+    {
+        var world = World;
+        double id = GetContext()?.InstanceId ?? 0;
+        if (world is null || id < 1 || id > int.MaxValue) return string.Empty;
+        Entity entity = world.GetEntity((int)id);
+        return world.IsAlive(entity) && ObjectDrawAssetRegistry.TryGet(entity, out ObjectDrawAssetEntry assets) ? assets.Shader ?? string.Empty : string.Empty;
+    }
+
     [PgslCommand("ShaderSetParameter", "ShaderSetParameter(name, value)",
         "Set one of this instance's shader parameters, by its name in GenesisParameters", "Shaders")]
     public static void ShaderSetParameter(string name, double value) =>

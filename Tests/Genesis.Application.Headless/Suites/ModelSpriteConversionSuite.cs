@@ -207,8 +207,13 @@ internal static class ModelSpriteConversionSuite
                 instance.ImageIndex = 9; // Played past the last frame of direction 2: wraps to its first.
                 Check(PgslCommands.SpriteSetDirection(90) && instance.ImageIndex == 6, $"playing past a direction wraps within it (got {instance.ImageIndex}, not 6)");
                 Check(PgslCommands.SpriteSetDirection(-45, 2) && instance.ImageIndex == 23, $"SpriteSetDirection(-45, 2) set frame {instance.ImageIndex}, not 23");
+                // Engine.Image.Direction reads the angle of the direction the frame shown belongs to (the getter of SpriteSetDirection).
+                Check(PgslCommands.SpriteGetDirection() == 315, $"SpriteGetDirection after SpriteSetDirection(-45) is {PgslCommands.SpriteGetDirection()}, not 315");
+                PgslCommands.SpriteSetDirection(180);
+                Check(PgslCommands.SpriteGetDirection() == 180, $"SpriteGetDirection after SpriteSetDirection(180) is {PgslCommands.SpriteGetDirection()}, not 180");
                 instance.SpriteIndex = "No such image"; instance.ImageIndex = 5;
                 Check(!PgslCommands.SpriteSetDirection(0) && instance.ImageIndex == 5, "a missing sprite must leave the frame alone");
+                Check(PgslCommands.SpriteGetDirection() == 0, "an Image with no directions faces 0");
             }
             finally
             {
