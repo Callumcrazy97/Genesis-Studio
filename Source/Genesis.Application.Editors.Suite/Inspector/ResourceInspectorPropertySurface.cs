@@ -943,7 +943,7 @@ public sealed class ResourceInspectorPropertySurface : Panel
                                              || group.Key.Equals("Instance variables", StringComparison.OrdinalIgnoreCase)
                                              || group.Key.EndsWith(" EVENT", StringComparison.OrdinalIgnoreCase);
                 AddGroup(group.Key, fields, expanded: groupIndex == 0 || importantRuntimeGroup
-                    || _resource?.Kind == ResourceKind.Room && group.Key is "Transform" or "Object reference");
+                    || _resource?.Kind == ResourceKind.Room && group.Key is "Transform" or "Object reference" or "Probe");
                 groupIndex++;
             }
         }
