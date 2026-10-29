@@ -137,6 +137,7 @@ public sealed partial class ModelEditorControl : ModelViewerControl
         _syncingGroups = true; int selected = _groups.SelectedIndex; _groups.Items.Clear(); _groups.Items.AddRange(Asset.Meshes.Select(m => (object)m.Name).ToArray());
         if (_groups.Items.Count > 0) _groups.SelectedIndex = Math.Clamp(selected, 0, _groups.Items.Count - 1);
         _material.Items.Clear(); _material.Items.AddRange(Asset.Materials.Select(m => (object)m.Name).ToArray()); _syncingGroups = false; SyncSelectedGroup(); FitMini();
+        RefreshHiddenMaterialList();
     }
     private void SyncSelectedGroup()
     {

@@ -46,6 +46,7 @@ public sealed partial class ModelEditorControl
     private readonly Dictionary<string, NumericUpDown> _morphInputs = new(StringComparer.OrdinalIgnoreCase);
     private CollapsibleSection? _socketSection;
     private readonly ListBox _socketList = new() { BorderStyle = BorderStyle.None, IntegralHeight = false };
+    private readonly CheckedListBox _hiddenMaterials = new() { Name = "ModelHiddenMaterials", BorderStyle = BorderStyle.None, IntegralHeight = false, CheckOnClick = true };
     private bool _snapToGrid = true;
     private bool _snapToVertex = true;
     private bool _frontFacesOnly = true;
@@ -311,6 +312,26 @@ public sealed partial class ModelEditorControl
         _uvScrollUValue!.Name = "ModelMaterialUvScrollU";
         AddNumber("Slide V / sec", 566, ref _uvScrollVValue, -64, 64, 0, value => { if (!_syncingGroups) SetMaterialUvScroll(null, (float)value); });
         _uvScrollVValue!.Name = "ModelMaterialUvScrollV";
+
+        // Every material, ticked when it is not drawn (the Model resource's hiddenMaterials).
+        CollapsibleSection hidden = Section(page, "HIDDEN MATERIALS", 150);
+        _hiddenMaterials.SetBounds(8, 6, 250, 96);
+        _hiddenMaterials.BackColor = EditorChrome.Surface; _hiddenMaterials.ForeColor = EditorChrome.Text;
+        _hiddenMaterials.ItemCheck += (_, e) =>
+        {
+            if (_syncingGroups) return;
+            int index = e.Index; bool hide = e.NewValue == CheckState.Checked;
+            // Applied once the list has taken the tick: the change rebuilds the list.
+            if (IsHandleCreated) BeginInvoke(new Action(() => SetMaterialHidden(index, hide)));
+            else SetMaterialHidden(index, hide);
+        };
+        hidden.Content.Controls.Add(_hiddenMaterials);
+        hidden.Content.Controls.Add(new Label
+        {
+            Text = "Ticked materials are not drawn, here or in games. Their geometry stays in the model.",
+            Location = new Point(8, 108), Size = new Size(250, 36), ForeColor = EditorChrome.Muted,
+        });
+        RefreshHiddenMaterialList();
 
         CollapsibleSection paint = Section(page, "VERTEX COLOUR", 100);
         _colour.SetBounds(8, 8, 250, 31);
@@ -883,6 +904,30 @@ public sealed partial class ModelEditorControl
             new AssetPickerRequest(ProjectRoot, ResourceKind.Shader, string.Empty, "Choose a mesh shader for this material"), FindForm());
         if (picked is null) return;
         SetMaterialShader(picked.Reference);
+    }
+
+    /// <summary>
+    /// Stops drawing a material's surfaces (or draws them again), as one undoable change; kept in the
+    /// Model resource's hiddenMaterials, which games honour.
+    /// </summary>
+    public void SetMaterialHidden(int material, bool hidden)
+    {
+        if ((uint)material >= (uint)Asset.Materials.Count || Asset.Materials[material].Hidden == hidden) return;
+        string name = Asset.Materials[material].Name;
+        ChangeAsset((hidden ? "Hide material " : "Show material ") + name, () => Asset.Materials[material].Hidden = hidden);
+    }
+
+    private void RefreshHiddenMaterialList()
+    {
+        bool syncing = _syncingGroups;
+        _syncingGroups = true;
+        _hiddenMaterials.BeginUpdate();
+        try
+        {
+            _hiddenMaterials.Items.Clear();
+            foreach (GModelMaterial material in Asset.Materials) _hiddenMaterials.Items.Add(material.Name, material.Hidden);
+        }
+        finally { _hiddenMaterials.EndUpdate(); _syncingGroups = syncing; }
     }
 
     /// <summary>Makes the selected material unlit or lit; kept in the descriptor (materialUnlit) across re-imports.</summary>

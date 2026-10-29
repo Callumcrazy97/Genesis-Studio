@@ -83,6 +83,61 @@ internal static class ModelEditorResetSuite
                 ctx.Report.Images.Add(ImageResult.From(name, name + ".png", metrics));
             }
         });
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Model.Reset.HiddenMaterialStopsDrawingAndPersists", () =>
+        {
+            string path = resources.CreateResource(resources.AssetsRoot, ResourceKind.Model, "Hidden material");
+            using var host = UnattendedWindowing.NewHost(1440, 920);
+            var editor = new ModelEditorControl(path, project.RootPath);
+            host.Controls.Add(editor); ThemeService.Apply(host);
+            UnattendedWindowing.ShowWithoutFocus(host); System.Windows.Forms.Application.DoEvents();
+            editor.AddPart(ModelPrimitiveKind.Cube);
+            editor.AddPart(ModelPrimitiveKind.Sphere);
+            editor.TransformSelectedMesh(new Vector3(2, 0, 0), Vector3.Zero, Vector3.One);
+            int cube = editor.PreviewAsset.Meshes[0].MaterialIndex, sphere = editor.PreviewAsset.Meshes[1].MaterialIndex;
+            string cubeName = editor.PreviewAsset.Materials[cube].Name;
+            editor.ShowToolPageForTest(ModelToolPage.Texture);
+            editor.SetCameraView("Front"); editor.FrameModel();
+            int shown = GreyPixels(editor, ctx, "model-hidden-material-before");
+            var list = (CheckedListBox)editor.Controls.Find("ModelHiddenMaterials", true).Single();
+            Assert(list.Items.Count == editor.MaterialCount && !list.GetItemChecked(cube), "The Texture page does not list every material, shown.");
+            list.SetItemChecked(cube, true); System.Windows.Forms.Application.DoEvents();
+            Assert(editor.PreviewAsset.Materials[cube].Hidden && !editor.PreviewAsset.Materials[sphere].Hidden, "Ticking a material did not hide it alone.");
+            int hidden = GreyPixels(editor, ctx, "model-hidden-material-hidden");
+            Assert(hidden < shown * .7 && hidden > shown * .15, $"The preview did not stop drawing only the hidden material ({shown} model pixels before, {hidden} after).");
+            editor.RenameSelectedGroup("Ball");
+            Assert(editor.PreviewAsset.Materials[cube].Hidden, "An unrelated edit showed the hidden material again.");
+            editor.Save();
+            string descriptor = File.ReadAllText(path);
+            Assert(descriptor.Contains("\"hiddenMaterials\"", StringComparison.Ordinal) && descriptor.Contains(cubeName, StringComparison.Ordinal),
+                "Save did not keep the hidden material in the Model resource.");
+            host.Controls.Remove(editor); editor.Dispose();
+            using (var viewer = new ModelViewerControl(path, project.RootPath))
+                Assert(viewer.PreviewAsset.Materials[cube].Hidden && !viewer.PreviewAsset.Materials[sphere].Hidden, "Reopening lost the hidden material.");
+            using (var reopened = new ModelEditorControl(path, project.RootPath))
+            {
+                Assert(((CheckedListBox)reopened.Controls.Find("ModelHiddenMaterials", true).Single()).GetItemChecked(cube), "The reopened editor does not tick the hidden material.");
+                reopened.SetMaterialHidden(cube, false); reopened.Save();
+            }
+            using var shownAgain = new ModelViewerControl(path, project.RootPath);
+            Assert(!File.ReadAllText(path).Contains("hiddenMaterials", StringComparison.OrdinalIgnoreCase)
+                && !shownAgain.PreviewAsset.Materials[cube].Hidden, "Showing the material again did not save.");
+        });
+    }
+    private static int GreyPixels(ModelEditorControl editor, HeadlessContext ctx, string name)
+    {
+        using (editor.Viewport.CaptureFrame(6)) { }
+        using Bitmap frame = editor.Viewport.CaptureFrame(3) ?? throw new InvalidOperationException("No model editor frame.");
+        string file = Path.Combine(ctx.Captures, name + ".png");
+        frame.Save(file);
+        ctx.Report.Images.Add(ImageResult.From(name, file, VisualCapture.Measure(frame)));
+        int count = 0;
+        for (int y = 0; y < frame.Height; y += 2)
+            for (int x = 0; x < frame.Width; x += 2)
+            {
+                Color pixel = frame.GetPixel(x, y);
+                if (pixel.R > 60 && Math.Abs(pixel.R - pixel.G) < 14 && Math.Abs(pixel.G - pixel.B) < 14) count++;
+            }
+        return count;
     }
     private static void Assert(bool value, string text) => HeadlessHarness.Assert(value, text);
 }

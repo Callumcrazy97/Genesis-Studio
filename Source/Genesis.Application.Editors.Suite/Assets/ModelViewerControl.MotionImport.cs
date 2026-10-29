@@ -98,6 +98,7 @@ public partial class ModelViewerControl
         WriteMaterialShaders(document, asset);
         WriteMaterialUnlit(document, asset);
         WriteMaterialUvScroll(document, asset);
+        WriteHiddenMaterials(document, asset);
         string canonical = StudioModelResourceLoader.CanonicalPath(ResourcePath);
         string staged = Path.Combine(ResourceAssociates.GetModelDataDirectory(ResourcePath), ".motion-import-" + Guid.NewGuid().ToString("N") + ".gmodel");
         string backup = staged + ".previous"; bool replaced = false, rollbackSucceeded = true;
@@ -160,6 +161,24 @@ public partial class ModelViewerControl
                 map[material.Name] = new JsonArray(material.UvScrollU, material.UvScrollV);
         document.Remove(property);
         if (map.Count > 0) document[property] = map;
+    }
+
+    /// <summary>
+    /// Keeps the materials that are not drawn in the descriptor's <c>hiddenMaterials</c> (the only
+    /// place they are kept: GModelMaterial.Hidden is set from it on every load). Names of materials
+    /// the model does not have (any more) are left as they are; the entry goes once none is hidden.
+    /// </summary>
+    public static void WriteHiddenMaterials(JsonObject document, GModelAsset asset)
+    {
+        string property = document.Select(entry => entry.Key)
+            .FirstOrDefault(key => string.Equals(key, "hiddenMaterials", StringComparison.OrdinalIgnoreCase)) ?? "hiddenMaterials";
+        var names = new HashSet<string>(asset.Materials.Select(material => material?.Name ?? string.Empty), StringComparer.OrdinalIgnoreCase);
+        List<string> hidden = [.. (document[property] as JsonArray ?? [])
+            .Select(node => node is JsonValue value && value.TryGetValue(out string? name) ? name : null)
+            .OfType<string>().Where(name => !names.Contains(name))];
+        hidden.AddRange(asset.Materials.Where(material => material?.Hidden == true && !string.IsNullOrWhiteSpace(material.Name)).Select(material => material.Name));
+        document.Remove(property);
+        if (hidden.Count > 0) document[property] = new JsonArray([.. hidden.Distinct(StringComparer.OrdinalIgnoreCase).Select(name => (JsonNode?)name)]);
     }
 
     /// <summary>
