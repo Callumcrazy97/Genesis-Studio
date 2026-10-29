@@ -557,6 +557,45 @@ internal static class EngineAdditionsSuite
             }
         });
 
+        HeadlessHarness.RunCase(context.Report, "Engine.Models.Instance.SocketsAndFollowingDecalsTakeTheModelsPivot", () =>
+        {
+            // A model with its pivot a metre up is drawn a metre lower than its file says (the draw
+            // takes the pivot off first), so its sockets and a decal that follows it must move with
+            // it. On 29 Oct 2026 they took the plain transform and sat a pivot's length away.
+            string project = Path.Combine(context.Workspace, "ModelPivotProject");
+            Directory.CreateDirectory(Path.Combine(project, "Models"));
+            Genesis.Runtime.Modeling.GModelAsset pivoted = Figure();
+            pivoted.Pivot = new Genesis.Runtime.Modeling.GModelPivot { Position = new Vector3(0f, 1f, 0f) };
+            Genesis.Runtime.Modeling.RuntimeModelStore.Save(Path.Combine(project, "Models", "Pivoted.gmodel"), pivoted);
+
+            using var scene = new RuntimeScene("Pivoted figure");
+            var world = scene.World;
+            var game = new ProjectGameContext(project, scene, null, null, RoomAsset.Create("Hall", RoomDimension.ThreeD), null);
+            string oldProject = Genesis.Runtime.Scripting.PgslCommands.ProjectPath;
+            var oldGame = Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext;
+            try
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ProjectPath = project;
+                Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = game;
+                Entity figure = world.CreateEntity();
+                world.Set(figure, new TransformComponent { X = 10, Y = 0, Z = 5, ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+                world.Set(figure, new ModelRendererComponent { ModelAsset = "Pivoted", ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
+
+                // The hand sits at (10.5, 1, 5.25) on the unpivoted figure; a metre lower here.
+                HeadlessHarness.Assert(Genesis.Runtime.Modeling.ModelInstance.TryGetSocketPosition(world, figure, "Hand", out Vector3 hand)
+                    && Vector3.Distance(hand, new Vector3(10.5f, 0f, 5.25f)) < 1e-3f,
+                    $"The hand socket of a model pivoted a metre up is at {hand}; drawn, it is at (10.5, 0, 5.25).");
+                Matrix4x4? followed = Genesis.Runtime.Rendering.WorldDecals.ObjectWorld(world, figure.Id);
+                HeadlessHarness.Assert(followed is { } drawn && Vector3.Distance(drawn.Translation, new Vector3(10f, -1f, 5f)) < 1e-3f,
+                    $"A decal following the pivoted model is placed at {followed?.Translation}; the model is drawn about (10, -1, 5).");
+            }
+            finally
+            {
+                Genesis.Runtime.Scripting.PgslCommands.ProjectPath = oldProject;
+                Genesis.Runtime.Scripting.PgslCommands.ActiveGameContext = oldGame;
+            }
+        });
+
         HeadlessHarness.RunCase(context.Report, "Engine.Models.Instance.AScriptTintsAModelAndLightsItsMaterials", () =>
         {
             string project = Path.Combine(context.Workspace, "ModelTintProject");

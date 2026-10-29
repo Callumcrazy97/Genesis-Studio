@@ -63,7 +63,8 @@ public static class ModelSocketRuntime
             }
             asset ??= assets.Load(projectPath, parentModel.ModelAsset);
             RuntimeModelAnimationState animation = AnimationState(world, parent, parentModel);
-            Matrix4x4 parentWorld = RuntimeModelRenderSystem.TransformMatrix(parentTransform, parentModel);
+            // About the parent's pivot, where the parent is drawn, so the child sits on what is seen.
+            Matrix4x4 parentWorld = RuntimeModelRenderSystem.DrawMatrix(asset, parentTransform, parentModel);
             Matrix4x4 offset = IsUsable(attachment.LocalOffset) ? attachment.LocalOffset : Matrix4x4.Identity;
             if (!TryResolve(asset, attachment.SocketName, animation, parentWorld, out Matrix4x4 resolved)) continue;
             resolved = offset * resolved;

@@ -72,8 +72,7 @@ public static partial class PgslCommands
             || !world.Has<Genesis.Runtime.ECS.Components.TransformComponent>(entity)) return false;
         ref var model = ref world.GetRef<Genesis.Runtime.ECS.Components.ModelRendererComponent>(entity);
         ref var transform = ref world.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(entity);
-        Vector3 pivot = SocketModelAssets.Load(ProjectPath, model.ModelAsset)?.Pivot?.Position ?? Vector3.Zero;
-        Matrix4x4 placed = Matrix4x4.CreateTranslation(-pivot) * RuntimeModelRenderSystem.TransformMatrix(transform, model);
+        Matrix4x4 placed = RuntimeModelRenderSystem.DrawMatrix(SocketModelAssets.Load(ProjectPath, model.ModelAsset), transform, model);
         if (!Matrix4x4.Invert(placed, out Matrix4x4 inverse)) return false;
         point = Vector3.Transform(new Vector3((float)x, (float)y, (float)z), inverse);
         return true;

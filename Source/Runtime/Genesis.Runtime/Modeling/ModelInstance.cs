@@ -35,8 +35,8 @@ public static class ModelInstance
 
     /// <summary>
     /// Where one of a model's sockets is in the world right now, in the pose it is being drawn
-    /// in. A bone's name works as well when the model has no socket of that name. It is the same
-    /// place an Object attached to that socket is put.
+    /// in and about the model's pivot, as the model is seen. A bone's name works as well when the
+    /// model has no socket of that name. It is the same place an Object attached to that socket is put.
     /// </summary>
     public static bool TryGetSocketWorld(EcsWorld? world, Entity entity, string socketOrBone, out Matrix4x4 socketWorld)
     {
@@ -46,7 +46,7 @@ public static class ModelInstance
         ref TransformComponent transform = ref world.GetRef<TransformComponent>(entity);
         ref ModelRendererComponent model = ref world.GetRef<ModelRendererComponent>(entity);
         return ModelSocketRuntime.TryResolve(asset, socketOrBone.Trim(), ModelSocketRuntime.AnimationState(world, entity, model),
-            RuntimeModelRenderSystem.TransformMatrix(transform, model), out socketWorld);
+            RuntimeModelRenderSystem.DrawMatrix(asset, transform, model), out socketWorld);
     }
 
     /// <summary>The world position of a socket or bone; see <see cref="TryGetSocketWorld"/>.</summary>
