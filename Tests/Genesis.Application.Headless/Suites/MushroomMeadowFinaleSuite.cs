@@ -77,13 +77,15 @@ internal static class MushroomMeadowFinaleSuite
             {
                 Entity flag = game.Actor("Checkpoint");
                 var f = game.Transform(flag);
-                game.Place(f.X, f.Y); game.Frame();
+                // The hero looks for the checkpoint every second frame and for the Glowspore every third
+                // (slowLane, since 28 Oct), so the touches below run two or three frames.
+                game.Place(f.X, f.Y); game.Frames(2);
                 Check(game.Value("checkpoint") == 1, "The Grotto checkpoint did not light.");
                 game.Set("invulnerable", 0); game.Place(f.X + 200, game.Game.Room.Settings.Height + 100); game.Frame();
                 Check(Math.Abs(game.Position.X - (f.X + 24)) < .01f, $"Pip did not respawn at the Grotto checkpoint: {game.Position}.");
                 game.Frames(40);
                 var orb = game.Transform(game.Actor("Glowspore"));
-                game.Place(orb.X, orb.Y + 17); game.Frame();
+                game.Place(orb.X, orb.Y + 17); game.Frames(3);
                 Check(game.Value("state") == 3 && game.Value("clearKind") == 2, "Touching the Grotto Glowspore did not clear the level.");
             });
             Check(game.Diagnostics.Count == 0, "Grotto script diagnostics: " + string.Join("; ", game.Diagnostics));
@@ -136,7 +138,7 @@ internal static class MushroomMeadowFinaleSuite
             using FinaleGame game = new(p, Hollow);
             game.Tap(Key.Enter); game.Frames(5);
             var flag = game.Transform(game.Actor("Checkpoint"));
-            game.Place(flag.X, flag.Y); game.Frame();
+            game.Place(flag.X, flag.Y); game.Frames(2); // the checkpoint is looked for every second frame (slowLane)
             Check(game.Value("checkpoint") == 1, "The Hollow checkpoint did not light.");
             game.EnterNest();
             game.StompUntil(4);
