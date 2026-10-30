@@ -561,6 +561,19 @@ namespace Genesis.Runtime.Modeling
                  * Matrix4x4.CreateTranslation(transform.X, transform.Y, transform.Z);
         }
 
+        /// <summary>
+        /// The matrix a model is drawn with: <see cref="TransformMatrix"/> with the model's pivot
+        /// taken off first, as the draw does. Sockets and bones, what is attached to them and a
+        /// decal that follows the model use it so they land where the model is seen. A null asset
+        /// or a model without a pivot gives the plain transform.
+        /// </summary>
+        public static Matrix4x4 DrawMatrix(GModelAsset asset, TransformComponent transform, ModelRendererComponent model)
+        {
+            Matrix4x4 placed = TransformMatrix(transform, model);
+            Vector3 pivot = asset?.Pivot?.Position ?? Vector3.Zero;
+            return pivot.LengthSquared() > 1e-12f ? Matrix4x4.CreateTranslation(-pivot) * placed : placed;
+        }
+
         private static GModelMaterial ResolveMaterial(GModelAsset asset, int index)
         {
             if (asset?.Materials == null || asset.Materials.Count == 0)

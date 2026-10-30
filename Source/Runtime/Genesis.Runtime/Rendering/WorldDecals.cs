@@ -242,7 +242,14 @@ namespace Genesis.Runtime.Rendering
             if (!world.IsAlive(entity) || !world.Has<Genesis.Runtime.ECS.Components.TransformComponent>(entity)) return null;
             ref Genesis.Runtime.ECS.Components.TransformComponent transform = ref world.GetRef<Genesis.Runtime.ECS.Components.TransformComponent>(entity);
             if (world.Has<Genesis.Runtime.ECS.Components.ModelRendererComponent>(entity))
-                return Genesis.Runtime.Modeling.RuntimeModelRenderSystem.TransformMatrix(transform, world.GetRef<Genesis.Runtime.ECS.Components.ModelRendererComponent>(entity));
+            {
+                // With the model's pivot, as it is drawn: a decal that followed the plain transform sat
+                // a pivot's length away from a model drawn about its feet or its centre.
+                ref Genesis.Runtime.ECS.Components.ModelRendererComponent model = ref world.GetRef<Genesis.Runtime.ECS.Components.ModelRendererComponent>(entity);
+                Genesis.Runtime.Modeling.GModelAsset asset = string.IsNullOrWhiteSpace(model.ModelAsset) ? null
+                    : Genesis.Runtime.Modeling.RuntimeModelAssetRegistry.Shared.Load(Genesis.Runtime.Scripting.PgslCommands.ProjectPath, model.ModelAsset);
+                return Genesis.Runtime.Modeling.RuntimeModelRenderSystem.DrawMatrix(asset, transform, model);
+            }
             float Scale(float value) => MathF.Abs(value) < 0.0001f ? 1f : value;
             const float radians = MathF.PI / 180f;
             return Matrix4x4.CreateScale(Scale(transform.ScaleX), Scale(transform.ScaleY), Scale(transform.ScaleZ))

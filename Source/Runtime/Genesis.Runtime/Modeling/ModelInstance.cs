@@ -35,8 +35,8 @@ public static class ModelInstance
 
     /// <summary>
     /// Where one of a model's sockets is in the world right now, in the pose it is being drawn
-    /// in. A bone's name works as well when the model has no socket of that name. It is the same
-    /// place an Object attached to that socket is put.
+    /// in and about the model's pivot, as the model is seen. A bone's name works as well when the
+    /// model has no socket of that name. It is the same place an Object attached to that socket is put.
     /// </summary>
     public static bool TryGetSocketWorld(EcsWorld? world, Entity entity, string socketOrBone, out Matrix4x4 socketWorld)
     {
@@ -46,7 +46,7 @@ public static class ModelInstance
         ref TransformComponent transform = ref world.GetRef<TransformComponent>(entity);
         ref ModelRendererComponent model = ref world.GetRef<ModelRendererComponent>(entity);
         return ModelSocketRuntime.TryResolve(asset, socketOrBone.Trim(), ModelSocketRuntime.AnimationState(world, entity, model),
-            RuntimeModelRenderSystem.TransformMatrix(transform, model), out socketWorld);
+            RuntimeModelRenderSystem.DrawMatrix(asset, transform, model), out socketWorld);
     }
 
     /// <summary>The world position of a socket or bone; see <see cref="TryGetSocketWorld"/>.</summary>
@@ -500,8 +500,8 @@ public static class ModelInstance
     /// Gives one of the model's materials another image on this instance only: every weapon on a
     /// map its own camo from one model. <paramref name="slot"/> is <c>albedo</c>, <c>normal</c>,
     /// <c>orm</c> or <c>emission</c> for the material's own maps, or the name of a texture the
-    /// material's Shader declares (its <c>Texture2D</c> at t17-t23). An empty image gives the slot
-    /// back its authored image.
+    /// material's Shader declares (its <c>Texture2D</c> at t17 or t21 to t23; the engine's lighting
+    /// owns t18 to t20). An empty image gives the slot back its authored image.
     /// </summary>
     /// <returns>False when the model has no material of that name or the slot is empty.</returns>
     public static bool SetMaterialTexture(EcsWorld? world, Entity entity, string material, string slot, string? image)

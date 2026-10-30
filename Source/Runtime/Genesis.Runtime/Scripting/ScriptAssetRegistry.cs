@@ -280,6 +280,48 @@ namespace Genesis.Runtime.Scripting
 
     // Set on a thread compiling a Script for LoadFromProject: the names its calls without brackets
     // may name, used instead of the registry's (whose lock the loading thread holds).
+    /// <summary>
+    /// Writes the project's large Scripts compiled into <paramref name="stagingRoot"/>'s
+    /// <c>ScriptCache\&lt;engine build&gt;</c> for an export, so its first launch reads them back
+    /// (<see cref="ScriptCompileCache.ShippedFolder"/>) instead of compiling them (GC4). Each Script
+    /// is compiled against the names of the Scripts before it, as a launch compiles them, so the keys
+    /// match. A Script that does not compile ships without an entry and the game reports it as before.
+    /// How many entries were written: 0 when the cache is off or no Script is large enough.
+    /// </summary>
+    public static int WriteExportCache(string projectPath, string stagingRoot)
+    {
+      if (string.IsNullOrEmpty(projectPath) || string.IsNullOrEmpty(stagingRoot) || ScriptCompileCache.Folder() == null) return 0;
+      var files = new List<string>();
+      var names = new List<string>();
+      var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+      foreach (string file in EnumerateScriptFiles(projectPath))
+      {
+        string name = ResourceNames.Name(projectPath, file, ResourceType.Script);
+        if (!seen.Add(name)) break;
+        files.Add(file);
+        names.Add(name);
+      }
+      if (files.Count == 0) return 0;
+      if (!VMEngine.IsInitialized) VMEngine.Initialize();
+      string table = ScriptCompileCache.TableIdentity(VMEngine.Bridge?.NativeIdMap);
+      string[] earlier = names.ToArray();
+      var entries = new List<(string Key, CompiledScriptAsset Asset)>();
+      for (int i = 0; i < files.Count; i++)
+      {
+        string source;
+        try { source = File.ReadAllText(files[i]); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { continue; }
+        if (source.Length < ScriptCompileCache.SmallestCached) continue;
+        var before = new ArraySegment<string>(earlier, 0, i);
+        IEnumerable<string> outer = _compileNames;
+        _compileNames = before;
+        try { entries.Add((ScriptCompileCache.Key(SourceStamp.Hash(source), before, table), ScriptAssetCompiler.Compile(names[i], source))); }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { }
+        finally { _compileNames = outer; }
+      }
+      return ScriptCompileCache.WriteAll(Path.Combine(stagingRoot, ScriptCompileCache.ShippedFolderName, ScriptCompileCache.EngineBuildName), entries);
+    }
+
     [ThreadStatic] private static IEnumerable<string> _compileNames;
 
     /// <summary>

@@ -193,19 +193,28 @@ namespace Genesis.Runtime.Scripting
         public void FillRectangle(Color color, RectangleF rect) =>
             Rect(rect.X, rect.Y, rect.Width, rect.Height, color, filled: true);
 
+        // The strips of the circle being filled, kept so a HUD full of dots allocates nothing a frame.
+        private GuiRectangle[] _circleStrips = new GuiRectangle[64];
+
         public void FillCircle(Color color, float centerX, float centerY, float radius)
         {
             if ((_renderer == null && !ShapesWithText) || radius <= 0f) return;
 
-            // Horizontal scanline strips: for each row, half-width = sqrt(r² - dy²).
+            // Horizontal scanline strips: for each row, half-width = sqrt(r² - dy²). They go to the
+            // surface as one batch (one overlay command in a GUI) rather than a draw call a row,
+            // the same pixels in the same colour.
             int rows = Math.Max(1, (int)MathF.Ceiling(radius * 2f));
+            if (_circleStrips.Length < rows) _circleStrips = new GuiRectangle[Math.Max(rows, _circleStrips.Length * 2)];
+            Vector4 colour = ToVector(color);
+            int count = 0;
             for (int i = 0; i < rows; i++)
             {
                 float dy = -radius + i + 0.5f;
                 float half = MathF.Sqrt(MathF.Max(0f, radius * radius - dy * dy));
                 if (half <= 0f) continue;
-                Rect(centerX - half, centerY + dy - 0.5f, half * 2f, 1f, color, filled: true);
+                _circleStrips[count++] = new GuiRectangle(centerX - half, centerY + dy - 0.5f, half * 2f, 1f, colour);
             }
+            FillRectangles(_circleStrips.AsSpan(0, count));
         }
 
         public void DrawCircle(Color color, float centerX, float centerY, float radius, float thickness = 1f)

@@ -504,6 +504,10 @@ internal static class PgslEngineApiChecks
         HeadlessHarness.Assert(pass, detail);
     }
 
+    // "#rrggbb" the way Engine.Terrain.Grass.Color.Tip reports a colour (the command's own rounding).
+    private static string HexColour(System.Numerics.Vector3 colour) =>
+        $"#{(int)Math.Clamp(colour.X * 255f + 0.5f, 0, 255):x2}{(int)Math.Clamp(colour.Y * 255f + 0.5f, 0, 255):x2}{(int)Math.Clamp(colour.Z * 255f + 0.5f, 0, 255):x2}";
+
     // Engine.Terrain's other values on a 64 m terrain sloping 1 in 2 with a patch of layer 3: the
     // slope, facing and layer at a point, the terrains' size, and the ground, grass, scatter and
     // collision a game changes, each a multiple of the terrain's own.
@@ -580,18 +584,22 @@ internal static class PgslEngineApiChecks
             string Text(string name) => vars.TryGetValue(name, out object? value) && value is string text ? text : "";
             var after = terrains.LookNow().Single();
             double expectedSlope = Math.Atan(0.5) * 180 / Math.PI;
+            string ownTip = HexColour(nature.GrassRule.TipColor);
             bool pass = Math.Abs(Number("slope") - expectedSlope) < 0.5 && Math.Abs(Number("up") - Math.Cos(Math.Atan(0.5))) < 0.01 && Number("across") < -0.4
                 && Number("patch") == 3 && Number("plain") == 1 && Number("offGround") == 0 && Number("wide") == 64 && Number("deep") == 64
                 && Number("dGrass") == 1 && Number("dReach") == 24 && Number("reach") == 500
                 && !terrains.GroundDrawn && Math.Abs(after.Grass.Spacing - authoredSpacing / MathF.Sqrt(2)) < 1e-3 && Math.Abs(after.Grass.MaximumScale - before.Grass.MaximumScale * 1.5f) < 1e-3
                 && after.Scatter.Single().DensityPerHectare == 100 && Math.Abs(after.ScatterNear - authoredNear * 0.5f) < 1e-3 && after.ScatterShadow == 0
                 && terrains.TerrainDistance == 300
-                // The grass shader and pushers: each terrain's own until set, then the game's.
-                && Number("gustsBefore") == 0 && Text("tipBefore") == "#459e2b" && Text("tipAfter") == "#c8b450"
+                // The grass shader and pushers: each terrain's own until set, then the game's. The
+                // terrain's own tip is whatever green the built-in rule defaults to (it was retuned
+                // on 29 October), read back the way the command reports it, not a pinned colour.
+                && Number("gustsBefore") == 0 && Text("tipBefore") == ownTip && Text("tipAfter") == "#c8b450"
                 && terrains.GameGrassLook.WindGusts == 0.5f && Number("pushers") == 1 && terrains.GrassPusherCount == 1;
             string detail = $"slope {Number("slope"):0.##}° ({expectedSlope:0.##}), facing up {Number("up"):0.###} and across {Number("across"):0.###}; layer {Number("patch")} on the patch (3), {Number("plain")} elsewhere (1), {Number("offGround")} off it; " +
                 $"{Number("wide")} by {Number("deep")} m; ground drawn {terrains.GroundDrawn}; grass spacing {authoredSpacing:0.###} to {after.Grass.Spacing:0.###}, height {before.Grass.MaximumScale:0.##} to {after.Grass.MaximumScale:0.##}; " +
-                $"stones {after.Scatter.Single().DensityPerHectare}/ha (100), near {authoredNear} to {after.ScatterNear}, shadows to {after.ScatterShadow}; collision {Number("dReach")} to {Number("reach")} m (kept to 500); distance {terrains.TerrainDistance}";
+                $"stones {after.Scatter.Single().DensityPerHectare}/ha (100), near {authoredNear} to {after.ScatterNear}, shadows to {after.ScatterShadow}; collision {Number("dReach")} to {Number("reach")} m (kept to 500); distance {terrains.TerrainDistance}; " +
+                $"gusts {Number("gustsBefore")} then {terrains.GameGrassLook.WindGusts} (0.5); tip {Text("tipBefore")} ({ownTip}) then {Text("tipAfter")} (#c8b450); pushers {Number("pushers")} and {terrains.GrassPusherCount} (1)";
             row("Engine API parts", "the ground, grass, scatter and what is at a point", pass ? "PASS" : "FAIL", detail);
             HeadlessHarness.Assert(pass, $"{detail} {string.Join("; ", host.RecentDiagnostics.Select(d => d.Message))}");
         }

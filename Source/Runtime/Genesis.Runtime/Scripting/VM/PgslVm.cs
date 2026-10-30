@@ -1751,8 +1751,11 @@ public class PgslVm
     // Kept out of ExecuteCall so its message does not enlarge every call's stack frame.
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static void ThrowTooDeep(string function, int depth) =>
-        throw new InvalidOperationException(
-            "Too much recursion: '" + function + "' is " + depth + " calls deep. Use a loop with a list or stack for deep work.");
+        throw new InvalidOperationException(TooDeepMessage(function, depth));
+
+    // One wording for both tiers: the compiled tier reports the same fault with the same words.
+    internal static string TooDeepMessage(string function, int depth) =>
+        "Too much recursion: '" + function + "' is " + depth + " calls deep. Use a loop with a list or stack for deep work.";
 
     private object ExecuteCommand(string name, object[] args)
     {

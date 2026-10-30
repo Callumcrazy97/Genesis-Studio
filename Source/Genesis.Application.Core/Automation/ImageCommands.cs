@@ -70,6 +70,15 @@ public static class ImageCommands
         return full;
     }
 
+    // Through a FileStream, not GDI+'s own file open: GDI+ fails with "A generic error occurred" on a
+    // path past 260 characters (a project deep inside a test output folder), while .NET's file
+    // handling takes it. Image.FromFile would fail the same way, which is why loading reads bytes.
+    private static void SavePng(Bitmap bitmap, string path)
+    {
+        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        bitmap.Save(stream, ImageFormat.Png);
+    }
+
     private static Bitmap LoadBitmap(string path)
     {
         // A copy, so the file is not held open while it is drawn on and saved over.
@@ -138,7 +147,7 @@ public static class ImageCommands
                 for (int i = 0; i < frames; i++)
                 {
                     string id = Guid.NewGuid().ToString("N");
-                    bitmap.Save(Path.Combine(data, "frames", id + ".png"), ImageFormat.Png);
+                    SavePng(bitmap, Path.Combine(data, "frames", id + ".png"));
                     document.Frames.Add(new ImageFrame
                     {
                         Id = id,
@@ -202,7 +211,7 @@ public static class ImageCommands
                 using (Graphics graphics = Graphics.FromImage(bitmap))
                     foreach (DrawOperation operation in input.Operations) Apply(graphics, bitmap, operation);
                 ResourceBackupService.BackupBeforeOverwrite(png);
-                bitmap.Save(png, ImageFormat.Png);
+                SavePng(bitmap, png);
                 changed.Add(context.Relative(png));
             }
             // The resource itself changes too, so Studio and the game notice the new pixels.

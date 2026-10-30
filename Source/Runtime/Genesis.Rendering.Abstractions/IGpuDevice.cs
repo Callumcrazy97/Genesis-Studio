@@ -22,8 +22,8 @@ namespace Genesis.Rendering.Abstractions
     /// <para><b>Binding slots are HLSL register indices.</b> <c>SetConstantBuffer(stage, 2, h)</c>
     /// means <c>b2</c> on every backend. D3D11 passes it through; Vulkan applies fixed DXC shift
     /// constants; OpenGL maps texture registers to units one-to-one. There is no reflection at bind
-    /// time, ever — the full register surface is small and non-overlapping (b0..b4, t0..t20,
-    /// s0..s1), so the mapping is arithmetic rather than a lookup.</para>
+    /// time, ever — the full register surface is small and non-overlapping (b0..b7, t0..t23,
+    /// s0..s3), so the mapping is arithmetic rather than a lookup.</para>
     /// </remarks>
     public interface IGpuDevice : IDisposable
     {

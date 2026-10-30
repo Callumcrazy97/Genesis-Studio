@@ -262,8 +262,7 @@ public sealed class ModelBoneTargets
         ref TransformComponent transform = ref world.GetRef<TransformComponent>(self);
         ref ModelRendererComponent model = ref world.GetRef<ModelRendererComponent>(self);
         if (string.IsNullOrWhiteSpace(model.ModelAsset)) return false;
-        Vector3 pivot = RuntimeModelAssetRegistry.Shared.Load(Scripting.PgslCommands.ProjectPath, model.ModelAsset)?.Pivot?.Position ?? Vector3.Zero;
-        Matrix4x4 drawn = Matrix4x4.CreateTranslation(-pivot) * RuntimeModelRenderSystem.TransformMatrix(transform, model);
+        Matrix4x4 drawn = RuntimeModelRenderSystem.DrawMatrix(RuntimeModelAssetRegistry.Shared.Load(Scripting.PgslCommands.ProjectPath, model.ModelAsset), transform, model);
         return Matrix4x4.Invert(drawn, out toModel);
     }
 

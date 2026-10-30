@@ -42,6 +42,36 @@ internal static class ScriptCompileCache
 
     private static readonly string EngineBuild = typeof(PgslParser).Assembly.ManifestModule.ModuleVersionId.ToString("N");
 
+    /// <summary>The engine build's name, the subfolder its entries live in.</summary>
+    public static string EngineBuildName => EngineBuild;
+
+    /// <summary>
+    /// The folder an exported game ships its entries in, beside its executable: the export writes the
+    /// project's large Scripts compiled, so the first launch reads them back instead of compiling
+    /// (GC4: a cold first launch took about 30 s against 10 s after). Read here, never written: the
+    /// export may sit in a read-only folder, and what a launch compiles goes to <see cref="Folder"/>.
+    /// </summary>
+    public const string ShippedFolderName = "ScriptCache";
+
+    private static string _shipped;
+    private static bool _shippedLooked;
+
+    /// <summary>The shipped entries' folder for this engine build, or null when there is none.</summary>
+    public static string ShippedFolder()
+    {
+        if (_shippedLooked) return _shipped;
+        string candidate = null;
+        try
+        {
+            string folder = Path.Combine(AppContext.BaseDirectory, ShippedFolderName, EngineBuild);
+            if (Directory.Exists(folder)) candidate = folder;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException) { }
+        _shipped = candidate;
+        _shippedLooked = true;
+        return candidate;
+    }
+
     /// <summary>This engine build's folder, or null when the cache is off.</summary>
     public static string Folder()
     {
@@ -86,7 +116,12 @@ internal static class ScriptCompileCache
         string path = Path.Combine(folder, key + ".pgslc");
         try
         {
-            if (!File.Exists(path)) { Interlocked.Increment(ref _misses); return null; }
+            if (!File.Exists(path))
+            {
+                // Not compiled on this machine yet: an exported game ships its entries beside itself.
+                string shipped = ShippedFolder();
+                if (shipped == null || !File.Exists(path = Path.Combine(shipped, key + ".pgslc"))) { Interlocked.Increment(ref _misses); return null; }
+            }
             using var reader = new BinaryReader(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16), Encoding.UTF8);
             CompiledScriptAsset asset = Read(reader, name);
             Interlocked.Increment(ref _hits);
@@ -120,6 +155,15 @@ internal static class ScriptCompileCache
 
     /// <summary>The last writing thread started, for tests that read an entry back.</summary>
     internal static Thread LastBackgroundWrite;
+
+    /// <summary>Writes the entries now, into <paramref name="folder"/> (an export's shipped cache); how many were written.</summary>
+    public static int WriteAll(string folder, List<(string Key, CompiledScriptAsset Asset)> entries)
+    {
+        if (folder == null || entries == null || entries.Count == 0) return 0;
+        int before = Writes;
+        foreach ((string key, CompiledScriptAsset asset) in entries) TryWrite(folder, key, asset);
+        return Writes - before;
+    }
 
     public static void TryWrite(string folder, string key, CompiledScriptAsset asset)
     {
