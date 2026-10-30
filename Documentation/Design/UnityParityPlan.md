@@ -237,41 +237,6 @@ Main Task: the planner conversation (this one, or "Active Claude sessions resour
   - Splits the plan into Sub Tasks.
   - Writes each Sub conversation's brief: the plan item, the files it owns, its acceptance
     criteria, the rules in this section, what to report back.
-
-## 8. 30 October: what the blind trial and the acceptance samples asked for
-
-**Acceptance (Y, 30 Oct 00:17-04:12):** a small 2D game (Coin Hop: drawn sprites, synth sounds, three
-platforms, three coins, a score and a win) and a small 3D game (Lake Quest: a terrain with the built-in
-grass and a lake, a third-person explorer, three gems, a light and a reflection probe, a win) made
-from scratch with automation only, no file written by hand, authored in 5.3 and about 3 minutes
-(about 20 each with the fixes after the first plays) against the 15-minute bar. Both won on D3D11,
-D3D12, Vulkan and OpenGL; Software won the 2D game and draws the 3D one cleanly but at about 8 fps
-the walker did not finish its route in the time given (an earlier Software run did). F5 to playing
-1.1-1.4 s on the GPU backends, 0.7-0.9 s on Software. Projects and pictures:
-`C:\gs\worktree-agent-a7fa0e8ea93c56166\samples` and `...\out\runs\<renderer>`.
-
-Open items from both, none started:
-
-| Id | Item | Source | Size | Status |
-|---|---|---|---|---|
-| W1 | **Water ripples tile into a visible grid** in every blind picture, both scenes; `waveAmplitude` does not change it | T8 | M | Engine (T7 follow-up); the biggest look loss (water 8 vs 4) |
-| W2 | A `PhysicsComponent` set Static on a placed model makes the model vanish with no error; Static should give it a fixed collider, and the Cookbook should say how to make a model solid and walkable | T8 | S-M | Engine + guide |
-| W3 | `model.create` and `object.create` with a taken name silently make "Name (2)"; `resource.rename` leaves the file name and `ScriptClass` behind | T8, Y | S | Refuse the duplicate or warn loudly |
-| W4 | Island shaping took a 200-stroke generator: terrain from a heightmap image, or an Island landform | T8 | M | Terrain |
-| W5 | `object.info` shows no event code; the room environment's field names are only found in the room file | T8 | S | Automation |
-| W6 | Look gaps: flat mauve sky without clouds, a small hard sun disc, smeared sand, paddle-shaped palm fronds, khaki ground under the grass, near-black far slopes | T8 | M each | Judge against `cove-threejs` pictures |
-| Y1 | `game.run` should say "N of M pictures taken": shots after the input ends or delayed under load are dropped silently | Y | S | Automation |
-| Y2 | `SoundPreload` in the Cookbook and the recipes (the first `PlaySound` stalls a frame 123-717 ms); a deterministic stepped mode for `game.run` (the Platformer recipe steps per frame while the input runs by the clock) | Y | S + M | Guide + automation |
-| Y3 | `object.setEvent` replaces the whole event, recipe code included: an append mode | Y | S | Automation |
-| Y4 | `room.delete`, or a way to edit `roomOrder` (a deleted Start room stays in it; `resource.set` refuses the project file) | Y | S | Automation |
-| Y5 | `--automation new` with no template should list the templates, and `list` should include `new`; the first `new` took 46 s cold | Y | S | Automation |
-| Y6 | `commands.list` needs a name filter (the full list is 112 KB) and `batch` a `brief` option | Y | S | Automation |
-| Y7 | Document the orbit camera (it starts looking toward -z; `Engine.Camera.Orbit.Yaw/Pitch/Distance` are in no guide) and give the ThirdPerson recipe a fall respawn | Y | S | Guide + recipe |
-| Y8 | `EngineApi.md` rows have no signatures (`CollisionCircle3D(x, z, r, "Gem")` was guessed); the README shows a 3-argument `CollisionCircle` where the call takes 4 | Y | S-M | Reference page generator |
-| Y9 | `game.run` should report the sounds played (name, time) and a log-based start time beside `startSeconds` | Y | S | Automation |
-| Y10 | The Software renderer draws the 3D sample at about 8 fps (110 ms a frame): a flatter look (flat lake, no reflections) is by design, the speed is not | Y | M | Low priority (Software is the fallback) |
-
-Done from the same reports (30 Oct): the compass, the Raise strength note and a terrain layer's image through `resource.set` in the guides (97025cc); the locked-run output trap in the run rules.
   - Creates the conversations and tracks them in the ledger.
 - **A Sub conversation** (the AI Team for one Sub Task):
   - Its Planner splits the Sub Task into Minor Tasks and writes each Minor Task's brief.
@@ -311,3 +276,38 @@ Bypass mode nothing else asks for approval.
   `Build.bat`: the test folder's Player copy is stale.
 - A blind check is worth more than a self-check: the 28 Oct Task Checker rejected a scorecard the
   team had written about its own work.
+
+## 8. 30 October: what the blind trial and the acceptance samples asked for
+
+**Acceptance (Y, 30 Oct 00:17-04:12):** a small 2D game (Coin Hop: drawn sprites, synth sounds, three
+platforms, three coins, a score and a win) and a small 3D game (Lake Quest: a terrain with the built-in
+grass and a lake, a third-person explorer, three gems, a light and a reflection probe, a win) made
+from scratch with automation only, no file written by hand, authored in 5.3 and about 3 minutes
+(about 20 each with the fixes after the first plays) against the 15-minute bar. Both won on D3D11,
+D3D12, Vulkan and OpenGL; Software won the 2D game and draws the 3D one cleanly but at about 8 fps
+the walker did not finish its route in the time given (an earlier Software run did). F5 to playing
+1.1-1.4 s on the GPU backends, 0.7-0.9 s on Software. Projects and pictures:
+`C:\gs\worktree-agent-a7fa0e8ea93c56166\samples` and `...\out\runs\<renderer>`.
+
+Open items from both (W2 and W3 started 30 Oct 06:40):
+
+| Id | Item | Source | Size | Status |
+|---|---|---|---|---|
+| W1 | **Water ripples tile into a visible grid** in every blind picture, both scenes; `waveAmplitude` does not change it | T8 | M | Engine (T7 follow-up); the biggest look loss (water 8 vs 4) |
+| W2 | A `PhysicsComponent` set Static on a placed model makes the model vanish with no error; Static should give it a fixed collider, and the Cookbook should say how to make a model solid and walkable | T8 | S-M | Engine + guide; junior started 06:40 |
+| W3 | `model.create` and `object.create` with a taken name silently make "Name (2)"; `resource.rename` leaves the file name and `ScriptClass` behind | T8, Y | S | Refuse the duplicate or warn loudly; junior started 06:40 |
+| W4 | Island shaping took a 200-stroke generator: terrain from a heightmap image, or an Island landform | T8 | M | Terrain |
+| W5 | `object.info` shows no event code; the room environment's field names are only found in the room file | T8 | S | Automation |
+| W6 | Look gaps: flat mauve sky without clouds, a small hard sun disc, smeared sand, paddle-shaped palm fronds, khaki ground under the grass, near-black far slopes | T8 | M each | Judge against `cove-threejs` pictures |
+| Y1 | `game.run` should say "N of M pictures taken": shots after the input ends or delayed under load are dropped silently | Y | S | Automation |
+| Y2 | `SoundPreload` in the Cookbook and the recipes (the first `PlaySound` stalls a frame 123-717 ms); a deterministic stepped mode for `game.run` (the Platformer recipe steps per frame while the input runs by the clock) | Y | S + M | Guide + automation |
+| Y3 | `object.setEvent` replaces the whole event, recipe code included: an append mode | Y | S | Automation |
+| Y4 | `room.delete`, or a way to edit `roomOrder` (a deleted Start room stays in it; `resource.set` refuses the project file) | Y | S | Automation |
+| Y5 | `--automation new` with no template should list the templates, and `list` should include `new`; the first `new` took 46 s cold | Y | S | Automation |
+| Y6 | `commands.list` needs a name filter (the full list is 112 KB) and `batch` a `brief` option | Y | S | Automation |
+| Y7 | Document the orbit camera (it starts looking toward -z; `Engine.Camera.Orbit.Yaw/Pitch/Distance` are in no guide) and give the ThirdPerson recipe a fall respawn | Y | S | Guide + recipe |
+| Y8 | `EngineApi.md` rows have no signatures (`CollisionCircle3D(x, z, r, "Gem")` was guessed); the README shows a 3-argument `CollisionCircle` where the call takes 4 | Y | S-M | Reference page generator |
+| Y9 | `game.run` should report the sounds played (name, time) and a log-based start time beside `startSeconds` | Y | S | Automation |
+| Y10 | The Software renderer draws the 3D sample at about 8 fps (110 ms a frame): a flatter look (flat lake, no reflections) is by design, the speed is not | Y | M | Low priority (Software is the fallback) |
+
+Done from the same reports (30 Oct): the compass, the Raise strength note and a terrain layer's image through `resource.set` in the guides (97025cc); the locked-run output trap in the run rules.

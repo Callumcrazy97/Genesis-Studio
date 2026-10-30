@@ -1,9 +1,10 @@
 # Cal's to-do after the 29 October run
 
-One line per step: open X, look at Y, if Z, screenshot. Written 29 October 22:10 during the quiet
-window; the "Script-tested" section is filled in once the 00:31 test runs finish, so a line there
-that still says *pending* has not run yet. What was built is in `Handover-2026-10-29.md`; every
-item's status is in `UnityParityPlan.md`.
+One line per step: open X, look at Y, if Z, screenshot. Written 29 October 22:10, refreshed 30 October
+06:45 after the Full Build passed; the "Script-tested" table is being filled by the 30 October runs,
+so a line there that still says *pending* has not run yet. What was built is in
+`Handover-2026-10-29.md` and `Handover-2026-10-30.md` (which also lists what changed in your games);
+every item's status is in `UnityParityPlan.md`.
 
 ## Decisions only you can make
 
@@ -38,12 +39,17 @@ item's status is in `UnityParityPlan.md`.
 8. **The F6 debugger in your own games.** F5 a game, press F6: colliders, GUI layers, the object
    report and the view modes (Albedo, Ambient, Direct, LOD). Screenshot anything that looks wrong.
 9. **The new editors, five minutes each**, so you know they exist before someone asks: the MIDI
-   piano-roll studio (Assets > New > Music), the audio mixer (Project > Audio Mixer: effects and
-   snapshots), the node shader editor (New > Shader > Graph), the effects module stack (open a
+   piano-roll studio (Assets > New > Music), the audio mixer (open an Audio resource, its
+   Options menu, "Mixer and snapshots"), the node shader editor (open a Shader, its Nodes mode), the effects module stack (open a
    Particle), the Model editor's texture painting (Surface step, paint on the model), Terrain
    templates with built-in grass (New > Terrain), the input rebinding screen (F5, Escape, Controls).
+10. **Your games after the default changes.** Open Golden Stag's hall, Kinfield's square and the
+    Cathedral Test and look: three sun cascades to 300 m and four lamp shadows by default, glTF
+    models in instanced layers now darker (their default metallic 1), grass parted by characters,
+    standard water teal and lake mist lighter, sun glow off in rooms saved before 29 October (set the
+    room's `sunGlow` to 1 for the new look). Screenshot anything that looks worse than before.
 
-## Script-tested for you (the runs after 00:31 fill this in)
+## Script-tested for you (the 30 October runs fill this in)
 
 | Check | How it was scripted | Result |
 |---|---|---|
@@ -58,5 +64,6 @@ item's status is in `UnityParityPlan.md`.
 ## Not for you
 
 The subscription question the planning session listed on 29 October has no detail recorded here;
-ask that session. Everything else from the run (the open test failures, the Full Build, the second
-blind trial, `EngineApi.md`) is the integrator's and runs on from 00:31.
+ask that session. The run's own remaining work (plan section 8, the look bar the blind trial did not
+meet, the tiers run on the final main) is the integrator's; the Full Build passed at 05:56 on 30
+October and the second blind trial is recorded in the plan's T8 row.
