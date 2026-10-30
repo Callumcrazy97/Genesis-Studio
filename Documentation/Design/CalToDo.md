@@ -32,10 +32,12 @@ every item's status is in `UnityParityPlan.md`.
 6. **T5, Nuvema.** Open Nuvema Town, F5 on D3D11, then on Vulkan (Settings > Display). Look for black
    blocks on the water and the building fronts; if any, F6 > View > Albedo and screenshot both views.
    Then at the name entry, type a name with WASD and with the pad; resize the window while playing.
-7. **Genesiscraft export.** The Desktop copy carries an engine from before the `DsListInsert` fix, so a
-   world below the top of your list fails with a script error. Open My Genesis Game in Studio,
-   Project > Export, export *beside* the Desktop copy (not over it), play world w20 and one lower.
-   If the lower world loads and the ground is at 63 with kelp under water, delete the old copy.
+7. **Genesiscraft export: done for you, one look left.** `C:\Users\Cal\Desktop\Genesiscraft-2026-10-30`
+   is a fresh export with the current engine (2be990b), beside the old `Desktop\Genesiscraft`, which
+   is untouched. Its exe played w20 and w21 (the lower one, through `DsListInsert`) with no script
+   error; w21 came to the top of the list with w20 and w22 kept; w20's ground is at 63 and the ocean
+   floor at 52 under water at 62. Kelp was seen only as faint streaks under the surface, so look at
+   it yourself (pictures `C:\gs\p3-genesiscraft\d1-w20`); if it is right, delete the old copy.
 8. **The F6 debugger in your own games.** F5 a game, press F6: colliders, GUI layers, the object
    report and the view modes (Albedo, Ambient, Direct, LOD). Screenshot anything that looks wrong.
 9. **The new editors, five minutes each**, so you know they exist before someone asks: the MIDI
@@ -53,12 +55,12 @@ every item's status is in `UnityParityPlan.md`.
 
 | Check | How it was scripted | Result |
 |---|---|---|
-| Nuvema black blocks on all five backends | `game.benchmark` captures on dx11, dx12, vulkan, opengl, software; black fraction measured | pending |
-| Nuvema name entry by scripted keys and pad | automation key and pad feed into the name screen, text read back | pending |
-| Nuvema window resize while playing | resize then capture; no black or stretched frame | pending |
-| Resource tree: expand a folder, double-click one resource, only that one opens | Studio automation, if it can drive the tree; otherwise says so here | pending |
-| Genesiscraft distant terrain black on Vulkan | bot flight on Vulkan and D3D11, black fraction per frame, `GENESIS_VULKAN_DEBUG=1` log kept | pending (a clean result is evidence, not proof: it never reproduced before) |
-| First-person right stick direction | a test feeds stick values and reads the camera direction; a tiny tool prints your pad's axis live | pending |
+| Nuvema black blocks on all five backends | the same town view run on dx11, dx12, vulkan, opengl and software (`GENESIS_RENDER_BACKEND` per run, a copy of the project with a seeded save), near-black pixels counted | **Clean (30 Oct 08:00):** 0.000% near-black in the lower two thirds of the frame on all five; the top 3D screen's 0.22% is the same 288 pixels everywhere (sprite outlines and hair), so no black blocks on the water or the house fronts; Vulkan within a mean of 1.1 of D3D11; Software flatter but nothing black. `C:\gs\p2-nuvema\a1-*.png` |
+| Nuvema name entry by scripted keys and pad | recorded inputs played through the Player's own replay: keys (D, S, Space, Enter) and the pad (left stick, D-pad, A, Start) on the name screen, the name read back | **Works:** keys typed "Cal" and the screen says "Cal! What a lovely name."; the pad typed "Pad" the same way. `a2-keys-*.png`, `a2-pad-*.png` |
+| Nuvema window resize while playing | 512x768, 1280x720, 1920x1000, 640x960 and back, on dx11 and vulkan, a picture at each | **Clean:** no black or stretched frames; the DS layout keeps its 2:3 shape, so the side bars at 16:9 sizes are by design (62.5% of the frame at 1280x720); dx11 and vulkan match. `a3-resize-*.png` |
+| Resource tree: expand a folder, double-click one resource, only that one opens | not scripted: no automation drives the resource tree | **For you, thirty seconds:** expand a folder, double-click one resource, one editor opens and no other |
+| Genesiscraft distant terrain black on Vulkan | a creative flight at y 130 for about 47 s with 11 pictures on vulkan (`GENESIS_VULKAN_DEBUG=1`) and on dx11, render distance 32, w20's seed in the test slot, near-black counted per picture | **Clean on both (evidence, not proof; it never reproduced before):** near-black 0.4-6.3% on Vulkan and 0.4-6.1% on D3D11 (the floor is the HUD, the high end tree canopies), no cell 95% black. The Vulkan log repeats a depth-image layout validation error (plan W7), not visible in the pictures. `C:\gs\p3-genesiscraft\c-vulkan`, `c-dx11`, `montage-c-*.png`, `render.log` |
+| First-person right stick direction | a headless probe fed `GamepadAxis("RightY")` +1 and -1 to the FirstPerson recipe and read the camera pitch; a live readout project prints your pad's axis | **In the engine, stick up (+1) looks up** (pitch 0 to 55 degrees) and -1 looks down, with or without the pad's look emulation. Whether *your* pad reports up as +1 only your pad can say: plug it in and run `powershell -ExecutionPolicy Bypass -File C:\gs\p2-stick\play-live.ps1` (or open `C:\gs\p2-stick\Stick` in Studio and F5), hold the stick up and read `RightY` and the camera line |
 | Acceptance: a small 2D game and a small 3D game from scratch with built-in tools, on all five renderers | authored by a fresh agent with automation only: Coin Hop (2D) in 5.3 min, Lake Quest (3D) in about 3 min, about 20 min each with the fixes after the first plays (the bar is 15) | **Done 30 Oct 04:12:** both won on D3D11, D3D12, Vulkan and OpenGL; Software won the 2D game and draws the 3D one cleanly but at about 8 fps the walker did not finish in time. Projects and pictures in `C:\gs\worktree-agent-a7fa0e8ea93c56166\samples` and `...\out\runs` |
 
 ## Not for you
