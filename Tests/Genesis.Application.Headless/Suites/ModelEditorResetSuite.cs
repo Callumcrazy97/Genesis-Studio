@@ -122,6 +122,34 @@ internal static class ModelEditorResetSuite
             Assert(!File.ReadAllText(path).Contains("hiddenMaterials", StringComparison.OrdinalIgnoreCase)
                 && !shownAgain.PreviewAsset.Materials[cube].Hidden, "Showing the material again did not save.");
         });
+        HeadlessHarness.RunCase(ctx.Report, "Editor.Model.Reset.CommandSweepLeavesThePreviewShaded", () =>
+        {
+            // 29 Oct 2026 tiers: an F6 screen left open plus the command sweep (which writes
+            // Engine.Debug.View.Mode back and so turned the view on) drew every later preview in the LOD tint.
+            string path = resources.CreateResource(resources.AssetsRoot, ResourceKind.Model, "Sweep probe");
+            using var host = UnattendedWindowing.NewHost(1440, 920);
+            var editor = new ModelEditorControl(path, project.RootPath);
+            host.Controls.Add(editor); ThemeService.Apply(host);
+            UnattendedWindowing.ShowWithoutFocus(host); System.Windows.Forms.Application.DoEvents();
+            try
+            {
+                using var screen = new Genesis.Runtime.Debugger.DebugOverlay { IsVisible = true };
+                editor.AddPart(ModelPrimitiveKind.Cube);
+                editor.SetCameraView("Front"); editor.FrameModel();
+                int before = GreyPixels(editor, ctx, "model-before-command-sweep");
+                Genesis.Runtime.Scripting.PgslCommandAutoTester.Run("Debug", 1);
+                Assert(screen.IsVisible && !Genesis.Runtime.Debugger.DebugScreenSettings.View
+                    && Genesis.Runtime.Debugger.DebugScreenSettings.ModelView == Genesis.Runtime.Debugger.DebugViewMode.Off,
+                    "The command sweep left the debug screen's view on.");
+                int after = GreyPixels(editor, ctx, "model-after-command-sweep");
+                Assert(after > before * .9, $"The preview lost its shading after the command sweep ({before} grey pixels before, {after} after).");
+            }
+            finally
+            {
+                Genesis.Runtime.Debugger.DebugScreenSettings.Reset();
+                host.Controls.Remove(editor); editor.Dispose();
+            }
+        });
     }
     private static int GreyPixels(ModelEditorControl editor, HeadlessContext ctx, string name)
     {

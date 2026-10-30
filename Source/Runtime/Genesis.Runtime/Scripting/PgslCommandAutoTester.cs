@@ -140,6 +140,9 @@ public static class PgslCommandAutoTester
             && Genesis.Runtime.Rendering.WorldDecals.Limit == Genesis.Runtime.Rendering.WorldDecals.DefaultLimit;
         // DebugKeysSetEnabled(false) would leave the debug screen's keys off for the open game.
         bool debugKeysAllowed = Genesis.Runtime.Debugger.DebugKeys.GameAllows;
+        // Engine.Debug.View.Mode written back turns the view on, and Inspect.Next opens the screen: with
+        // a screen open, every model drawn later in this process (an editor's preview too) took the LOD tint.
+        var debugScreen = Genesis.Runtime.Debugger.DebugScreenSettings.Capture();
 
         try
         {
@@ -176,6 +179,7 @@ public static class PgslCommandAutoTester
             if (sceneQueueIdle) PgslCommands.ClearSceneCommands();
             Genesis.Shared.Interfaces.MeshLightingDefaults.MotionBlur = motionBlur;
             Genesis.Runtime.Debugger.DebugKeys.GameAllows = debugKeysAllowed;
+            Genesis.Runtime.Debugger.DebugScreenSettings.Restore(debugScreen);
             if (decalsIdle)
             {
                 Genesis.Runtime.Rendering.WorldDecals.Clear();
