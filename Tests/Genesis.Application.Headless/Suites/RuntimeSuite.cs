@@ -1071,7 +1071,8 @@ internal static class RuntimeSuite
                 && log.Contains("[SCRIPT STACK]", StringComparison.Ordinal),
                 "project_player.log did not persist the full structured script diagnostic.");
 
-            var overlay = new DebugOverlay();
+            // Closed with the case: an F6 screen left open is DebugOverlay.Current for every case after.
+            using var overlay = new DebugOverlay();
             overlay.BindScriptHost(scriptHost);
             HeadlessHarness.Assert(
                 overlay.HasScriptErrors && overlay.LatestScriptError == diagnostic,
@@ -1118,7 +1119,7 @@ internal static class RuntimeSuite
                     step.ObjectName == "ProfileProbe" && step.CallCount == 3 && step.TotalMicroseconds > 0,
                     "The PGSL profiler did not measure each authored Step event.");
 
-                var overlay = new DebugOverlay();
+                using var overlay = new DebugOverlay();
                 overlay.BindScriptHost(scriptHost);
                 overlay.SelectPanel(DebugHudPanel.Game);
                 var input = new InputState();
@@ -1158,7 +1159,7 @@ internal static class RuntimeSuite
                 + $"meshes={stats.MeshInstanceCap}, lights={stats.LightsCap}; "
                 + $"expected lights={RenderCapacityDefaults.DefaultSceneLocalLightCap} after R7.5).");
 
-            var overlay = new DebugOverlay();
+            using var overlay = new DebugOverlay();
             // Render passes, draw calls and caps are Engine figures: developer builds only.
             overlay.EngineCategoryEnabled = true;
             overlay.SelectPanel(DebugHudPanel.Engine);
@@ -1218,7 +1219,7 @@ internal static class RuntimeSuite
             scene.World.Set(audioEntity, new TransformComponent { X = 1f, Y = 0.5f, Z = 1f, ScaleX = 1, ScaleY = 1, ScaleZ = 1 });
             scene.World.Set(audioEntity, new AudioComponent { Asset = "probe.audio.json", Volume = 1f });
 
-            var overlay = new DebugOverlay();
+            using var overlay = new DebugOverlay();
             overlay.BindScene(scene, "Probe");
             overlay.ShowWireframe = true;
             overlay.ShowCameras = true;
