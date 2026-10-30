@@ -262,6 +262,9 @@ UpgradeSave();                             // may now run 50 million instruction
 A spray that leaves a surface along its normal, and a tracer that reads as a streak of light:
 
 ```pgsl
+// Where the shot landed, the surface's normal there, and the barrel it left (your ray's results).
+hitX = 10; hitY = 1.2; hitZ = 4; normalX = 0; normalY = 1; normalZ = 0;
+muzzleX = x; muzzleY = y + 1.5; muzzleZ = z;
 ParticleBurstAtDir("Sparks", hitX, hitY, hitZ, normalX, normalY, normalZ, 1, 0);
 DrawSetColorRgb(255, 200, 80);
 DrawSetAlpha(0.9);
@@ -305,6 +308,7 @@ room starts, one a frame, so a room's sixteen are ready a quarter of a second in
 fresh ones after a big change:
 
 ```pgsl
+liftX = 12; liftY = 3; liftZ = -4; isDay = true;   // the lift's place and the time of day, from your game
 // The hall's lamps are lit: capture every placed probe again, one a frame.
 Engine.Lighting.Probes.Recapture();
 // The lift's probe rides with it.
