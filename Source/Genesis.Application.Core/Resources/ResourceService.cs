@@ -498,7 +498,8 @@ public sealed class ResourceService
         throw new InvalidOperationException("Unsupported standalone import. Import an image, sound, model or Genesis resource file; implementation files belong to their owning resource.");
     }
 
-    private static ResourceKind ImportKind(string source)
+    /// <summary>The kind of resource importing a file makes (the automation layer asks, to check the name first).</summary>
+    internal static ResourceKind ImportKind(string source)
     {
         ResourceDefinition? definition = ResourceDefinitions.FromPath(source);
         if (definition is not null) return definition.Kind;

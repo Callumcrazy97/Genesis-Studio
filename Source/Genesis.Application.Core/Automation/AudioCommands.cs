@@ -35,18 +35,25 @@ public static class AudioCommands
         [Description("The Audio resource's playback volume, 0 to 1.")] public double? Volume { get; set; }
         [Description("Seed for noise, so the same input makes the same sound (default 1).")] public int? Seed { get; set; }
         [Description("Seconds of a seamless loop: the sound is made exactly this long and repeats without a click (0 or absent: as made).")] public double? LoopSeconds { get; set; }
+        [Description(AutomationContext.ReplaceDescription)] public bool? Replace { get; set; }
     }
 
     public sealed class AudioSynth : AutomationCommand<SynthInput>
     {
         public override string Name => "audio.synth";
         public override string Description => "Makes a sound with Genesis's synthesiser and imports it as an Audio resource: start from a preset ("
-            + string.Join(", ", SoundSynth.Presets.Keys) + ") and/or add layers (oscillators with pitch glides, envelopes, vibrato, unison, low-pass) and melodies (note strings), with an echo.";
+            + string.Join(", ", SoundSynth.Presets.Keys) + ") and/or add layers (oscillators with pitch glides, envelopes, vibrato, unison, low-pass) and melodies (note strings), with an echo. "
+            + "A name that is taken is refused, naming what has it, rather than made as \"Name (2)\"; replace: true moves the old Audio resource to the trash and makes this one in its place.";
 
         protected override AutomationResult Execute(AutomationContext context, SynthInput input)
         {
             try
             {
+                // Refused before the sound is rendered; the import checks again, as it is what makes the resource.
+                string folder = context.Resolve(input.Folder ?? "Assets/Audio");
+                string name = SynthSounds.FileStem(input.Name);
+                if (name.Length == 0) throw new AutomationException("The sound needs a name.");
+                context.RequireNewResource(folder, Resources.ResourceKind.Audio, name, input.Replace == true);
                 // The Audio editor's "Make a sound" renders through the same SynthSounds, so a recipe
                 // is the same sound from either.
                 SynthSound sound = SynthSounds.Render(new SynthRecipe
@@ -59,11 +66,9 @@ public static class AudioCommands
                     Seed = input.Seed ?? 1,
                     LoopSeconds = input.LoopSeconds ?? 0,
                 });
-                string stem = SynthSounds.FileStem(input.Name);
-                if (stem.Length == 0) throw new AutomationException("The sound needs a name.");
-                return SynthSounds.WithWavFile(sound, stem, wav =>
+                return SynthSounds.WithWavFile(sound, name, wav =>
                 {
-                    string resource = context.Resources.ImportFiles(context.Resolve(input.Folder ?? "Assets/Audio"), [wav]).Single();
+                    string resource = context.ImportFiles(folder, [wav], input.Replace == true).Single();
                     if (input.Loop is not null || input.Volume is not null)
                     {
                         JObject document = JObject.Parse(File.ReadAllText(resource));

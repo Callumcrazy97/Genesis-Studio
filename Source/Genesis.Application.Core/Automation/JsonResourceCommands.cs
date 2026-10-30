@@ -118,20 +118,22 @@ public static partial class JsonResourceCommands
         [Description("Folder to make it in, project-relative (default Assets/Particles).")] public string? Folder { get; set; }
         [Description("The preset to start from (see the command's description); default a plain emitter.")] public string? Preset { get; set; }
         [Description("Fields to change after the preset, as named in the file (emitRate, speed, startSize, startColor...).")] public JsonObject? Values { get; set; }
+        [Description(AutomationContext.ReplaceDescription)] public bool? Replace { get; set; }
     }
 
     public sealed class ParticleCreate : AutomationCommand<ParticleCreateInput>
     {
         public override string Name => "particle.create";
         public override string Description => "Makes a Particle effect from one of the engine's presets, as the Particle editor's gallery does, with any settings changed. Presets: "
-            + string.Join(", ", ParticlePresets.Names) + ". Attach it to an Object with object.setComponent (ParticleComponent, Asset).";
+            + string.Join(", ", ParticlePresets.Names) + ". Attach it to an Object with object.setComponent (ParticleComponent, Asset). "
+            + "A name that is taken is refused, naming what has it, rather than made as \"Name (2)\"; replace: true moves the old effect to the trash and makes this one in its place.";
 
         protected override AutomationResult Execute(AutomationContext context, ParticleCreateInput input)
         {
             string? preset = input.Preset is null ? null
                 : ParticlePresets.Names.FirstOrDefault(name => name.Equals(input.Preset.Trim(), StringComparison.OrdinalIgnoreCase))
                   ?? throw new AutomationException($"'{input.Preset}' is not a preset. Presets: {string.Join(", ", ParticlePresets.Names)}.");
-            string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Particles"), ResourceKind.Particle, input.Name);
+            string full = context.CreateResource(context.Resolve(input.Folder ?? "Assets/Particles"), ResourceKind.Particle, input.Name, input.Replace == true);
             string text = preset is null ? File.ReadAllText(full) : JsonSerializer.Serialize(ParticlePresets.Create(preset), EditorJson);
             if (input.Values is { Count: > 0 })
             {

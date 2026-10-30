@@ -108,11 +108,11 @@ public static class ResourceCommands
     public sealed class FolderCreate : AutomationCommand<FolderInput>
     {
         public override string Name => "folder.create";
-        public override string Description => "Makes a folder in the project's Assets.";
+        public override string Description => "Makes a folder in the project's Assets. A folder that is already there is refused (not made again as \"Name (2)\"): use it.";
 
         protected override AutomationResult Execute(AutomationContext context, FolderInput input)
         {
-            string path = context.Resources.CreateFolder(Folder(context, input.Parent), input.Name);
+            string path = context.CreateFolder(Folder(context, input.Parent), input.Name);
             return AutomationResult.Success("Made the folder " + context.Relative(path) + ".", new JsonObject { ["path"] = context.Relative(path) }, context.Relative(path));
         }
     }
@@ -123,17 +123,18 @@ public static class ResourceCommands
         public ResourceKind Kind { get; set; }
         [Description("Folder to make it in, project-relative (default Assets).")] public string? Folder { get; set; }
         [Description("The new resource's name."), RequiredInput] public string Name { get; set; } = string.Empty;
+        [Description(AutomationContext.ReplaceDescription)] public bool? Replace { get; set; }
     }
 
     public sealed class ResourceCreate : AutomationCommand<CreateInput>
     {
         public override string Name => "resource.create";
-        public override string Description => "Makes a new resource of a kind, as the Assets dock's New does, with Studio's defaults.";
+        public override string Description => "Makes a new resource of a kind, as the Assets dock's New does, with Studio's defaults. A name that is taken (names are shared by every kind) is refused, naming the resource that has it, unless replace is true.";
 
         protected override AutomationResult Execute(AutomationContext context, CreateInput input)
         {
             if (input.Kind is ResourceKind.Unknown or ResourceKind.Folder) throw new AutomationException("Use folder.create for folders, and name a resource kind.");
-            string path = context.Resources.CreateResource(Folder(context, input.Folder), input.Kind, input.Name);
+            string path = context.CreateResource(Folder(context, input.Folder), input.Kind, input.Name, input.Replace == true);
             return AutomationResult.Success($"Made the {input.Kind} {context.Relative(path)}.", new JsonObject { ["path"] = context.Relative(path) }, context.Relative(path));
         }
     }
@@ -147,7 +148,9 @@ public static class ResourceCommands
     public sealed class ResourceRename : AutomationCommand<RenameInput>
     {
         public override string Name => "resource.rename";
-        public override string Description => "Renames a resource or folder; what refers to it by its identity keeps working.";
+        public override string Description => "Renames a resource or folder. A resource is known by its name: rooms, scripts and other resources that name it are updated, and so is an Object's own script binding (its ScriptClass). " +
+            "Its file keeps the name it was made with (Assets/Objects/Hero.object.json stays), as Studio's Rename leaves it: commands that take a path still take that path, and a new resource cannot be made at that file. " +
+            "Text that only mentions the old name (dialogue, comments, variable names) is not changed; text.replacePreview finds it. A folder is renamed itself.";
 
         protected override AutomationResult Execute(AutomationContext context, RenameInput input)
         {
@@ -156,7 +159,10 @@ public static class ResourceCommands
             string path = context.Resources.Rename(item.FullPath, input.NewName);
             // A resource is named in its metadata; its file may keep its own name.
             string newName = context.Find(context.Relative(path))?.Name ?? input.NewName;
-            return AutomationResult.Success($"Renamed {oldName} to {newName}.", new JsonObject { ["path"] = context.Relative(path), ["name"] = newName },
+            string message = $"Renamed {oldName} to {newName}.";
+            if (!item.IsFolder && !ResourceAssociates.GetStem(path).Equals(newName, StringComparison.OrdinalIgnoreCase))
+                message += $" Its file keeps the name {context.Relative(path)}: use that path in commands that take one, and the name everywhere else.";
+            return AutomationResult.Success(message, new JsonObject { ["path"] = context.Relative(path), ["name"] = newName },
                 [.. new[] { input.Path, context.Relative(path) }.Distinct(StringComparer.OrdinalIgnoreCase)]);
         }
     }
@@ -183,7 +189,7 @@ public static class ResourceCommands
     public sealed class ResourceCopy : AutomationCommand<MoveInput>
     {
         public override string Name => "resource.copy";
-        public override string Description => "Copies a resource or folder into another folder (the copy gets a new identity).";
+        public override string Description => "Copies a resource or folder into another folder (the copy gets a new identity). A copy is the one command that takes the next free name, \"Name (2)\", when its name is taken; the result gives the path it got.";
 
         protected override AutomationResult Execute(AutomationContext context, MoveInput input)
         {
@@ -201,7 +207,7 @@ public static class ResourceCommands
     public sealed class ResourceDuplicate : AutomationCommand<PathInput>
     {
         public override string Name => "resource.duplicate";
-        public override string Description => "Duplicates a resource beside itself, as the Assets dock's Duplicate does.";
+        public override string Description => "Duplicates a resource beside itself, as the Assets dock's Duplicate does: the copy is named \"Name (2)\" (the next free number), and the result gives the path it got.";
 
         protected override AutomationResult Execute(AutomationContext context, PathInput input)
         {
@@ -230,18 +236,20 @@ public static class ResourceCommands
     {
         [Description("Files to bring in: full paths anywhere on the machine (images, sounds, models...)."), RequiredInput] public string[] Files { get; set; } = [];
         [Description("Folder to put them in, project-relative (default Assets).")] public string? Folder { get; set; }
+        [Description("Each file makes a resource named after the file. " + AutomationContext.ReplaceDescription)] public bool? Replace { get; set; }
     }
 
     public sealed class ResourceImport : AutomationCommand<ImportInput>
     {
         public override string Name => "resource.import";
-        public override string Description => "Imports files from anywhere as resources, as dropping them on the Assets dock does (each becomes the right kind).";
+        public override string Description => "Imports files from anywhere as resources, as dropping them on the Assets dock does (each becomes the right kind). " +
+            "A file whose resource name is taken is refused, with nothing imported, unless replace is true.";
 
         protected override AutomationResult Execute(AutomationContext context, ImportInput input)
         {
             string[] missing = input.Files.Where(file => !File.Exists(file)).ToArray();
             if (missing.Length > 0) throw new AutomationException("These files do not exist: " + string.Join(", ", missing));
-            IReadOnlyList<string> made = context.Resources.ImportFiles(Folder(context, input.Folder), input.Files);
+            IReadOnlyList<string> made = context.ImportFiles(Folder(context, input.Folder), input.Files, input.Replace == true);
             string[] relative = [.. made.Select(context.Relative)];
             return AutomationResult.Success($"Imported {made.Count} resources.", new JsonArray([.. relative.Select(p => (JsonNode?)p)]), relative);
         }

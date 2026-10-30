@@ -37,12 +37,13 @@ public static class ModelCommands
         [Description("Draw both sides of every face (thin things: leaves, banners).")] public bool? DoubleSided { get; set; }
         [Description("Give it a skeleton and the template's animation clips (Idle, Walk, Run...): Humanoid or Quadruped, as the Model editor's auto-rig does.")] public string? Rig { get; set; }
         [Description("The rig template's variant (Humanoid: Generic; Quadruped: Fox, Horse...).")] public string? RigVariant { get; set; }
+        [Description(AutomationContext.ReplaceDescription)] public bool? Replace { get; set; }
     }
 
     public sealed class ModelCreate : AutomationCommand<CreateInput>
     {
         public override string Name => "model.create";
-        public override string Description => "Makes a Model from primitive parts (cube, sphere, cylinder, cone, pyramid, torus, quad), each placed, turned, sized and coloured, as the Model editor's kitbash does; the engine bakes it into one mesh. Place it with an Object (object.create with model).";
+        public override string Description => "Makes a Model from primitive parts (cube, sphere, cylinder, cone, pyramid, torus, quad), each placed, turned, sized and coloured, as the Model editor's kitbash does; the engine bakes it into one mesh. Place it with an Object (object.create with model). A name that is taken is refused, naming what has it, rather than made as \"Name (2)\"; replace: true moves the old Model to the trash and makes this one in its place.";
 
         protected override AutomationResult Execute(AutomationContext context, CreateInput input)
         {
@@ -66,7 +67,11 @@ public static class ModelCommands
                 });
             }
 
-            string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Models"), ResourceKind.Model, input.Name);
+            // Refused before the resource is made, so a corrected call can use the same name.
+            if (!string.IsNullOrWhiteSpace(input.Rig) && !input.Rig.Trim().Equals("Humanoid", StringComparison.OrdinalIgnoreCase) && !input.Rig.Trim().Equals("Quadruped", StringComparison.OrdinalIgnoreCase))
+                throw new AutomationException($"'{input.Rig}' is not a rig: Humanoid or Quadruped.");
+
+            string full = context.CreateResource(context.Resolve(input.Folder ?? "Assets/Models"), ResourceKind.Model, input.Name, input.Replace == true);
             JObject document = JObject.Parse(File.ReadAllText(full));
             document["parts"] = parts;
             if (input.Emissive is float emissive) document["emissive"] = Math.Max(0, emissive);
@@ -88,8 +93,6 @@ public static class ModelCommands
             if (!string.IsNullOrWhiteSpace(input.Rig))
             {
                 string category = input.Rig.Trim();
-                if (!category.Equals("Humanoid", StringComparison.OrdinalIgnoreCase) && !category.Equals("Quadruped", StringComparison.OrdinalIgnoreCase))
-                    throw new AutomationException($"'{input.Rig}' is not a rig: Humanoid or Quadruped.");
                 // As the Model editor saves a rigged model: the baked mesh with its skeleton and clips in
                 // the canonical .gmodel, and the resource pointing at it instead of at its parts.
                 // A copy (through the store's own format), so the loader's cached asset is not changed.

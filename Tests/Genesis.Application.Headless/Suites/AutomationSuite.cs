@@ -756,6 +756,138 @@ internal static class AutomationSuite
                 && Tile(2) == Genesis.Runtime.Scene.TileAutotile.TileFor(8, 0, 0), $"The autotiled row did not pick its ends and middle: {Tile(0)} {Tile(1)} {Tile(2)}.");
         });
 
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.ATakenNameIsRefusedNotMadeAsNameTwo", () =>
+        {
+            // A name is shared by every kind of resource. Each command that makes one, given a name another
+            // resource has, used to make "Name (2)" without a word, and a caller who then placed the path it
+            // had asked for got the old one. Now it refuses, names what has the name, and makes nothing.
+            bool NoSecondOnes() => !Directory.EnumerateFileSystemEntries(context.Resolve("Assets"), "Lantern*(2)*", SearchOption.AllDirectories).Any()
+                && !Directory.EnumerateFileSystemEntries(context.Resolve("Assets"), "lantern-import*(2)*", SearchOption.AllDirectories).Any();
+            AutomationResult Refuses(string command, string json, string holder)
+            {
+                AutomationResult refused = Call(command, json);
+                HeadlessHarness.Assert(!refused.Ok && refused.Message.Contains(holder, StringComparison.Ordinal) && NoSecondOnes(),
+                    $"{command} did not refuse a taken name, naming {holder}, and make nothing: " + refused.ToJson().ToJsonString());
+                return refused;
+            }
+
+            AutomationResult first = Call("object.create", """{ "name": "Lantern", "events": { "Create": "lit = 1;\n" } }""");
+            const string lantern = "Assets/Objects/Lantern.object.json";
+            HeadlessHarness.Assert(first.Ok && PathOf(first) == lantern, "The first Lantern was not made: " + first.ToJson().ToJsonString());
+            string lanternFile = context.Resolve(lantern);
+
+            AutomationResult again = Refuses("object.create", """{ "name": "Lantern", "solid": true }""", lantern);
+            HeadlessHarness.Assert(again.Message.Contains("\"replace\": true", StringComparison.Ordinal) && (bool?)Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(lanternFile))["solid"] == false,
+                "The refusal did not offer replace, or the first Lantern was changed: " + again.Message);
+            Refuses("object.create", """{ "name": "LANTERN" }""", lantern);
+
+            // Every other command that makes a resource: made once, refused the second time.
+            (string Command, string Json, string Path)[] makers =
+            [
+                ("model.create", """{ "name": "Lantern Mesh", "parts": [ { "primitive": "Cube" } ] }""", "Assets/Models/Lantern Mesh.model.json"),
+                ("image.create", """{ "name": "Lantern Picture", "width": 8, "height": 8 }""", "Assets/Sprites/Lantern Picture.image.json"),
+                ("audio.synth", """{ "name": "Lantern Ping", "preset": "coin" }""", "Assets/Audio/Lantern Ping.audio.json"),
+                ("room.create", """{ "name": "Lantern Room" }""", "Assets/Rooms/Lantern Room.room.json"),
+                ("particle.create", """{ "name": "Lantern Glow", "preset": "fire" }""", "Assets/Particles/Lantern Glow.particle.json"),
+                ("terrain.create", """{ "name": "Lantern Hill", "preset": "Flatlands", "resolutionX": 17, "resolutionZ": 17 }""", "Assets/Terrain/Lantern Hill.terrain.json"),
+                ("resource.create", """{ "kind": "Note", "name": "Lantern Note" }""", "Assets/Notes/Lantern Note.md"),
+            ];
+            foreach ((string command, string json, string path) in makers)
+            {
+                AutomationResult made = Call(command, json);
+                HeadlessHarness.Assert(made.Ok && PathOf(made) == path, $"{command} did not make {path}: " + made.ToJson().ToJsonString());
+                AutomationResult refused = Refuses(command, json, path);
+                HeadlessHarness.Assert(refused.Message.Contains("\"replace\": true", StringComparison.Ordinal), $"{command}'s refusal did not offer replace: " + refused.Message);
+            }
+
+            // A name another kind of resource has is refused too, and replace does not cross kinds.
+            Refuses("model.create", """{ "name": "Lantern", "parts": [ { "primitive": "Cube" } ] }""", lantern);
+            Refuses("model.create", """{ "name": "Lantern", "parts": [ { "primitive": "Cube" } ], "replace": true }""", lantern);
+            Refuses("resource.create", """{ "kind": "Note", "name": "Lantern" }""", lantern);
+            Refuses("script.write", """{ "path": "Assets/Scripts/Lantern.pgsl", "code": "function LanternOn() {\n    return 1;\n}\n" }""", lantern);
+            HeadlessHarness.Assert(File.Exists(lanternFile) && !File.Exists(context.Resolve("Assets/Models/Lantern.model.json")), "Replacing across kinds touched the Object or made the Model.");
+
+            // A script written at a path that has one is written over (backed up): that is what the command is for.
+            HeadlessHarness.Assert(Call("script.write", """{ "path": "Assets/Scripts/Lantern Lib.pgsl", "code": "function LanternOn() {\n    return 1;\n}\n" }""").Ok
+                && Call("script.write", """{ "path": "Assets/Scripts/Lantern Lib.pgsl", "code": "function LanternOn() {\n    return 2;\n}\n" }""").Ok
+                && File.ReadAllText(context.Resolve("Assets/Scripts/Lantern Lib.pgsl")).Contains("return 2;", StringComparison.Ordinal) && NoSecondOnes(),
+                "script.write did not write over the script at its path.");
+
+            // A folder that is there is refused, not made again beside itself.
+            HeadlessHarness.Assert(Call("folder.create", """{ "parent": "Assets/Objects", "name": "Lantern Props" }""").Ok, "folder.create made no folder.");
+            AutomationResult folder = Call("folder.create", """{ "parent": "Assets/Objects", "name": "Lantern Props" }""");
+            HeadlessHarness.Assert(!folder.Ok && folder.Message.Contains("Assets/Objects/Lantern Props", StringComparison.Ordinal) && folder.Message.Contains("already exists", StringComparison.Ordinal) && NoSecondOnes(),
+                "A folder that was there was not refused: " + folder.ToJson().ToJsonString());
+
+            // Importing a file whose name is taken is refused, with nothing imported; replace brings it in.
+            string png = Path.Combine(ctx.Workspace, "lantern-import.png");
+            using (var bitmap = new System.Drawing.Bitmap(4, 4)) bitmap.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+            string importJson = $$"""{ "files": ["{{png.Replace("\\", "\\\\")}}"] }""";
+            AutomationResult imported = Call("resource.import", importJson);
+            HeadlessHarness.Assert(imported.Ok && imported.Changed.Any(p => p == "Assets/Sprites/lantern-import.image.json"), "resource.import made no Image: " + imported.ToJson().ToJsonString());
+            Refuses("resource.import", importJson, "Assets/Sprites/lantern-import.image.json");
+
+            // Replace: the old Object goes to the project's trash, the new one is made at the same path, and the result says so.
+            AutomationResult replaced = Call("object.create", """{ "name": "Lantern", "solid": true, "events": { "Step": "lit = lit + 1;\n" }, "replace": true }""");
+            string trash = replaced.Data?["replaced"]?[0]?["trash"]?.GetValue<string>() ?? string.Empty;
+            HeadlessHarness.Assert(replaced.Ok && PathOf(replaced) == lantern && replaced.Message.Contains("Replaced the Object 'Lantern'", StringComparison.Ordinal)
+                && trash.Length > 0 && File.Exists(context.Resolve(trash)) && replaced.Changed.Contains(lantern),
+                "replace did not make the new Object at the old path and say where the old one went: " + replaced.ToJson().ToJsonString());
+            HeadlessHarness.Assert((bool?)Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(lanternFile))["solid"] == true
+                && Genesis.Runtime.Scripting.ObjectEventStore.Load(lanternFile).Keys.SequenceEqual(new[] { "Step" })
+                && !File.Exists(Genesis.Runtime.Scripting.ObjectEventStore.PathFor(lanternFile, "Create")) && NoSecondOnes(),
+                "The replacing Object kept something of the old one (its Create event) or was made beside it.");
+
+            AutomationResult reimported = Call("resource.import", importJson.TrimEnd('}') + ", \"replace\": true }");
+            HeadlessHarness.Assert(reimported.Ok && reimported.Message.Contains("Replaced the Image 'lantern-import'", StringComparison.Ordinal) && NoSecondOnes(),
+                "resource.import with replace did not replace the Image: " + reimported.ToJson().ToJsonString());
+
+            // The schema shows the input, so a caller reading commands.list finds it.
+            JsonObject? schema = ((JsonArray)Call(AutomationRegistry.ListCommand).Data!).OfType<JsonObject>().First(c => c["name"]?.GetValue<string>() == "object.create")["input"] as JsonObject;
+            HeadlessHarness.Assert(schema?["properties"]?["replace"]?["type"]?.GetValue<string>() == "boolean", "object.create's schema did not show replace.");
+        });
+
+        HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.RenamingAnObjectKeepsItsScriptBindingAndRoomsAndSaysWhatItLeaves", () =>
+        {
+            string blue = PathOf(Call("object.create", """{ "name": "Hero Blue", "events": { "Create": "mood = 1;\n" } }"""));
+            string room = PathOf(Call("room.create", """{ "name": "Blue Room" }"""));
+            HeadlessHarness.Assert(Call("room.addInstance", $$"""{ "room": "{{room}}", "object": "{{blue}}", "x": 1, "y": 2 }""").Ok, "room.addInstance failed.");
+            string ScriptClass() => (string?)ObjectCompositionModel.Props(new ObjectCompositionModel(Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(context.Resolve(blue)))).Find("ScriptComponent")!)["ScriptClass"] ?? string.Empty;
+            HeadlessHarness.Assert(ScriptClass() == "Hero Blue", "The Object was not bound to its own name: " + ScriptClass());
+
+            AutomationResult renamed = Call("resource.rename", $$"""{ "path": "{{blue}}", "newName": "Hero Red" }""");
+            HeadlessHarness.Assert(renamed.Ok && renamed.Data?["name"]?.GetValue<string>() == "Hero Red", "resource.rename did not rename: " + renamed.ToJson().ToJsonString());
+            // What it leaves is said: the file keeps its name, and the message gives it.
+            HeadlessHarness.Assert(PathOf(renamed) == blue && File.Exists(context.Resolve(blue)) && renamed.Message.Contains("Its file keeps the name " + blue, StringComparison.Ordinal),
+                "The result did not say that the file keeps its name: " + renamed.ToJson().ToJsonString());
+            // What carries the name followed it: the Object's own script binding, its events and the room's instance.
+            HeadlessHarness.Assert(ScriptClass() == "Hero Red", "The Object's ScriptComponent still names the old name: " + ScriptClass());
+            HeadlessHarness.Assert(Genesis.Runtime.Scripting.ObjectEventStore.Load(context.Resolve(blue)).ContainsKey("Create"), "The renamed Object lost its Create event.");
+            var node = Genesis.Runtime.Scene.RoomAssetLoader.Parse(context.Resolve(room)).Nodes.Single(n => n.Kind == Genesis.Runtime.Scene.RoomNodeKind.GameObject);
+            HeadlessHarness.Assert(node.GameObject?.Prefab == "Hero Red", "The room's instance does not name the renamed Object: " + node.GameObject?.Prefab);
+            AutomationResult info = Call("object.info", $$"""{ "object": "{{blue}}" }""");
+            HeadlessHarness.Assert(info.Ok && info.Data?["name"]?.GetValue<string>() == "Hero Red"
+                && !Call("project.check").Issues.Any(i => i.Severity == "error" && (i.Path ?? i.Message).Contains("Hero", StringComparison.Ordinal)),
+                "object.info or the project check did not agree with the new name: " + info.ToJson().ToJsonString());
+
+            // The old name is free but its file is not; the new name is taken. Both say so, and a folder of its own works.
+            AutomationResult oldName = Call("object.create", """{ "name": "Hero Blue" }""");
+            HeadlessHarness.Assert(!oldName.Ok && oldName.Message.Contains(blue, StringComparison.Ordinal) && oldName.Message.Contains("'Hero Red'", StringComparison.Ordinal),
+                "Making a new Hero Blue at the renamed Object's file was not refused with its holder: " + oldName.Message);
+            AutomationResult newName = Call("object.create", """{ "name": "Hero Red" }""");
+            HeadlessHarness.Assert(!newName.Ok && newName.Message.Contains("already exists", StringComparison.Ordinal) && newName.Message.Contains(blue, StringComparison.Ordinal),
+                "Making a second Hero Red was not refused with the first: " + newName.Message);
+            HeadlessHarness.Assert(Call("folder.create", """{ "parent": "Assets/Objects", "name": "Spares" }""").Ok
+                && PathOf(Call("object.create", """{ "name": "Hero Blue", "folder": "Assets/Objects/Spares" }""")) == "Assets/Objects/Spares/Hero Blue.object.json",
+                "The freed name could not be used in another folder.");
+
+            // A folder is renamed itself, with no word about a file.
+            Call("folder.create", """{ "parent": "Assets/Objects", "name": "Old Props" }""");
+            AutomationResult folder = Call("resource.rename", """{ "path": "Assets/Objects/Old Props", "newName": "New Props" }""");
+            HeadlessHarness.Assert(folder.Ok && Directory.Exists(context.Resolve("Assets/Objects/New Props")) && !folder.Message.Contains("file keeps", StringComparison.Ordinal),
+                "A folder was not renamed as a folder: " + folder.ToJson().ToJsonString());
+        });
+
         HeadlessHarness.RunCase(ctx.Report, "Studio.Automation.CommandLineAndMcpServeTheSameCommands", () =>
         {
             var output = new StringWriter();

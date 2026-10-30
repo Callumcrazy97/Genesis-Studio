@@ -107,12 +107,14 @@ public static class ImageCommands
         public bool? Autotile { get; set; }
         [Description("The autotile block's first column (default 0).")] public int? AutotileColumn { get; set; }
         [Description("The autotile block's first row (default 0).")] public int? AutotileRow { get; set; }
+        [Description(AutomationContext.ReplaceDescription)] public bool? Replace { get; set; }
     }
 
     public sealed class ImageCreate : AutomationCommand<CreateInput>
     {
         public override string Name => "image.create";
-        public override string Description => "Makes an Image resource of a size and number of frames, every frame filled with a colour, ready to draw on (image.draw) or open in the Image editor.";
+        public override string Description => "Makes an Image resource of a size and number of frames, every frame filled with a colour, ready to draw on (image.draw) or open in the Image editor. " +
+            "A name that is taken is refused, naming what has it, rather than made as \"Name (2)\"; replace: true moves the old Image to the trash and makes this one in its place.";
 
         protected override AutomationResult Execute(AutomationContext context, CreateInput input)
         {
@@ -121,7 +123,8 @@ public static class ImageCommands
             if (frames is < 1 or > 256) throw new AutomationException("An image has 1 to 256 frames.");
             Color background = ParseColor(input.Background, Color.Transparent);
 
-            string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Sprites"), ResourceKind.Image, input.Name);
+            // The settings are checked before the resource is made, so a refused call leaves nothing
+            // behind and a corrected one can use the same name.
             ImageDocument document = ImageDocument.CreateDefault(width, height);
             document.Usage.Allowed = input.Usage ?? ImageUsage.Sprite;
             bool tileSettings = input.TileWidth is not null || input.TileHeight is not null || input.SolidTiles is not null || input.Autotile is not null;
@@ -137,6 +140,7 @@ public static class ImageCommands
                 tiles.AutotileColumn = Math.Max(0, input.AutotileColumn ?? 0);
                 tiles.AutotileRow = Math.Max(0, input.AutotileRow ?? 0);
             }
+            string full = context.CreateResource(context.Resolve(input.Folder ?? "Assets/Sprites"), ResourceKind.Image, input.Name, input.Replace == true);
             string data = DataFolder(full);
             Directory.CreateDirectory(Path.Combine(data, "frames"));
             var layer = new ImageLayer { Name = "Layer 1" };

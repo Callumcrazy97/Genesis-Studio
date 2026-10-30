@@ -109,12 +109,14 @@ public static class TerrainShapeCommands
         [Description("Terrace steps (default 12).")] public int? TerraceSteps { get; set; }
         [Description("Rivers to carve (default 0).")] public int? RiverCount { get; set; }
         [Description("River depth, metres (default 8).")] public float? RiverDepth { get; set; }
+        [Description(AutomationContext.ReplaceDescription)] public bool? Replace { get; set; }
     }
 
     public sealed class TerrainCreate : AutomationCommand<CreateInput>
     {
         public override string Name => "terrain.create";
-        public override string Description => "Makes a Terrain from a landform (flatlands, hills, mountains, islands, canyon...), as the Terrain editor's landform gallery does, with its size, height range, erosion, terraces and rivers.";
+        public override string Description => "Makes a Terrain from a landform (flatlands, hills, mountains, islands, canyon...), as the Terrain editor's landform gallery does, with its size, height range, erosion, terraces and rivers. " +
+            "A name that is taken is refused, naming what has it, rather than made as \"Name (2)\"; replace: true moves the old Terrain to the trash and makes this one in its place.";
 
         protected override AutomationResult Execute(AutomationContext context, CreateInput input)
         {
@@ -137,8 +139,10 @@ public static class TerrainShapeCommands
             if (parameters.CellSize <= 0) throw new AutomationException("The cell size must be above 0.");
             if (parameters.MaxHeight <= parameters.MinHeight) throw new AutomationException("The highest height must be above the lowest.");
 
+            // Refused before the heights are generated, which is the long part.
+            context.RequireNewResource(context.Resolve(input.Folder ?? "Assets/Terrain"), ResourceKind.Terrain, input.Name, input.Replace == true);
             TerrainAsset terrain = TerrainGenerator.Generate(parameters);
-            string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Terrain"), ResourceKind.Terrain, input.Name);
+            string full = context.CreateResource(context.Resolve(input.Folder ?? "Assets/Terrain"), ResourceKind.Terrain, input.Name, input.Replace == true);
             JsonObject settings = Settings(full);
             settings["schemaVersion"] = 2;
             settings["resolution"] = new JsonArray(parameters.ResolutionX, parameters.ResolutionZ);
@@ -181,6 +185,7 @@ public static class TerrainShapeCommands
         [Description("Also hide those surfaces on the Model (its hiddenMaterials), so the terrain stands in for them (default false).")] public bool? HideSurfaces { get; set; }
         [Description("Paint: how finely each sample's cell is measured, 1 to 8 points along each side (default 4). A sample is painted with the layers over its whole cell in proportion to the share each covers, so a strip narrower than a cell (a path's earth rim) keeps its paint along its whole length. 1 paints each sample with the one layer under its centre, which drops such strips out where the grid falls between them.")]
         public int? PaintSupersample { get; set; }
+        [Description(AutomationContext.ReplaceDescription)] public bool? Replace { get; set; }
     }
 
     /// <summary>
@@ -192,13 +197,16 @@ public static class TerrainShapeCommands
     public sealed class TerrainFromModel : AutomationCommand<FromModelInput>
     {
         public override string Name => "terrain.fromModel";
-        public override string Description => "Makes a Terrain from a Model's ground surfaces (chosen by material): their heights, a paint layer per material, and optionally hides those surfaces on the Model so the terrain takes their place.";
+        public override string Description => "Makes a Terrain from a Model's ground surfaces (chosen by material): their heights, a paint layer per material, and optionally hides those surfaces on the Model so the terrain takes their place. " +
+            "A name that is taken is refused, naming what has it, rather than made as \"Name (2)\"; replace: true moves the old Terrain to the trash and makes this one in its place.";
 
         protected override AutomationResult Execute(AutomationContext context, FromModelInput input)
         {
             string modelPath = context.Resolve(input.Model);
             if (!File.Exists(modelPath) || !modelPath.EndsWith(".model.json", StringComparison.OrdinalIgnoreCase))
                 throw new AutomationException($"'{input.Model}' is not a Model resource (a .model.json file).");
+            // Refused before the model is read and its ground measured, which is the long part.
+            context.RequireNewResource(context.Resolve(input.Folder ?? "Assets/Terrain"), ResourceKind.Terrain, input.Name, input.Replace == true);
             float cell = input.CellSize ?? 1f;
             if (!(cell > 0f)) throw new AutomationException("The cell size must be above 0.");
             int subsamples = input.PaintSupersample ?? 4;
@@ -305,7 +313,7 @@ public static class TerrainShapeCommands
             if (subsamples > 1) paintTriangles.AddRange(triangles.Select(t => new GroundTriangle(t.A, t.B, t.C, layerOf.GetValueOrDefault(t.Material, 0))));
             TerrainModelPaint.Paint(terrain, paintTriangles, centreLayers, subsamples);
 
-            string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Terrain"), ResourceKind.Terrain, input.Name);
+            string full = context.CreateResource(context.Resolve(input.Folder ?? "Assets/Terrain"), ResourceKind.Terrain, input.Name, input.Replace == true);
             JsonObject settings = Settings(full);
             settings["schemaVersion"] = 2;
             settings["resolution"] = new JsonArray(resX, resZ);
