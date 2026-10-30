@@ -2749,7 +2749,7 @@ internal static partial class EditorGate
                 editor.AuthoringMode == ShaderAuthoringMode.Preset
                 && editor.TargetType == ShaderTargetType.Image
                 && editor.PresetNames.SequenceEqual(
-                    ["Water", "Dissolve", "Hologram", "Forcefield", "Rim Light", "Lava", "Toon", "Glitch",
+                    ["Water", "Dissolve", "Hologram", "Forcefield", "Rim Light", "Lava", "Toon", "Glitch", "Wind Sway", "Wave",
                      "Image Rainbow", "Model Rainbow", "Particle Pulse", "Terrain Tint", "Pond Water", "Fullscreen Vignette"]),
                 "The Shader Editor did not open with the complete Preset/Code authoring library.");
             editor.SetPreviewVisible(false);

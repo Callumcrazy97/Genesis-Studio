@@ -70,9 +70,13 @@ internal static class GateSuite
             // Editor workflows intentionally change the starting Room and other saved resources.
             // Stock-template assertions need their own project; editor round trips are checked above.
             RuntimeGate.Run(ctx, new GateFixture(ctx, "RuntimeGate"));
-            int gateTests = ctx.Report.Tests.Count - startingTests;
-            if (gateTests != 15)
-                throw new InvalidOperationException($"The build gate must report exactly 15 workflows, but reported {gateTests}.");
+            // The gate's own workflows, one per editor and the two PGSL runtime ones. The Audio workflow
+            // runs the music studio's and the mixer's own cases inside it (29 Oct 2026), so those detail
+            // cases are not counted. A workflow that did not report fails the run as a check, not a crash
+            // (the 30 Oct Full Build died here with 30 against 15 and ran nothing after the gate).
+            int gateTests = ctx.Report.Tests.Skip(startingTests).Count(test => IsGateWorkflow(test.Name));
+            HeadlessHarness.RunCase(ctx.Report, "Gate.EveryWorkflowReported", () =>
+                HeadlessHarness.Assert(gateTests == 15, $"The build gate must report exactly 15 workflows, but reported {gateTests}."));
         }
         finally
         {
@@ -80,6 +84,11 @@ internal static class GateSuite
             Genesis.Rendering.Core.EditorPreviewSettings.Configure(previousEffectiveVSync);
         }
     }
+
+    // One of the gate's own workflows: Editor.<Name> with nothing after the name, or a PGSL runtime one.
+    private static bool IsGateWorkflow(string name) =>
+        name is "Runtime.PGSL.TwoD" or "Runtime.PGSL.ThreeD"
+        || (name.StartsWith("Editor.", System.StringComparison.Ordinal) && name.IndexOf('.', "Editor.".Length) < 0);
 
     /// <summary>Run one consolidated editor/runtime workflow by friendly command-line name.</summary>
     public static void RunFocused(HeadlessContext ctx, string target)
