@@ -47,7 +47,7 @@ The big gaps are:
 | T5 | Nuvema fixes to confirm by Cal: black blocks (bounce/reflections off), name entry by WASD/pad, resizing | 28 Oct night | S | Cal tests |
 | T6 | **First-person right-stick sign**: changed 28 Oct to "away is +", but the Golden Stag note says Cal's pad reports right stick up as -Y | 28 Oct | S | Ask Cal which way it looks, then fix the FirstPerson recipe |
 | T7 | Look gaps the blind trial found: pale turquoise water, flat sky with no sun glow, one looping birdsong (want random panned chirps) | 28 Oct | M each | Judge side by side with `BuildTools/Benchmarks/NatureWalk/reference-threejs.html`. **First pass merged 29 Oct (0736187), graphics-designer scores before → after: grass 3 → 7, water 3 → 6, sun glow 2 → 7.** Sun glow: a warm halo, bloom and core round the sun on the dynamic sky (`Engine.Sky.SunGlow` / `Engine.Sky.Sun.Glow`, room `sunGlow` 0-4, default 0; the Sunny day and Golden hour scene presets set 1). Water: under the dynamic sky it reflects that sky's own horizon and zenith colours (and a horizon-reflection bug that dropped the blue channel is fixed on that path only); the dark stair-stepped shoreline line is gone; small ripples fade between 15 and 70 m; standard water is a clear teal (0.12, 0.42, 0.52) at opacity 0.72; lake mist 0.15 instead of 0.30. Grass: new-rule defaults root (0.06, 0.12, 0.04), tip (0.27, 0.46, 0.18), curve 1.25. `look-gaps` cases 4/4; before/after pictures in the engineer's keep folder. Still off: the lake's far bank is a dark slab, the sky paler and greyer than the reference, the path about 1.25x too bright, no wildflower colour, the water pale frosted grey-blue rather than deep blue; `sunGlow` not yet in the Room editor Inspector or F6; `Shaders/Water.hlsl` reference copy not updated |
-| T8 | Second blind trial on a *different* small scene, with the three.js version written on the same clock | Task Checker | M | The Nature Walk batch now ships, so repeating that one would measure copying |
+| T8 | Second blind trial on a *different* small scene, with the three.js version written on the same clock | Task Checker | M | **Done 30 Oct 00:44-04:15 (W):** scene "Island Cove" (first-person tropical island at golden hour, with sounds), two fresh agents blind on the published 20261029-190239 build, working minutes with lock waits left out: first good picture Genesis 22 vs three.js 24, finished 36 vs 31. **The time bar is met.** The designer judged blind: three.js 7.5, Genesis 4.5 overall (sky 8/5, water 8/4, beach 7.5/4.5, plants 7.5/4.5, props 6.5/4.5, light 7/5), so **the look is not**. The 29 Oct Nature Walk repeat, made without the example batch, reached its first good picture in 18 working minutes (29 on 28 Oct) and scored 6 against the 28 Oct version's 4. Pictures: `C:\gs\worktree-agent-aab1151c0b42b467b\keep`. What cost the Genesis agents time is in section 8 (W1-W6) |
 | T9 | Cal times making the Nature Walk in Studio | Task Checker | Cal | The one measurement only a person can make |
 | T10 | Automation while Studio has the project open: a room order (or start room) saved by `room.create start:true` is overwritten by the window's next save | 28 Oct review | S-M | `ProjectRoomOrder.OrderSaved` is in-process only; reload the manifest on file change. **Done 29 Oct (cccf27e):** `ProjectRoomOrder.AdoptFromFile` reads only `roomOrder` and `startRoom`; `StudioShellForm` watches the project file (300 ms debounce, UI thread) and adopts them without touching unsaved work; `room-order` cases 4/4 including the open shell adopting what a real `room.create start:true` saved |
 
@@ -237,6 +237,41 @@ Main Task: the planner conversation (this one, or "Active Claude sessions resour
   - Splits the plan into Sub Tasks.
   - Writes each Sub conversation's brief: the plan item, the files it owns, its acceptance
     criteria, the rules in this section, what to report back.
+
+## 8. 30 October: what the blind trial and the acceptance samples asked for
+
+**Acceptance (Y, 30 Oct 00:17-04:12):** a small 2D game (Coin Hop: drawn sprites, synth sounds, three
+platforms, three coins, a score and a win) and a small 3D game (Lake Quest: a terrain with the built-in
+grass and a lake, a third-person explorer, three gems, a light and a reflection probe, a win) made
+from scratch with automation only, no file written by hand, authored in 5.3 and about 3 minutes
+(about 20 each with the fixes after the first plays) against the 15-minute bar. Both won on D3D11,
+D3D12, Vulkan and OpenGL; Software won the 2D game and draws the 3D one cleanly but at about 8 fps
+the walker did not finish its route in the time given (an earlier Software run did). F5 to playing
+1.1-1.4 s on the GPU backends, 0.7-0.9 s on Software. Projects and pictures:
+`C:\gs\worktree-agent-a7fa0e8ea93c56166\samples` and `...\out\runs\<renderer>`.
+
+Open items from both, none started:
+
+| Id | Item | Source | Size | Status |
+|---|---|---|---|---|
+| W1 | **Water ripples tile into a visible grid** in every blind picture, both scenes; `waveAmplitude` does not change it | T8 | M | Engine (T7 follow-up); the biggest look loss (water 8 vs 4) |
+| W2 | A `PhysicsComponent` set Static on a placed model makes the model vanish with no error; Static should give it a fixed collider, and the Cookbook should say how to make a model solid and walkable | T8 | S-M | Engine + guide |
+| W3 | `model.create` and `object.create` with a taken name silently make "Name (2)"; `resource.rename` leaves the file name and `ScriptClass` behind | T8, Y | S | Refuse the duplicate or warn loudly |
+| W4 | Island shaping took a 200-stroke generator: terrain from a heightmap image, or an Island landform | T8 | M | Terrain |
+| W5 | `object.info` shows no event code; the room environment's field names are only found in the room file | T8 | S | Automation |
+| W6 | Look gaps: flat mauve sky without clouds, a small hard sun disc, smeared sand, paddle-shaped palm fronds, khaki ground under the grass, near-black far slopes | T8 | M each | Judge against `cove-threejs` pictures |
+| Y1 | `game.run` should say "N of M pictures taken": shots after the input ends or delayed under load are dropped silently | Y | S | Automation |
+| Y2 | `SoundPreload` in the Cookbook and the recipes (the first `PlaySound` stalls a frame 123-717 ms); a deterministic stepped mode for `game.run` (the Platformer recipe steps per frame while the input runs by the clock) | Y | S + M | Guide + automation |
+| Y3 | `object.setEvent` replaces the whole event, recipe code included: an append mode | Y | S | Automation |
+| Y4 | `room.delete`, or a way to edit `roomOrder` (a deleted Start room stays in it; `resource.set` refuses the project file) | Y | S | Automation |
+| Y5 | `--automation new` with no template should list the templates, and `list` should include `new`; the first `new` took 46 s cold | Y | S | Automation |
+| Y6 | `commands.list` needs a name filter (the full list is 112 KB) and `batch` a `brief` option | Y | S | Automation |
+| Y7 | Document the orbit camera (it starts looking toward -z; `Engine.Camera.Orbit.Yaw/Pitch/Distance` are in no guide) and give the ThirdPerson recipe a fall respawn | Y | S | Guide + recipe |
+| Y8 | `EngineApi.md` rows have no signatures (`CollisionCircle3D(x, z, r, "Gem")` was guessed); the README shows a 3-argument `CollisionCircle` where the call takes 4 | Y | S-M | Reference page generator |
+| Y9 | `game.run` should report the sounds played (name, time) and a log-based start time beside `startSeconds` | Y | S | Automation |
+| Y10 | The Software renderer draws the 3D sample at about 8 fps (110 ms a frame): a flatter look (flat lake, no reflections) is by design, the speed is not | Y | M | Low priority (Software is the fallback) |
+
+Done from the same reports (30 Oct): the compass, the Raise strength note and a terrain layer's image through `resource.set` in the guides (97025cc); the locked-run output trap in the run rules.
   - Creates the conversations and tracks them in the ledger.
 - **A Sub conversation** (the AI Team for one Sub Task):
   - Its Planner splits the Sub Task into Minor Tasks and writes each Minor Task's brief.

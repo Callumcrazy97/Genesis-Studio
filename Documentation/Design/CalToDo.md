@@ -53,7 +53,7 @@ item's status is in `UnityParityPlan.md`.
 | Resource tree: expand a folder, double-click one resource, only that one opens | Studio automation, if it can drive the tree; otherwise says so here | pending |
 | Genesiscraft distant terrain black on Vulkan | bot flight on Vulkan and D3D11, black fraction per frame, `GENESIS_VULKAN_DEBUG=1` log kept | pending (a clean result is evidence, not proof: it never reproduced before) |
 | First-person right stick direction | a test feeds stick values and reads the camera direction; a tiny tool prints your pad's axis live | pending |
-| Acceptance: a small 2D game and a small 3D game from scratch with built-in tools, on all five renderers | authored by a fresh agent in about nine minutes each on 29 Oct (the bar is 15); the plays on all five renderers are pending | pending |
+| Acceptance: a small 2D game and a small 3D game from scratch with built-in tools, on all five renderers | authored by a fresh agent with automation only: Coin Hop (2D) in 5.3 min, Lake Quest (3D) in about 3 min, about 20 min each with the fixes after the first plays (the bar is 15) | **Done 30 Oct 04:12:** both won on D3D11, D3D12, Vulkan and OpenGL; Software won the 2D game and draws the 3D one cleanly but at about 8 fps the walker did not finish in time. Projects and pictures in `C:\gs\worktree-agent-a7fa0e8ea93c56166\samples` and `...\out\runs` |
 
 ## Not for you
 
