@@ -254,6 +254,7 @@ run 100 000 instructions before it is stopped as a hang. Raise the limit once fo
 Compiled and interpreted functions count the same instructions, so the limit means the same either way:
 
 ```pgsl
+function UpgradeSave() { /* the game's own long work: a world generated, a save brought up to date */ }
 ScriptInstructionLimit(50000000);          // the same as Engine.Game.Scripts.InstructionLimit = 50000000;
 UpgradeSave();                             // may now run 50 million instructions in one call
 ```
