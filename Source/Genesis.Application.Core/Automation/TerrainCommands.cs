@@ -100,9 +100,9 @@ public static class TerrainCommands
         [Description("Grass on each painted layer, first to eighth, 0 to 1 (default 1 on the first, usually Grass, and 0 on the rest): [1, 0.3] also grows thin grass on the second.")] public float[]? LayerDensities { get; set; }
         [Description("Most tufts drawn in a frame, nearest first (default 16000, at most 32768).")] public int? MaximumDrawnTufts { get; set; }
         [Description("Colour the blades from baseColor at the root to tipColor at the tip (default true; false keeps the tuft's own colours).")] public bool? ColorEnabled { get; set; }
-        [Description("The blades' colour at the root [r, g, b], 0 to 1 (default [0.10, 0.22, 0.06]).")] public float[]? BaseColor { get; set; }
-        [Description("The blades' colour at the tip [r, g, b], 0 to 1 (default [0.27, 0.62, 0.17]).")] public float[]? TipColor { get; set; }
-        [Description("How the colour runs up a blade: 1 evenly, below 1 the tip colour reaches further down, above 1 it keeps to the tips (default 0.8).")] public float? ColorCurve { get; set; }
+        [Description("The blades' colour at the root [r, g, b], 0 to 1 (default [0.06, 0.12, 0.04]).")] public float[]? BaseColor { get; set; }
+        [Description("The blades' colour at the tip [r, g, b], 0 to 1 (default [0.27, 0.46, 0.18]).")] public float[]? TipColor { get; set; }
+        [Description("How the colour runs up a blade: 1 evenly, below 1 the tip colour reaches further down, above 1 it keeps to the tips (default 1.25).")] public float? ColorCurve { get; set; }
         [Description("An Image resource drawn on each blade, tinted by the colours; its see-through parts cut the blade (default none; empty clears it).")] public string? Texture { get; set; }
         [Description("Sway the blades in the wind (default true).")] public bool? WindEnabled { get; set; }
         [Description("How far the blades sway, 0 to 4 (default 1).")] public float? WindStrength { get; set; }
