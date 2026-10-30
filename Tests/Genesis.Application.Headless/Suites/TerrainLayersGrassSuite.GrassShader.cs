@@ -39,12 +39,22 @@ internal static partial class TerrainLayersGrassSuite
             && rule.WindSpeed == 1f && rule.WindGusts == 0f && rule.PushersEnabled && rule.PushStrength == 0.8f && rule.SpringBackSeconds == 0.8f
             && rule.ClearPaths && rule.PathEdge == 0.6f && !rule.SavedBeforeShader, "A new rule's grass shader, parting or path settings are not the built-in grass's.");
 
-        // Deep green at the root, sunlit at the tip: the reference's contrast between them.
-        GrassAssert(rule.TipColor.Y > rule.BaseColor.Y * 2.5f && rule.TipColor.Y > rule.TipColor.X * 1.8f, "The built-in ramp lost its root-to-tip contrast.");
         Vector4 ramp = FoliageShading.ColorRamp(rule.BaseColor, rule.TipColor, rule.ColorCurve);
         GrassAssert(Vector3.Distance(FoliageShading.UnpackColor(ramp.X), rule.BaseColor) < 0.003f
             && Vector3.Distance(FoliageShading.UnpackColor(ramp.Y), rule.TipColor) < 0.003f && ramp.Z == rule.ColorCurve && ramp.W == 1f,
             "The ramp a draw carries does not unpack to the rule's colours.");
+
+        // Dark at the root, sunlit at the tip: the reference's contrast between them, measured the way the shader
+        // draws it (the ramp's colours as a draw carries them, the blade's colour at a height from RampAt, its
+        // brightness as luma). The exact colours are pinned in LookGapsSuite; this keeps the ramp's shape.
+        static float Luma(Vector3 c) => 0.2126f * c.X + 0.7152f * c.Y + 0.0722f * c.Z;
+        Vector3 rootColor = FoliageShading.UnpackColor(ramp.X), tipColor = FoliageShading.UnpackColor(ramp.Y);
+        float rootLuma = Luma(FoliageShading.RampAt(rootColor, tipColor, ramp.Z, 0f));
+        float midLuma = Luma(FoliageShading.RampAt(rootColor, tipColor, ramp.Z, 0.5f));
+        float tipLuma = Luma(FoliageShading.RampAt(rootColor, tipColor, ramp.Z, 1f));
+        GrassAssert(tipLuma > rootLuma * 2.5f && tipLuma - rootLuma > 0.2f && rootLuma < midLuma && midLuma < tipLuma,
+            $"The built-in ramp lost its root-to-tip contrast: luma {rootLuma:0.000} at the root, {midLuma:0.000} halfway, {tipLuma:0.000} at the tip.");
+        GrassAssert(tipColor.Y > tipColor.X * 1.5f && tipColor.Y > tipColor.Z * 1.5f, $"The built-in ramp's tip is no longer a green: {tipColor}.");
 
         string folder = Path.Combine(ctx.Workspace, "GrassShaderJson");
         Directory.CreateDirectory(folder);
@@ -79,6 +89,24 @@ internal static partial class TerrainLayersGrassSuite
         TerrainGrassRuleSettings reread = TerrainNatureSerializer.LoadOrDefault(builtInPath).GrassRule;
         GrassAssert(reread.SameAs(builtIn.GrassRule) && reread.SameLookAs(builtIn.GrassRule) && reread.ColorEnabled,
             "The built-in grass did not survive save and reopen.");
+        GrassAssert(reread.BaseColor == TerrainGrassRuleSettings.DefaultBaseColor && reread.TipColor == TerrainGrassRuleSettings.DefaultTipColor
+            && reread.ColorCurve == TerrainGrassRuleSettings.DefaultColorCurve,
+            $"The reopened built-in grass is not the current defaults: root {reread.BaseColor}, tip {reread.TipColor}, curve {reread.ColorCurve}.");
+
+        // A rule saved with the first colours of 29 October (root 0.10, 0.22, 0.06; tip 0.27, 0.62, 0.17; curve 0.8) keeps
+        // them when it is reopened: the evening's darker defaults only apply to rules made from now on.
+        var firstColours = new TerrainNatureDocument();
+        TerrainGrassRuleSettings first = firstColours.GrassRule;
+        first.Enabled = true;
+        first.BaseColor = new Vector3(0.10f, 0.22f, 0.06f);
+        first.TipColor = new Vector3(0.27f, 0.62f, 0.17f);
+        first.ColorCurve = 0.8f;
+        string firstPath = Path.Combine(folder, "FirstColours.terrain.json");
+        TerrainNatureSerializer.Save(firstPath, firstColours);
+        TerrainGrassRuleSettings kept = TerrainNatureSerializer.LoadOrDefault(firstPath).GrassRule;
+        GrassAssert(kept.ColorEnabled && kept.BaseColor == new Vector3(0.10f, 0.22f, 0.06f) && kept.TipColor == new Vector3(0.27f, 0.62f, 0.17f)
+            && kept.ColorCurve == 0.8f && kept.SameLookAs(first),
+            $"A rule saved with the first colours did not keep them: root {kept.BaseColor}, tip {kept.TipColor}, curve {kept.ColorCurve}.");
 
         // A rule saved before the shader (no colorEnabled) keeps its tufts' own colours and reads as unchosen while off.
         string sidecar = TerrainNatureSerializer.SidecarPath(builtInPath);
