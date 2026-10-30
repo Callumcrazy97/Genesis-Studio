@@ -24,6 +24,162 @@ internal static class ModelColliderRuntimeSuite
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Model.Transform.SavedYawMatchesPhysicsWithoutRoll", () => Orientation(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Object.Rendering.SavedControllersStayInvisibleAndProceduralDrawsRemain", () => Controllers(ctx));
         HeadlessHarness.RunCase(ctx.Report, "Runtime.Model.WarmUp.ObjectModelsReadBeforeTheFirstInstance", () => WarmUp(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Model.Colliders.StaticPhysicsKeepsAPlacedModelDrawnAndSolid", () => StaticPhysics(ctx));
+        HeadlessHarness.RunCase(ctx.Report, "Runtime.Model.Colliders.StaticPhysicsThatCannotMakeABodyIsReported", () => StaticPhysicsReports(ctx));
+    }
+
+    /// <summary>
+    /// A placed Model whose Object has Physics "Static" (what an automation caller sets on the Physics
+    /// component) stays where it is, keeps producing its draw calls, and a body dropped on it comes to
+    /// rest on it. "Static" was not a name the engine knew: it fell through to a dynamic box that dropped
+    /// away from under the drawn Model, so the Model vanished with no message.
+    /// </summary>
+    private static void StaticPhysics(HeadlessContext ctx)
+    {
+        string suffix = Guid.NewGuid().ToString("N")[..6];
+        ProjectSession project = new ProjectService().CreateProject(Path.Combine(ctx.Workspace, "StaticPhysics" + suffix), "Static physics " + suffix);
+        ResourceService resources = new(project);
+        string root = project.RootPath;
+        // A deck with no collider of its own (its triangles are its collider), and one whose own collider
+        // is a Dynamic box (Static outranks it, the box stays the shape).
+        string plain = "Pier deck " + suffix, boxed = "Boxed deck " + suffix;
+        GModelAsset deck = GModelPrimitiveFactory.CreateCube(plain, 2);
+        AddModel(root, plain, deck);
+        GModelAsset withBox = GModelPrimitiveFactory.CreateCube(boxed, 2);
+        withBox.Colliders.Add(GModelProductionTools.FitCollider(withBox, GModelColliderShape.Box));
+        withBox.Colliders[0].Motion = GModelColliderMotion.Dynamic;
+        AddModel(root, boxed, withBox);
+        string crate = AddObject(root, resources, "Crate " + suffix, null, "RigidBody");
+        RoomAsset room = RoomAsset.Create("Pier", RoomDimension.ThreeD);
+        void Place(string id, string prefab, float x, float y, Vector3 scale) => room.Nodes.Add(new RoomNode
+        {
+            Id = id, Kind = RoomNodeKind.GameObject, LayerId = room.Layers[0].Id,
+            GameObject = new RoomGameObjectData { Prefab = prefab },
+            Transform = new RoomTransform { X = x, Y = y, ScaleX = scale.X, ScaleY = scale.Y, ScaleZ = scale.Z },
+        });
+        Vector3 flat = new(6, .5f, 6);
+        Place("plain", AddObject(root, resources, "Plain pier " + suffix, plain, "Static"), 0, 0, flat);
+        Place("boxed", AddObject(root, resources, "Boxed pier " + suffix, boxed, "static"), 40, 0, flat);
+        Place("plainCrate", crate, 0, 4, Vector3.One);
+        Place("boxedCrate", crate, 40, 4, Vector3.One);
+        // The decks' top face: half the 2 m cube, scaled, above where each is placed.
+        float top = (deck.Bounds.Max.Y - (deck.Pivot?.Position.Y ?? 0)) * flat.Y;
+
+        try
+        {
+            using RuntimeScene scene = new();
+            RoomBuildResult built = new RoomSceneBuilder(root).Build(scene, room);
+            scene.Physics.EnableThreadDispatcher = false;
+            Genesis.Shared.ECS.Entity plainDeck = built.EntitiesByNodeId["plain"], boxedDeck = built.EntitiesByNodeId["boxed"];
+            RigidBodyComponent plainBody = scene.World.GetRef<RigidBodyComponent>(plainDeck), boxedBody = scene.World.GetRef<RigidBodyComponent>(boxedDeck);
+            Assert(plainBody.Motion == PhysicsMotionType.Static && plainBody.Shape == CollisionShape.Mesh && !plainBody.UseGravity
+                && scene.World.Has<MeshColliderComponent>(plainDeck),
+                $"Physics \"Static\" on a Model with no collider of its own did not give it a fixed mesh body ({plainBody.Motion}, {plainBody.Shape}).");
+            Assert(boxedBody.Motion == PhysicsMotionType.Static && boxedBody.Shape == CollisionShape.Box && !boxedBody.UseGravity
+                && !scene.World.Has<MeshColliderComponent>(boxedDeck),
+                $"Physics \"Static\" did not fix the Model's own Dynamic box collider ({boxedBody.Motion}, {boxedBody.Shape}).");
+
+            // The Models are still drawn, where they were placed, before and after the physics has run.
+            using Form host = UnattendedWindowing.NewHost(320, 240); UnattendedWindowing.ShowWithoutFocus(host);
+            using IRenderController renderer = RenderControllerFactory.Create(RenderBackendOption.Software); renderer.Initialize(host.Handle, 320, 240);
+            MeshDrawCall[] draws = new MeshDrawCall[32];
+            Vector3[] DrawnAt()
+            {
+                int count = 0;
+                ObjectDrawPass.SubmitMeshes3D(scene.World, root, draws, ref count, renderer, new(20, 8, 40), -Vector3.UnitZ);
+                return draws.Take(count).Select(call => new Vector3(call.World.M41, call.World.M42, call.World.M43)).OrderBy(point => point.X).ToArray();
+            }
+            Vector3[] before = DrawnAt();
+            Assert(before.Length == 2, $"The two placed Models should each make a draw call before the physics runs, not {before.Length}.");
+            for (int step = 0; step < 180; step++) scene.UpdateFixed(1f / 60);
+            Vector3[] after = DrawnAt();
+            Assert(after.Length == 2 && after.Zip(before).All(pair => Vector3.Distance(pair.First, pair.Second) < .001f),
+                "A Static Model stopped drawing or moved after the physics ran: " + string.Join(" -> ", before) + " / " + string.Join(" -> ", after));
+            foreach (Genesis.Shared.ECS.Entity entity in new[] { plainDeck, boxedDeck })
+                Assert(Math.Abs(scene.World.GetRef<Transform3DComponent>(entity).Position.Y) < .0001f, "A Static Model fell.");
+
+            // A body dropped on each comes to rest on its top face and stays there.
+            foreach ((string id, float x) in new[] { ("plainCrate", 0f), ("boxedCrate", 40f) })
+            {
+                float resting = scene.World.GetRef<Transform3DComponent>(built.EntitiesByNodeId[id]).Position.Y;
+                Assert(Math.Abs(resting - (top + .5f)) < .06f,
+                    $"The crate dropped on the Static {id[..5]} deck did not come to rest on it: y {resting}, the deck's top is {top}.");
+                for (int step = 0; step < 30; step++) scene.UpdateFixed(1f / 60);
+                Assert(Math.Abs(scene.World.GetRef<Transform3DComponent>(built.EntitiesByNodeId[id]).Position.Y - resting) < .01f,
+                    "The crate on the Static deck did not stay at rest.");
+                Assert(scene.Physics.Raycast(scene.World, new Vector3(x + 3, 20, 3), -Vector3.UnitY, 50, out var hit)
+                    && hit.Entity == (id == "plainCrate" ? plainDeck : boxedDeck) && Math.Abs(hit.Point.Y - top) < .02f,
+                    "The Static Model's collider does not match its top face.");
+            }
+        }
+        finally { ObjectDrawAssetRegistry.Clear(); }
+    }
+
+    /// <summary>
+    /// A Static body its Model cannot make (every part left out of the collider, a Model whose file is
+    /// missing) and a Physics preset that is not one are each reported, once, with no collider made.
+    /// </summary>
+    private static void StaticPhysicsReports(HeadlessContext ctx)
+    {
+        string suffix = Guid.NewGuid().ToString("N")[..6];
+        ProjectSession project = new ProjectService().CreateProject(Path.Combine(ctx.Workspace, "StaticReports" + suffix), "Static reports " + suffix);
+        ResourceService resources = new(project);
+        string root = project.RootPath;
+        string glass = "Glass pier " + suffix, missing = "Vanished pier " + suffix, preset = "Hovering" + suffix;
+        GModelAsset glassModel = GModelPrimitiveFactory.CreateCube(glass, 2);
+        foreach (GModelMesh mesh in glassModel.Meshes) mesh.Name = "NOCOL_" + mesh.Name;
+        AddModel(root, glass, glassModel);
+        RoomAsset room = RoomAsset.Create("Reports", RoomDimension.ThreeD);
+        void Place(string id, string prefab, float x) => room.Nodes.Add(new RoomNode
+        {
+            Id = id, Kind = RoomNodeKind.GameObject, LayerId = room.Layers[0].Id,
+            GameObject = new RoomGameObjectData { Prefab = prefab },
+            Transform = new RoomTransform { X = x, ScaleX = 1, ScaleY = 1, ScaleZ = 1 },
+        });
+        Place("glass", AddObject(root, resources, "Glass object " + suffix, glass, "Static"), 0);
+        Place("glass2", room.Nodes[0].GameObject.Prefab, 10);
+        Place("missing", AddObject(root, resources, "Missing object " + suffix, missing, "Static"), 20);
+        Place("unknown", AddObject(root, resources, "Unknown object " + suffix, null, preset), 30);
+
+        try
+        {
+            using RuntimeScene scene = new();
+            RoomBuildResult built = new RoomSceneBuilder(root).Build(scene, room);
+            foreach (string id in new[] { "glass", "glass2", "missing" })
+            {
+                var entity = built.EntitiesByNodeId[id];
+                Assert(!scene.World.Has<RigidBodyComponent>(entity) && !scene.World.Has<MeshColliderComponent>(entity),
+                    $"The Static Object '{id}' got a body although its Model cannot make one.");
+            }
+            string[] warnings = ModelColliderBinding.BodyWarnings.ToArray();
+            int Said(string text) => warnings.Count(warning => warning.Contains(text, StringComparison.Ordinal));
+            Assert(Said($"'{glass}'") == 1 && warnings.Single(warning => warning.Contains($"'{glass}'", StringComparison.Ordinal)).Contains("NOCOL_", StringComparison.Ordinal),
+                $"Two Static Objects whose Model has no part that collides should be reported once, naming the Model: {string.Join(" | ", warnings)}");
+            Assert(Said($"'{missing}'") == 1, $"A Static Object whose Model file is missing should be reported once: {string.Join(" | ", warnings)}");
+            Assert(Said($"'{preset}'") == 1, $"A Physics preset that is not one should be reported once: {string.Join(" | ", warnings)}");
+        }
+        finally { ObjectDrawAssetRegistry.Clear(); }
+    }
+
+    private static void AddModel(string root, string name, GModelAsset asset)
+    {
+        string file = Path.Combine(root, "Assets", "Models", name + ".model.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "{}");
+        StudioModelResourceLoader.SaveCanonical(file, asset);
+        ResourceCatalog.Invalidate(root);
+    }
+
+    /// <summary>A 3D Object made the way the Object editor and automation make one: a Model component (when it has a Model) and a Physics component with the preset.</summary>
+    private static string AddObject(string root, ResourceService resources, string name, string? model, string preset)
+    {
+        JObject document = new() { ["schemaVersion"] = 2, ["dimension"] = "ThreeD", ["components"] = new JArray() };
+        var composition = new Genesis.Application.Core.Objects.ObjectCompositionModel(document);
+        if (model != null) composition.SetProperty("ModelRendererComponent", "ModelAsset", model);
+        composition.SetProperty("PhysicsComponent", "Preset", preset);
+        string path = resources.CreateResource(resources.AssetsRoot, ResourceKind.GameObject, name);
+        File.WriteAllText(path, document.ToString());
+        return ResourceNames.Name(root, path, ResourceType.Object);
     }
 
     /// <summary>

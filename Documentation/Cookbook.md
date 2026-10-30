@@ -48,6 +48,7 @@ GameFeatures.md, "The debug screen", says what each shows.
 | A cave mouth or a pit | `terrain.setHole` with `"points": [[x, z]], "radius": 3` (or the Terrain editor's Hole brush on the Sculpt page): the ground there is not drawn, solid or walkable, so a cave model below shows through and a player falls in. A script opens one later with `Engine.Terrain.Holes.Cut(x, z, radius)`, or keeps them covered with `Engine.Terrain.Holes.Enabled = false` until it is time. |
 | Trees kept off the path | Give tree layers `"paintLayerMask": 1, "minimumPaintWeight": 0.92` (only nearly pure grass), and paint a faint, wider dirt verge (`"radius": 6, "strength": 0.05`) along the path under the real one. |
 | Grass | `terrain.setGrass` with only the terrain grows the built-in meadow grass (the Terrain editor's Templates › Foliage: grass): it grows round the camera on the first painted layer unless `layerDensities` says otherwise (`[1, 0.3]` thins it onto the second), and a stock Grass layer turns the darker green between the tufts. Its look is the grass shader's: `baseColor` and `tipColor` (`[r, g, b]`, root and tip), `colorCurve`, an Image `texture` on each blade, and `windStrength`, `windSpeed`, `windGusts`. It keeps off the terrain's paths and parts round animated characters by itself; a game adds pushers with `Engine.Terrain.Grass.Pushers.Set(key, x, y, z, radius)`. |
+| A model to stand on or walk into | `object.setComponent` `PhysicsComponent` with `"values": { "Preset": "Static" }` on the Object that shows it: the model is its own fixed collider and keeps drawing (the PGSL section below says more). |
 | Trees and rocks | `model.create` from primitives (Cylinder trunk, Cone or Sphere crowns), then `terrain.addScatterLayer` with density, spacing, height, slope, clumps, `collisionRadius` for trunks. |
 | A lake, a river, the sea | `terrain.addWater` (`Lake` with `sizeX`, `sizeZ`, `surfaceHeight`; `River` along points; `Ocean`). |
 | Dust in the light, fire, rain | `particle.create` from a preset (`DustMotes`, `Fire`, `Smoke`, `Snow`, `Rain`, `Magic`...), on an Object with `object.setComponent` `ParticleComponent`. |
@@ -107,6 +108,32 @@ Stand something on the ground wherever it is:
 
 ```pgsl
 y = Engine.Terrain.GetHeight(x, z);
+```
+
+A placed model you can stand on or walk into (a jetty, a bridge, a floor): give the Object that shows
+it a Physics component of `Static` (`object.setComponent` with `"type": "PhysicsComponent"` and
+`"values": { "Preset": "Static" }`; the model must be on the Object's `ModelRendererComponent`). The model
+is then its own fixed collider and keeps drawing: the collider saved in the Model editor if it has one,
+otherwise its triangles, so a deck is solid exactly where it is drawn. Parts named `COL_` or `UCX_` are
+a simpler collider of your own (they become the whole collider and are never drawn), and `NOCOL_` parts
+(rails, glass) are left out of it. If the model has no part that can collide, or its file is missing,
+the game's log says so (`[Physics] Warning:`) and the Object has no body; a Physics name the engine
+does not know says so too. The default Preset, `Dynamic`, makes the model a falling box, so set `Static`
+for anything that must stay put. `StaticSolid` is a fixed box the size of the Object's scale, for things
+that are boxes. To check it from the game:
+
+```pgsl
+// In the Object that shows the model (its Create event): say plainly if it is not a fixed body.
+var isFixed = Engine.Physics.HasBody && Engine.Physics.BodyType == "static";
+TestCheck("the jetty is a fixed body", isFixed, "its body type is '" + Engine.Physics.BodyType + "'");
+// In the walker's Step event: a ray down from above the feet finds the deck, and where its top is.
+var feetX = 12;
+var feetY = 1.2;
+var feetZ = 3;
+var deckReach = 2;
+var deckDrop = PhysicsRaycast(feetX, feetY + 0.5, feetZ, 0, -1, 0, deckReach);
+var deckTop = PhysicsRaycastHitY();
+TestCheck("the deck is under the walker", deckDrop >= 0, "nothing solid within " + String(deckReach) + " m, top at " + String(deckTop));
 ```
 
 A camera of your own (after turning off the engine's free-fly camera, which a script moving the

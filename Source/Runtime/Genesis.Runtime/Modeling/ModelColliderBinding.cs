@@ -69,6 +69,43 @@ internal static class ModelColliderBinding
         System.Diagnostics.Trace.TraceWarning(message);
     }
 
+    private static readonly List<string> BodyWarningList = new();
+
+    /// <summary>
+    /// The warnings given so far in this process for a placed Object whose Physics could not be made
+    /// as asked (a Static body its Model cannot give, a Physics preset that is not one), oldest first
+    /// (at most 256 kept).
+    /// </summary>
+    public static IReadOnlyList<string> BodyWarnings
+    {
+        get { lock (WarningGate) return BodyWarningList.ToArray(); }
+    }
+
+    /// <summary>
+    /// An Object's Physics is Static but its Model cannot make the fixed body (its file is missing, it has
+    /// no geometry, or none of its parts collide): the Object is placed and drawn without a body, and this says why.
+    /// </summary>
+    internal static void ReportStaticBodyFailed(string modelName, string reason) =>
+        ReportBody($"An Object's Physics is Static, but its Model '{modelName}' cannot make a fixed body: {reason}. The Object is drawn with no collider.");
+
+    /// <summary>A Physics preset the engine does not know (and no 3D Physics resource has the name): the Object is a falling box, as before, but not silently.</summary>
+    internal static void ReportUnknownPreset(string preset, string modelName) =>
+        ReportBody($"Physics preset '{preset}'{(string.IsNullOrWhiteSpace(modelName) ? "" : $" on an Object with the Model '{modelName}'")} is not one of "
+            + "Static, StaticSolid, RigidBody (or Dynamic), Trigger, Projectile, PlatformerCharacter, TopDownCharacter, or a 3D Physics resource: the Object is a dynamic box and falls.");
+
+    private static void ReportBody(string message)
+    {
+        lock (WarningGate)
+        {
+            // Each is said once: a room of fifty such Objects would otherwise say it fifty times.
+            if (BodyWarningList.Contains(message)) return;
+            if (BodyWarningList.Count >= 256) BodyWarningList.RemoveAt(0);
+            BodyWarningList.Add(message);
+        }
+        System.Console.WriteLine("[Physics] Warning: " + message);
+        System.Diagnostics.Trace.TraceWarning(message);
+    }
+
     public static void AttachGeometry(EcsWorld world, Entity entity, GModelAsset asset, Vector3 scale)
     {
         using var timed = Genesis.Shared.Assets.LoadClock.Measure(Genesis.Shared.Assets.LoadWork.Collider);

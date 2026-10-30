@@ -880,6 +880,15 @@ public sealed class RoomSceneBuilder
             AttachModelCollider(world, entity, transform);
             return;
         }
+        // "Static" on a placed Model: the Model is its own fixed collider. The name used to be unknown
+        // here and fell through to a dynamic box, which dropped away from under the drawn Model.
+        if (string.Equals(preset.Trim(), "Static", StringComparison.OrdinalIgnoreCase)
+            && world.Has<ModelRendererComponent>(entity)
+            && !string.IsNullOrWhiteSpace(world.GetRef<ModelRendererComponent>(entity).ModelAsset))
+        {
+            AttachModelCollider(world, entity, transform, fixedBody: true);
+            return;
+        }
         Vector3 size = new(
             MathF.Max(0.1f, MathF.Abs(transform.ScaleX) * 0.5f),
             MathF.Max(0.1f, MathF.Abs(transform.ScaleY) * 0.5f),
@@ -898,7 +907,8 @@ public sealed class RoomSceneBuilder
                 rigid.Flags &= ~RigidBodyFlags.UseGravity;
                 character = true; topDown = true;
                 break;
-            case "staticsolid": rigid = RigidBodyComponent.StaticBox(size); break;
+            case "staticsolid":
+            case "static": rigid = RigidBodyComponent.StaticBox(size); break;
             case "trigger":
                 rigid = RigidBodyComponent.StaticBox(size);
                 rigid.Flags |= RigidBodyFlags.Sensor;
@@ -907,7 +917,14 @@ public sealed class RoomSceneBuilder
                 rigid = RigidBodyComponent.DynamicBox(size, 0.25f);
                 rigid.Shape = Genesis.Shared.ECS.Components.CollisionShape.Sphere;
                 break;
-            default: rigid = RigidBodyComponent.DynamicBox(size); break;
+            case "rigidbody":
+            case "dynamic": rigid = RigidBodyComponent.DynamicBox(size); break;
+            default:
+                rigid = RigidBodyComponent.DynamicBox(size);
+                // Not silently a falling box: the name is not a preset (nor a 3D Physics resource, which took the Object above).
+                ModelColliderBinding.ReportUnknownPreset(preset.Trim(),
+                    world.Has<ModelRendererComponent>(entity) ? world.GetRef<ModelRendererComponent>(entity).ModelAsset : null);
+                break;
         }
         world.Set(entity, rigid);
         if (!character) return;
@@ -932,7 +949,12 @@ public sealed class RoomSceneBuilder
         world.Set(entity, motor);
     }
 
-    private void AttachModelCollider(EcsWorld world, Entity entity, TransformComponent transform)
+    /// <param name="fixedBody">
+    /// The Object's Physics says Static: the body never moves, whatever its Model's own collider says,
+    /// and a Model with no collider of its own is its own collider, its triangles (a floor, a jetty).
+    /// A body that cannot be made is reported, not left out silently.
+    /// </param>
+    private void AttachModelCollider(EcsWorld world, Entity entity, TransformComponent transform, bool fixedBody = false)
     {
         if (!world.Has<ModelRendererComponent>(entity)) return;
         ModelRendererComponent renderer = world.GetRef<ModelRendererComponent>(entity);
@@ -941,7 +963,24 @@ public sealed class RoomSceneBuilder
         // The shared registry: a fresh one here parsed the model file again for every object
         // that uses it, on every room load.
         GModelAsset model = RuntimeModelAssetRegistry.Shared.Load(_projectPath, modelName);
-        if (!GModelProductionTools.TryCreateRigidBody(model, out RigidBodyComponent rigid)) return;
+        if (fixedBody && (model == null || model.ImportRequired || !model.HasRenderableMeshes))
+        {
+            ModelColliderBinding.ReportStaticBodyFailed(modelName, model?.ImportRequired == true
+                ? "its file is missing or still needs importing" : "it has no geometry");
+            return;
+        }
+        if (!GModelProductionTools.TryCreateRigidBody(model, out RigidBodyComponent rigid))
+        {
+            if (!fixedBody) return;
+            model.RecalculateBounds();
+            rigid = RigidBodyComponent.StaticBox(Vector3.Max(model.Bounds.Size * .5f, new Vector3(.01f)));
+            rigid.Shape = Genesis.Shared.ECS.Components.CollisionShape.Mesh;
+        }
+        else if (fixedBody)
+        {
+            rigid.Motion = Genesis.Shared.ECS.Components.PhysicsMotionType.Static;
+            rigid.Flags &= ~RigidBodyFlags.UseGravity;
+        }
         Vector3 scale = new Vector3(SafeScale(transform.ScaleX), SafeScale(transform.ScaleY), SafeScale(transform.ScaleZ))
             * new Vector3(SafeScale(renderer.ScaleX), SafeScale(renderer.ScaleY), SafeScale(renderer.ScaleZ));
         Vector3 absolute = Vector3.Abs(scale);
@@ -955,7 +994,11 @@ public sealed class RoomSceneBuilder
         if (rigid.Shape is Genesis.Shared.ECS.Components.CollisionShape.Mesh or Genesis.Shared.ECS.Components.CollisionShape.ConvexHull)
         {
             // A model with no part that collides (all NOCOL_) gets no collider, with a warning once.
-            if (!ModelColliderBinding.TryAttachGeometry(world, entity, model, scale, modelName)) return;
+            if (!ModelColliderBinding.TryAttachGeometry(world, entity, model, scale, modelName))
+            {
+                if (fixedBody) ModelColliderBinding.ReportStaticBodyFailed(modelName, "none of its parts collide (every part is named NOCOL_)");
+                return;
+            }
         }
         else rigid.LocalOffset = (model.Colliders[0].Center - (model.Pivot?.Position ?? Vector3.Zero)) * scale;
         world.Set(entity, rigid);
