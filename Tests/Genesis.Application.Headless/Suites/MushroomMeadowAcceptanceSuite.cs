@@ -83,7 +83,9 @@ internal static class MushroomMeadowAcceptanceSuite
                 Check(PgslCommands.GlobalGet("lives") == 4, "Lives were not mirrored into the lives global.");
                 Entity flag = game.Actor("Checkpoint");
                 var checkpoint = game.Scene.World.GetRef<TransformComponent>(flag);
-                game.Place(checkpoint.X, checkpoint.Y); game.Frame();
+                // Since 28 Oct the hero spreads its slower checks over alternate frames (slowLane): the
+                // checkpoint is looked for every second frame, so two frames always include one.
+                game.Place(checkpoint.X, checkpoint.Y); game.Frames(2);
                 Check(game.Value("checkpoint") == 1 && PgslCommands.RoomValueGet("checkpoint") == 1, "Checkpoint did not activate.");
                 game.Place(checkpoint.X + 100, game.Game.Room.Settings.Height + 100); game.Frame();
                 Check(game.Value("lives") == 3 && game.Value("hearts") == 3 && Math.Abs(game.Position.X - (checkpoint.X + 24)) < .01f,
@@ -103,7 +105,7 @@ internal static class MushroomMeadowAcceptanceSuite
                 game.Tap(Key.Enter);
                 Entity finish = game.Actor("Finish");
                 var flag = game.Scene.World.GetRef<TransformComponent>(finish);
-                game.Place(flag.X, flag.Y); game.Frame();
+                game.Place(flag.X, flag.Y); game.Frames(2); // the finish is looked for every second frame (slowLane)
                 Check(game.Value("state") == 3 && game.Value("score") > 1000 && PgslCommands.RoomValueGet("frozen") == 1,
                     "Finish did not award a time bonus and freeze the win screen.");
                 PgslRecordingDrawSurface hud = new();
@@ -174,7 +176,8 @@ internal static class MushroomMeadowAcceptanceSuite
                 game.Place(200, 288); game.Frames(40);
                 var item = game.Scene.World.GetRef<TransformComponent>(game.Actor("Bark Shield"));
                 Check(item.Y < 6 * 32 - 8, "The sprouted power-up did not rise out of its block.");
-                game.Place(item.X, item.Y + 10); game.Frame(); game.Frame();
+                // Items are looked for every third frame (slowLane), so three frames always include one.
+                game.Place(item.X, item.Y + 10); game.Frames(3);
                 Check(game.Value("powerUp") == 3 && PgslCommands.GlobalGet("power") == 3 && game.Count("Bark Shield") == 0
                     && game.Count("Shield Ring") == 1, "Touching the Bark Shield did not give power 3 and its ring.");
             });
@@ -206,7 +209,7 @@ internal static class MushroomMeadowAcceptanceSuite
             HeadlessHarness.Step("a Heart Berry restores one heart up to the maximum", () =>
             {
                 var berry = game.Scene.World.GetRef<TransformComponent>(game.Actor("Heart Berry"));
-                game.Set("hearts", 1); game.Place(berry.X, berry.Y + 10); game.Frame();
+                game.Set("hearts", 1); game.Place(berry.X, berry.Y + 10); game.Frames(3); // items every third frame (slowLane)
                 Check(game.Value("hearts") == 2 && game.Count("Heart Berry") == 0, "The Heart Berry did not restore one heart.");
             });
             HeadlessHarness.Step("Starlit Firefly: invincible, enemies fall on contact, the music swaps", () =>
@@ -218,7 +221,7 @@ internal static class MushroomMeadowAcceptanceSuite
                 for (int frame = 0; frame < 3 && game.Value("starTimer") <= 0; frame++)
                 {
                     var firefly = game.Scene.World.GetRef<TransformComponent>(game.Actor("Starlit Firefly"));
-                    game.Place(firefly.X, firefly.Y + 10); game.Frame();
+                    game.Place(firefly.X, firefly.Y + 10); game.Frames(3); // items every third frame (slowLane)
                 }
                 Check(game.Value("starTimer") > 9 && PgslCommands.RoomValueGet("starlit") == 1, "The firefly did not start Starlit.");
                 game.Frame();
@@ -295,7 +298,7 @@ internal static class MushroomMeadowAcceptanceSuite
                 && game.Value("hearts") == 4 && game.Value("coins") == 12 && PgslCommands.RoomValueGet("frozen") == 0,
                 "A campaign level did not skip the title and carry the campaign globals.");
             var orb = game.Scene.World.GetRef<TransformComponent>(game.Actor("Glowspore"));
-            game.Place(orb.X, orb.Y + 17); game.Frame();
+            game.Place(orb.X, orb.Y + 17); game.Frames(3); // the Glowspore is looked for every third frame (slowLane)
             Check(game.Value("state") == 3 && game.Value("clearKind") == 2 && game.Count("Glowspore") == 0,
                 "Touching the Glowspore did not clear the level.");
             Check(game.Diagnostics.Count == 0, "Game script diagnostics: " + string.Join("; ", game.Diagnostics));

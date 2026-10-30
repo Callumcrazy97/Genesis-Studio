@@ -235,7 +235,8 @@ to the relay when not. Nothing to do for the direct path; it is on unless set:
 // Host's lobby
 NetHostOnline("relay.example.com", 7777, 4);
 code = NetSessionCode();                   // "" for a moment, then six letters to read out
-// Player's lobby
+// Player's lobby: the six letters the host read out, typed in
+typedCode = "QWERTY";
 NetJoinOnline("relay.example.com", 7777, typedCode);
 // Either, in a DrawGui event: how the game is reaching the others
 DrawText(16, 16, "Path: " + Engine.Network.Direct.Active);   // "direct", "relay", or "" before joining

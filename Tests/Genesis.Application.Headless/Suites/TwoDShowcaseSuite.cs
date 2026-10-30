@@ -397,6 +397,10 @@ internal static class TwoDShowcaseSuite
         HeadlessHarness.RunCase(ctx.Report, "Display.WorldWindowAndQueuedViewportClip", () =>
         {
             RoomAsset room = LoadRoom(Require(project));
+            // The engine's letterboxing is what is checked here. Since 28 Oct 2026 the template's levels
+            // fit the world to the window themselves (scaleViewportsWithWindow off, hero_gen.py), so
+            // the setting is turned on for this room in memory.
+            room.Settings.ScaleViewportsWithWindow = true;
             Assert(room.Settings.Width == 8512 && RoomDisplayLayout.WindowSize(room) == new Size(1280, 720), "World size was used as OS window size.");
             Rectangle port = RoomDisplayLayout.Port(room, room.Viewports[0], 1280, 800);
             Assert(port == new Rectangle(0, 40, 1280, 720), "Resize did not preserve the 16:9 view with letterboxing.");
@@ -414,6 +418,7 @@ internal static class TwoDShowcaseSuite
             // Mushroom Meadow, 15 Oct: DrawGui used the whole window while the world was letterboxed,
             // so menus slid off the art on any window not 16:9. WindowGetGui* give the world's rectangle.
             RoomAsset room = LoadRoom(Require(project));
+            room.Settings.ScaleViewportsWithWindow = true; // the template's levels fit the world themselves since 28 Oct 2026
             foreach ((int w, int h) in new[] { (1280, 720), (1920, 1000), (1920, 1200), (2560, 1080), (1000, 720) })
             {
                 RectangleF gui = RoomDisplayLayout.Gui(room, w, h);
