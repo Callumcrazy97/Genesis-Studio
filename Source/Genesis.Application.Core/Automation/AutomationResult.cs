@@ -30,6 +30,20 @@ public sealed class AutomationResult
     public static AutomationResult Failure(string message, JsonNode? data = null) =>
         new() { Ok = false, Message = message, Data = data };
 
+    /// <summary>
+    /// This result with what the command moved to the trash to make room for its own resource: said
+    /// in the message, among the paths changed and (for object data) as <c>replaced</c>.
+    /// </summary>
+    public AutomationResult WithReplaced(string sentence, IReadOnlyList<ReplacedResource> replaced)
+    {
+        var result = new AutomationResult { Ok = Ok, Message = Message.Length == 0 ? sentence : Message + " " + sentence, Data = Data };
+        result.Changed.AddRange(Changed);
+        result.Changed.AddRange(replaced.Select(r => r.File).Where(path => !Changed.Contains(path, StringComparer.OrdinalIgnoreCase)));
+        result.Issues.AddRange(Issues);
+        if (Data is JsonObject data) data["replaced"] = new JsonArray([.. replaced.Select(r => (JsonNode?)r.ToJson())]);
+        return result;
+    }
+
     public JsonObject ToJson()
     {
         var json = new JsonObject

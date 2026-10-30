@@ -27,7 +27,8 @@ A quick game is good because it is looked at many times. Keep each round short:
 
 `game.run` starts the input with the first frame of play, once the first room is on screen, and
 plays it by the clock: `steps` and `shots` both count seconds of play from that frame, at any frame
-rate. A new project already has a room called Start, so give yours another name.
+rate. A new project already has a room called Start, so give yours another name (a taken name is
+refused, with the resource that has it named; `"replace": true` puts the new one in its place).
 
 To see why something looks wrong in those pictures, start the run with `GENESIS_DEBUG_SCREEN` set:
 `Engine.Debug.Overlay.Colliders.Enabled=true` draws the colliders, `Engine.Debug.View.Mode=lod` colours
@@ -404,7 +405,9 @@ models.
   made another way.
 
 - Resource names are unique across kinds: an Object and a Model both called "Tree" break
-  `CreateInstance`. Call the model "Tree Model" or the Object "Tree Thing".
+  `CreateInstance`. Call the model "Tree Model" or the Object "Tree Thing". The commands that make a
+  resource refuse a name another resource has (they used to make "Tree (2)", and the path you placed
+  was the old one); `resource.rename` keeps a resource's file name, so that file stays taken.
 - A project's saves live in the user's folder by project id: test with copies made by Studio
   (they get a new id), not folder copies.
 - `game.run` and `game.benchmark` open a game window. On a shared machine take the test lock

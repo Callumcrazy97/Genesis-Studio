@@ -136,6 +136,7 @@ public sealed class AutomationRegistry
         }
 
         AutomationResult result;
+        context.ForgetReplaced();
         try
         {
             result = command.Run(context, parsed);
@@ -146,6 +147,9 @@ public sealed class AutomationRegistry
             // caller as a failed result: a server for AIs must never fall over on a mistake.
             result = AutomationResult.Failure($"{command.Name}: {exception.Message}");
         }
+        // A resource a command moved to the trash to make room for its own is said in its result,
+        // whether or not the rest of the command worked.
+        if (context.Replaced.Count > 0) result = result.WithReplaced(context.DescribeReplaced(), context.Replaced);
 
         if (command.ChangesProject)
         {

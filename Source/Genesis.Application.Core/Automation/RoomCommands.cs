@@ -34,13 +34,15 @@ public static class RoomCommands
         [Description("The game window's width, pixels (a 3D room: 1280 unless given, never its width in metres).")] public int? WindowWidth { get; set; }
         [Description("The game window's height, pixels (a 3D room: 720 unless given).")] public int? WindowHeight { get; set; }
         [Description("Make it the room the game starts in (default false).")] public bool? Start { get; set; }
+        [Description(AutomationContext.ReplaceDescription)] public bool? Replace { get; set; }
     }
 
     public sealed class RoomCreate : AutomationCommand<CreateRoomInput>
     {
         public override string Name => "room.create";
         public override string Description => "Makes a Room, 2D or 3D, as New › Room and the Room editor's 2D/3D switch do; a 3D room gets a scene preset " +
-            "(a sunny day unless another is named) so it opens on a sky, not a dark void. Optionally makes it the start room.";
+            "(a sunny day unless another is named) so it opens on a sky, not a dark void. Optionally makes it the start room. " +
+            "A name that is taken is refused, naming what has it, rather than made as \"Name (2)\"; replace: true moves the old Room to the trash and makes this one in its place.";
 
         protected override AutomationResult Execute(AutomationContext context, CreateRoomInput input)
         {
@@ -53,7 +55,7 @@ public static class RoomCommands
             if (!threeD && !string.IsNullOrWhiteSpace(input.Scene)) throw new AutomationException("A scene preset is for a 3D room.");
             RoomScenePreset? scene = threeD ? ScenePreset(string.IsNullOrWhiteSpace(input.Scene) ? RoomScenePresets.DefaultOutdoor : input.Scene) : null;
 
-            string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Rooms"), Resources.ResourceKind.Room, input.Name);
+            string full = context.CreateResource(context.Resolve(input.Folder ?? "Assets/Rooms"), Resources.ResourceKind.Room, input.Name, input.Replace == true);
             RoomAsset room = RoomAssetLoader.Parse(full);
             room.Dimension = threeD ? RoomDimension.ThreeD : RoomDimension.TwoD;
             if (input.Width is int width) room.Settings.Width = width;

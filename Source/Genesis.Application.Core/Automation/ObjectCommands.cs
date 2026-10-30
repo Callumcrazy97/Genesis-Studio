@@ -130,6 +130,7 @@ public static class ObjectCommands
         public List<string>? Recipes { get; set; }
         [Description("A 3D Object even without a model (a first-person player, a camera rig, a trigger). A model or a 3D-only recipe makes it 3D anyway.")]
         public bool? ThreeD { get; set; }
+        [Description(AutomationContext.ReplaceDescription)] public bool? Replace { get; set; }
     }
 
     /// <summary>The recipe with this id, or a mistake that lists the ids there are.</summary>
@@ -154,7 +155,8 @@ public static class ObjectCommands
     public sealed class ObjectCreate : AutomationCommand<CreateInput>
     {
         public override string Name => "object.create";
-        public override string Description => "Makes an Object, as New › Object and the Object editor do: an image (2D) or a model (3D), solid/visible, and its first PGSL events.";
+        public override string Description => "Makes an Object, as New › Object and the Object editor do: an image (2D) or a model (3D), solid/visible, and its first PGSL events. " +
+            "A name that is taken (names are shared by every kind of resource) is refused, naming what has it, rather than made as \"Name (2)\"; replace: true moves the old Object to the trash and makes this one in its place.";
 
         protected override AutomationResult Execute(AutomationContext context, CreateInput input)
         {
@@ -179,7 +181,7 @@ public static class ObjectCommands
                 events[id] = events.TryGetValue(id, out string? recipeCode) ? ObjectBehaviourRecipes.Append(recipeCode, code) : code;
             }
 
-            string full = context.Resources.CreateResource(context.Resolve(input.Folder ?? "Assets/Objects"), ResourceKind.GameObject, input.Name);
+            string full = context.CreateResource(context.Resolve(input.Folder ?? "Assets/Objects"), ResourceKind.GameObject, input.Name, input.Replace == true);
             JObject document = JObject.Parse(File.ReadAllText(full));
             var composition = new ObjectCompositionModel(document);
             if (threeD)
@@ -394,7 +396,8 @@ public static class ObjectCommands
     public sealed class ScriptWrite : AutomationCommand<ScriptWriteInput>
     {
         public override string Name => "script.write";
-        public override string Description => "Writes a library PGSL Script (functions any Object can call), making it if new; the script check's findings come back with the result.";
+        public override string Description => "Writes a library PGSL Script (functions any Object can call), making it if new (a script already at the path is written over, backed up first); " +
+            "a new script whose name another resource has is refused, naming it. The script check's findings come back with the result.";
 
         protected override AutomationResult Execute(AutomationContext context, ScriptWriteInput input)
         {
@@ -408,7 +411,10 @@ public static class ObjectCommands
             {
                 string folder = System.IO.Path.GetDirectoryName(full)!;
                 if (!Directory.Exists(folder)) throw new AutomationException($"The folder '{context.Relative(folder)}' does not exist; make it with folder.create.");
-                string created = context.Resources.CreateResource(folder, ResourceKind.PgslScript, System.IO.Path.GetFileNameWithoutExtension(full));
+                // A script is written at its path: a new one is not made under another name (a resource
+                // of another kind may have this one), and there is nothing to replace, as an old one at
+                // this path is simply written over.
+                string created = context.CreateResource(folder, ResourceKind.PgslScript, System.IO.Path.GetFileNameWithoutExtension(full), offerReplace: false);
                 if (!string.Equals(created, full, StringComparison.OrdinalIgnoreCase)) full = created;
             }
             else

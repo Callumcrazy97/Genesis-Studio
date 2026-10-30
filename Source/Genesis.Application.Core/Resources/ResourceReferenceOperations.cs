@@ -45,6 +45,24 @@ public static class ResourceReferenceOperations
                 JObject json = JObject.Parse(after);
                 if ((string?)json["name"] == resource.Name) { json["name"] = name; after = json.ToString(Formatting.Indented); }
             }
+            // An Object's ScriptComponent names the Object it belongs to (the editor and the automation
+            // layer write the Object's own name there). The generic rewrite above follows it only when
+            // the document also carries a "name", which an Object made by New does not, so it was left
+            // naming a resource that no longer exists and the Object's events stopped running.
+            if (document.Equals(resource.FullPath, StringComparison.OrdinalIgnoreCase) && resource.Type == ResourceType.Object)
+            {
+                JObject json = JObject.Parse(after);
+                bool rebound = false;
+                foreach (JObject component in (json["components"] as JArray ?? new JArray()).OfType<JObject>())
+                {
+                    if (!string.Equals((string?)component["type"], "ScriptComponent", StringComparison.OrdinalIgnoreCase)
+                        || component["props"] is not JObject props
+                        || !string.Equals((string?)props["ScriptClass"], resource.Name, StringComparison.OrdinalIgnoreCase)) continue;
+                    props["ScriptClass"] = name;
+                    rebound = true;
+                }
+                if (rebound) after = json.ToString(Formatting.Indented);
+            }
             if (after != before) writes[document] = after;
         }
         string metadata = resource.FullPath + ".meta";
